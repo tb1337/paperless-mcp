@@ -1,0 +1,19 @@
+services:
+  paperless-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: paperless-mcp:latest
+    container_name: paperless-mcp
+    restart: unless-stopped
+    environment:
+      PAPERLESS_URL: ${PAPERLESS_URL:?PAPERLESS_URL must be set}
+      PAPERLESS_TOKEN: ${PAPERLESS_TOKEN:?PAPERLESS_TOKEN must be set}
+      PAPERLESS_MCP_HOST: ${PAPERLESS_MCP_HOST:-0.0.0.0}
+      PAPERLESS_MCP_PORT: ${PAPERLESS_MCP_PORT:-8000}
+      PAPERLESS_MCP_AUTH_TOKEN: ${PAPERLESS_MCP_AUTH_TOKEN:-}
+      PAPERLESS_MCP_READONLY: ${PAPERLESS_MCP_READONLY:-false}
+      PAPERLESS_MCP_ENABLE_DELETE: ${PAPERLESS_MCP_ENABLE_DELETE:-false}
+      PAPERLESS_MCP_MAX_FILE_BYTES: ${PAPERLESS_MCP_MAX_FILE_BYTES:-25000000}
+    ports:
+      - "${PAPERLESS_MCP_PORT:-8000}:8000"

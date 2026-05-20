@@ -1,0 +1,72 @@
+{
+  "name": "paperless-mcp Developer",
+  "context": "..",
+  "dockerFile": "../Dockerfile.dev",
+  "postCreateCommand": "git config --global --add safe.directory ${containerWorkspaceFolder} && script/setup",
+  "postStartCommand": "script/bootstrap",
+  "containerEnv": {
+    "DEVCONTAINER": "true"
+  },
+  "features": {
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {
+      "version": "latest"
+    }
+  },
+  "runArgs": [
+    "-e",
+    "GIT_EDITOR=code --wait",
+    "--security-opt",
+    "label=disable"
+  ],
+  "forwardPorts": [8000],
+  "portsAttributes": {
+    "8000": {
+      "label": "paperless-mcp (Streamable HTTP)",
+      "onAutoForward": "notify"
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "charliermarsh.ruff",
+        "ms-python.vscode-pylance",
+        "ms-azuretools.vscode-docker",
+        "redhat.vscode-yaml",
+        "GitHub.vscode-pull-request-github",
+        "ryanluker.vscode-coverage-gutters",
+        "yzhang.markdown-all-in-one",
+        "tamasfe.even-better-toml"
+      ],
+      "settings": {
+        "coverage-gutters.customizable.context-menu": true,
+        "coverage-gutters.customizable.status-bar-toggler-watchCoverageAndVisibleEditors-enabled": true,
+        "coverage-gutters.showGutterCoverage": true,
+        "coverage-gutters.showLineCoverage": true,
+        "coverage-gutters.xmlname": "coverage.xml",
+        "editor.formatOnPaste": false,
+        "editor.formatOnSave": true,
+        "editor.formatOnType": true,
+        "files.trimTrailingWhitespace": true,
+        "python.defaultInterpreterPath": "/home/vscode/.local/dev-venv/bin/python",
+        "python.terminal.activateEnvInCurrentTerminal": true,
+        "python.testing.pytestEnabled": true,
+        "python.testing.unittestEnabled": false,
+        "python.testing.pytestArgs": [
+          "tests",
+          "--no-cov",
+          "--cov-report=term",
+          "--cov-report=xml"
+        ],
+        "[python]": {
+          "editor.defaultFormatter": "charliermarsh.ruff"
+        },
+        "terminal.integrated.profiles.linux": {
+          "zsh": {
+            "path": "/usr/bin/zsh"
+          }
+        },
+        "terminal.integrated.defaultProfile.linux": "zsh"
+      }
+    }
+  }
+}

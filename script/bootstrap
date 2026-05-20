@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Resync the dev venv. Idempotent; called by devcontainer postStartCommand.
+set -e
+
+cd "$(dirname "$0")/.."
+
+export VIRTUAL_ENV="${VIRTUAL_ENV:-/home/vscode/.local/dev-venv}"
+export UV_PROJECT_ENVIRONMENT="${VIRTUAL_ENV}"
+
+# Recreate venv if it disappeared (e.g. on a fresh container start without the image cache).
+if [[ ! -x "${VIRTUAL_ENV}/bin/python" ]]; then
+    uv venv --clear "${VIRTUAL_ENV}" --python 3.13
+fi
+
+uv sync --group dev

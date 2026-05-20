@@ -1,0 +1,38 @@
+# syntax=docker/dockerfile:1
+FROM mcr.microsoft.com/devcontainers/python:3-3.13
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# Remove preinstalled linters that would collide with project-pinned versions.
+RUN pipx uninstall pydocstyle || true \
+    && pipx uninstall pycodestyle || true \
+    && pipx uninstall mypy || true
+
+# System packages we actually need: git tooling, gh, build essentials for any
+# native wheel pypaperless or its deps might need at install time.
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        git \
+        gh \
+        curl \
+        ca-certificates \
+        build-essential \
+        libyaml-dev \
+        zsh \
+    && rm -rf /var/lib/apt/lists/*
+
+USER vscode
+
+# Install uv into the vscode user's local bin.
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Pre-create the dev venv so VS Code's Python extension finds it immediately.
+ENV VIRTUAL_ENV=/home/vscode/.local/dev-venv \
+    PATH=/home/vscode/.local/bin:/home/vscode/.local/dev-venv/bin:${PATH} \
+    UV_PROJECT_ENVIRONMENT=/home/vscode/.local/dev-venv
+
+RUN /home/vscode/.local/bin/uv venv "${VIRTUAL_ENV}" --python 3.13
+
+WORKDIR /workspaces
+
+CMD ["sleep", "infinity"]

@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Bootstrap the dev environment (called by devcontainer postCreateCommand).
+set -e
+
+cd "$(dirname "$0")/.."
+
+# Ensure uv is on PATH (the Dockerfile installs it for the vscode user).
+if ! command -v uv >/dev/null 2>&1; then
+    echo "Installing uv..."
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    export PATH="${HOME}/.local/bin:${PATH}"
+fi
+
+# Sync deps into the pre-created venv.
+script/bootstrap
+
+# Install pre-commit hooks (project uses prek, the rust port of pre-commit).
+if command -v prek >/dev/null 2>&1; then
+    prek install
+elif command -v pre-commit >/dev/null 2>&1; then
+    pre-commit install
+fi
+
+echo "paperless-mcp dev environment ready."
+echo "Copy .env.example to .env and fill in PAPERLESS_URL / PAPERLESS_TOKEN to start hacking."
