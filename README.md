@@ -20,6 +20,12 @@ search, read, ingest, and curate your documents through an LLM.
   types, storage paths, custom fields), bulk operations, trash, tasks,
   statistics, saved views, share links, classifier suggestions, AI suggestions
   and the document chat endpoint.
+- **Offset / limit pagination** on every list-shaped tool, plus a ``has_more``
+  flag so the LLM knows whether to ask for the next page.
+- **Translated errors**: pypaperless exceptions (``ItemNotFoundError``,
+  ``AuthError``, ``BulkEditError``, ...) become structured tool results like
+  ``{"error": "not_found", "detail": "...", "cause": "..."}`` instead of
+  leaking internals.
 - Built on **pypaperless v6** (main) — supports Paperless-ngx 3.0+.
 
 ## Quick start (Docker Compose)
@@ -73,10 +79,15 @@ The server listens on `http://<host>:8000/mcp`. Point any MCP client at it:
 `find_similar_documents`, `download_document`, `get_document_thumbnail`,
 `list_tags`, `list_correspondents`, `list_document_types`,
 `list_storage_paths`, `list_custom_fields`, `list_share_links`,
-`list_saved_views`, `run_saved_view`, `list_trash`, `list_active_tasks`,
+`list_saved_views`, `get_saved_view`, `list_trash`, `list_active_tasks`,
 `get_task`, `get_statistics`, `get_paperless_info`,
 `get_document_suggestions`, `get_document_ai_suggestions`,
 `chat_with_documents`.
+
+`update_document` accepts a ``clear_fields`` list (with names
+``correspondent``, ``document_type``, ``storage_path``,
+``archive_serial_number``) to explicitly unset foreign keys. Passing a value
+and clearing the same field in one call is rejected.
 
 **Write** (default-on, suppressed by `READONLY`): `upload_document`,
 `update_document`, `add_document_note`, `bulk_edit_documents`,
@@ -93,9 +104,13 @@ The server listens on `http://<host>:8000/mcp`. Point any MCP client at it:
 
 ## Out of scope (for now)
 
-Workflows, mail accounts, mail rules, users and groups are deliberately not
-exposed. They're admin-tier concerns where letting an LLM make autonomous
-changes is rarely the right answer.
+- **Workflows, mail accounts/rules, users, groups, config**: admin-tier
+  concerns where letting an LLM make autonomous changes is rarely the right
+  answer.
+- **Executing saved views**: ``get_saved_view`` returns the filter rules so
+  the LLM can translate them into a ``search_documents`` call, but there is
+  no auto-execution — Paperless' filter-rule numbering is internal and
+  mapping it to pypaperless' Django-style lookups is brittle.
 
 ## Development
 

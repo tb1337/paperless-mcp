@@ -8,6 +8,7 @@ project just the fields that matter and serialize them consistently.
 from __future__ import annotations
 
 import datetime as dt
+from collections.abc import Iterable, Mapping
 from typing import Any
 
 
@@ -19,6 +20,28 @@ def _iso(value: dt.date | dt.datetime | None) -> str | None:
 
 def _safe(obj: Any, name: str) -> Any:
     return getattr(obj, name, None)
+
+
+def safe_dump(obj: Any) -> Any:
+    """Best-effort serialization to a JSON-friendly structure.
+
+    Handles Pydantic models, Mappings, iterables and scalars. Falls back to
+    ``str(obj)`` when nothing else fits, so the LLM still sees a useful value
+    instead of an exception.
+    """
+    if obj is None or isinstance(obj, (str, int, float, bool)):
+        return obj
+    if hasattr(obj, "model_dump"):
+        return obj.model_dump(mode="json")
+    if isinstance(obj, Mapping):
+        return {k: safe_dump(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple, set)):
+        return [safe_dump(x) for x in obj]
+    if isinstance(obj, (dt.date, dt.datetime)):
+        return obj.isoformat()
+    if isinstance(obj, Iterable):
+        return [safe_dump(x) for x in obj]
+    return str(obj)
 
 
 def format_document(doc: Any) -> dict[str, Any]:

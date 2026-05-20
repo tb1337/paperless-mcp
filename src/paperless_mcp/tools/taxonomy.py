@@ -19,6 +19,7 @@ from ..formatting import (
     format_storage_path,
     format_tag,
 )
+from ._helpers import collect, safe_tool
 
 
 def register(mcp: FastMCP, settings: Settings) -> None:
@@ -33,24 +34,33 @@ def register(mcp: FastMCP, settings: Settings) -> None:
 # --------------------------------------------------------------------------- tags
 def _register_tags(mcp: FastMCP, settings: Settings) -> None:
     @mcp.tool()
+    @safe_tool
     async def list_tags(
-        ctx: Context, name_contains: str | None = None, limit: int = 200
+        ctx: Context,
+        name_contains: str | None = None,
+        offset: int = 0,
+        limit: int = 100,
     ) -> dict[str, Any]:
         """List tags, optionally filtered by name substring."""
         paperless = get_client(ctx)
         filters: dict[str, Any] = {}
         if name_contains:
             filters["name__icontains"] = name_contains
-        items = []
-        async for t in paperless.tags.filter(**filters):
-            items.append(format_tag(t))
-            if len(items) >= limit:
-                break
-        return {"tags": items, "returned": len(items)}
+        items, has_more = await collect(
+            paperless.tags.filter(**filters), offset=offset, limit=limit
+        )
+        return {
+            "tags": [format_tag(t) for t in items],
+            "returned": len(items),
+            "offset": offset,
+            "limit": limit,
+            "has_more": has_more,
+        }
 
     if settings.expose_writes:
 
         @mcp.tool()
+        @safe_tool
         async def create_tag(
             ctx: Context,
             name: str,
@@ -75,6 +85,7 @@ def _register_tags(mcp: FastMCP, settings: Settings) -> None:
             return {"tag": {"id": new_id, "name": name}}
 
         @mcp.tool()
+        @safe_tool
         async def update_tag(
             ctx: Context,
             tag_id: int,
@@ -103,6 +114,7 @@ def _register_tags(mcp: FastMCP, settings: Settings) -> None:
     if settings.expose_deletes:
 
         @mcp.tool()
+        @safe_tool
         async def delete_tag(ctx: Context, tag_id: int) -> dict[str, Any]:
             """Delete a tag."""
             paperless = get_client(ctx)
@@ -114,24 +126,33 @@ def _register_tags(mcp: FastMCP, settings: Settings) -> None:
 # --------------------------------------------------------------------- correspondents
 def _register_correspondents(mcp: FastMCP, settings: Settings) -> None:
     @mcp.tool()
+    @safe_tool
     async def list_correspondents(
-        ctx: Context, name_contains: str | None = None, limit: int = 200
+        ctx: Context,
+        name_contains: str | None = None,
+        offset: int = 0,
+        limit: int = 100,
     ) -> dict[str, Any]:
         """List correspondents, optionally filtered by name substring."""
         paperless = get_client(ctx)
         filters: dict[str, Any] = {}
         if name_contains:
             filters["name__icontains"] = name_contains
-        items = []
-        async for c in paperless.correspondents.filter(**filters):
-            items.append(format_correspondent(c))
-            if len(items) >= limit:
-                break
-        return {"correspondents": items, "returned": len(items)}
+        items, has_more = await collect(
+            paperless.correspondents.filter(**filters), offset=offset, limit=limit
+        )
+        return {
+            "correspondents": [format_correspondent(c) for c in items],
+            "returned": len(items),
+            "offset": offset,
+            "limit": limit,
+            "has_more": has_more,
+        }
 
     if settings.expose_writes:
 
         @mcp.tool()
+        @safe_tool
         async def create_correspondent(
             ctx: Context,
             name: str,
@@ -150,6 +171,7 @@ def _register_correspondents(mcp: FastMCP, settings: Settings) -> None:
             return {"correspondent": {"id": new_id, "name": name}}
 
         @mcp.tool()
+        @safe_tool
         async def update_correspondent(
             ctx: Context,
             correspondent_id: int,
@@ -172,6 +194,7 @@ def _register_correspondents(mcp: FastMCP, settings: Settings) -> None:
     if settings.expose_deletes:
 
         @mcp.tool()
+        @safe_tool
         async def delete_correspondent(ctx: Context, correspondent_id: int) -> dict[str, Any]:
             """Delete a correspondent."""
             paperless = get_client(ctx)
@@ -183,24 +206,33 @@ def _register_correspondents(mcp: FastMCP, settings: Settings) -> None:
 # -------------------------------------------------------------------- document_types
 def _register_document_types(mcp: FastMCP, settings: Settings) -> None:
     @mcp.tool()
+    @safe_tool
     async def list_document_types(
-        ctx: Context, name_contains: str | None = None, limit: int = 200
+        ctx: Context,
+        name_contains: str | None = None,
+        offset: int = 0,
+        limit: int = 100,
     ) -> dict[str, Any]:
         """List document types, optionally filtered by name substring."""
         paperless = get_client(ctx)
         filters: dict[str, Any] = {}
         if name_contains:
             filters["name__icontains"] = name_contains
-        items = []
-        async for d in paperless.document_types.filter(**filters):
-            items.append(format_document_type(d))
-            if len(items) >= limit:
-                break
-        return {"document_types": items, "returned": len(items)}
+        items, has_more = await collect(
+            paperless.document_types.filter(**filters), offset=offset, limit=limit
+        )
+        return {
+            "document_types": [format_document_type(d) for d in items],
+            "returned": len(items),
+            "offset": offset,
+            "limit": limit,
+            "has_more": has_more,
+        }
 
     if settings.expose_writes:
 
         @mcp.tool()
+        @safe_tool
         async def create_document_type(
             ctx: Context,
             name: str,
@@ -219,6 +251,7 @@ def _register_document_types(mcp: FastMCP, settings: Settings) -> None:
             return {"document_type": {"id": new_id, "name": name}}
 
         @mcp.tool()
+        @safe_tool
         async def update_document_type(
             ctx: Context,
             document_type_id: int,
@@ -241,6 +274,7 @@ def _register_document_types(mcp: FastMCP, settings: Settings) -> None:
     if settings.expose_deletes:
 
         @mcp.tool()
+        @safe_tool
         async def delete_document_type(ctx: Context, document_type_id: int) -> dict[str, Any]:
             """Delete a document type."""
             paperless = get_client(ctx)
@@ -252,24 +286,33 @@ def _register_document_types(mcp: FastMCP, settings: Settings) -> None:
 # ---------------------------------------------------------------------- storage_paths
 def _register_storage_paths(mcp: FastMCP, settings: Settings) -> None:
     @mcp.tool()
+    @safe_tool
     async def list_storage_paths(
-        ctx: Context, name_contains: str | None = None, limit: int = 200
+        ctx: Context,
+        name_contains: str | None = None,
+        offset: int = 0,
+        limit: int = 100,
     ) -> dict[str, Any]:
         """List storage paths, optionally filtered by name substring."""
         paperless = get_client(ctx)
         filters: dict[str, Any] = {}
         if name_contains:
             filters["name__icontains"] = name_contains
-        items = []
-        async for s in paperless.storage_paths.filter(**filters):
-            items.append(format_storage_path(s))
-            if len(items) >= limit:
-                break
-        return {"storage_paths": items, "returned": len(items)}
+        items, has_more = await collect(
+            paperless.storage_paths.filter(**filters), offset=offset, limit=limit
+        )
+        return {
+            "storage_paths": [format_storage_path(s) for s in items],
+            "returned": len(items),
+            "offset": offset,
+            "limit": limit,
+            "has_more": has_more,
+        }
 
     if settings.expose_writes:
 
         @mcp.tool()
+        @safe_tool
         async def create_storage_path(
             ctx: Context,
             name: str,
@@ -290,6 +333,7 @@ def _register_storage_paths(mcp: FastMCP, settings: Settings) -> None:
             return {"storage_path": {"id": new_id, "name": name, "path": path}}
 
         @mcp.tool()
+        @safe_tool
         async def update_storage_path(
             ctx: Context,
             storage_path_id: int,
@@ -315,6 +359,7 @@ def _register_storage_paths(mcp: FastMCP, settings: Settings) -> None:
     if settings.expose_deletes:
 
         @mcp.tool()
+        @safe_tool
         async def delete_storage_path(ctx: Context, storage_path_id: int) -> dict[str, Any]:
             """Delete a storage path."""
             paperless = get_client(ctx)
@@ -326,19 +371,25 @@ def _register_storage_paths(mcp: FastMCP, settings: Settings) -> None:
 # ---------------------------------------------------------------------- custom_fields
 def _register_custom_fields(mcp: FastMCP, settings: Settings) -> None:
     @mcp.tool()
-    async def list_custom_fields(ctx: Context, limit: int = 200) -> dict[str, Any]:
+    @safe_tool
+    async def list_custom_fields(ctx: Context, offset: int = 0, limit: int = 100) -> dict[str, Any]:
         """List all custom field definitions."""
         paperless = get_client(ctx)
-        items = []
-        async for cf in paperless.custom_fields.filter():
-            items.append(format_custom_field(cf))
-            if len(items) >= limit:
-                break
-        return {"custom_fields": items, "returned": len(items)}
+        items, has_more = await collect(
+            paperless.custom_fields.filter(), offset=offset, limit=limit
+        )
+        return {
+            "custom_fields": [format_custom_field(cf) for cf in items],
+            "returned": len(items),
+            "offset": offset,
+            "limit": limit,
+            "has_more": has_more,
+        }
 
     if settings.expose_writes:
 
         @mcp.tool()
+        @safe_tool
         async def create_custom_field(
             ctx: Context,
             name: str,
@@ -360,6 +411,7 @@ def _register_custom_fields(mcp: FastMCP, settings: Settings) -> None:
             return {"custom_field": {"id": new_id, "name": name, "data_type": data_type}}
 
         @mcp.tool()
+        @safe_tool
         async def update_custom_field(
             ctx: Context,
             custom_field_id: int,
@@ -379,6 +431,7 @@ def _register_custom_fields(mcp: FastMCP, settings: Settings) -> None:
     if settings.expose_deletes:
 
         @mcp.tool()
+        @safe_tool
         async def delete_custom_field(ctx: Context, custom_field_id: int) -> dict[str, Any]:
             """Delete a custom field definition."""
             paperless = get_client(ctx)

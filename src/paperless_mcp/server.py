@@ -1,4 +1,13 @@
-"""FastMCP server wiring: lifespan, tool registration, HTTP app."""
+"""FastMCP server wiring: lifespans, tool registration, HTTP app.
+
+Architecture note: FastMCP's ``lifespan`` parameter is invoked **per MCP
+session**, not once per ASGI app — see ``mcp/server/lowlevel/server.py`` where
+``self.lifespan(self)`` is entered inside ``Server.run()``. Naively opening a
+PaperlessClient there would create a brand-new httpx connection pool on every
+client handshake. We therefore open the PaperlessClient in the outer Starlette
+lifespan (which runs once per app) and let the FastMCP per-session lifespan
+simply hand back a reference to it.
+"""
 
 from __future__ import annotations
 
@@ -22,22 +31,26 @@ from .tools import register_all
 log = logging.getLogger("paperless_mcp")
 
 
-def _build_lifespan(settings: Settings):
-    @asynccontextmanager
-    async def lifespan(_server: FastMCP) -> AsyncIterator[dict[str, Any]]:
-        async with PaperlessClient(settings.paperless_url, settings.paperless_token) as paperless:
-            log.info(
-                "Connected to Paperless-ngx %s (API v%s)",
-                getattr(paperless, "host_version", "?"),
-                getattr(paperless, "host_api_version", "?"),
-            )
-            yield {CLIENT_KEY: paperless, SETTINGS_KEY: settings}
-
-    return lifespan
-
-
 def build_mcp(settings: Settings) -> FastMCP:
-    """Build a configured FastMCP instance with all enabled tools registered."""
+    """Build a configured FastMCP instance with all enabled tools registered.
+
+    The returned server's per-session lifespan yields a placeholder dict whose
+    paperless client is ``None``; in production this is replaced by
+    :func:`build_app` which wires the long-lived client into the lifespan.
+    """
+    shared: dict[str, Any] = {CLIENT_KEY: None, SETTINGS_KEY: settings}
+
+    @asynccontextmanager
+    async def session_lifespan(_server: FastMCP) -> AsyncIterator[dict[str, Any]]:
+        if shared[CLIENT_KEY] is None:
+            # We're being run without an outer app lifespan (e.g. from tests).
+            # Open and close a one-shot client so tools that try to use it can
+            # at least operate.
+            async with PaperlessClient(settings.paperless_url, settings.paperless_token) as p:
+                yield {CLIENT_KEY: p, SETTINGS_KEY: settings}
+            return
+        yield shared
+
     mcp = FastMCP(
         "paperless-mcp",
         instructions=(
@@ -45,16 +58,42 @@ def build_mcp(settings: Settings) -> FastMCP:
             "instance via pypaperless. Document discovery uses Django-style filters; "
             "use search_documents for full-text queries."
         ),
-        lifespan=_build_lifespan(settings),
+        lifespan=session_lifespan,
     )
     register_all(mcp, settings)
+    # Attach the shared dict so build_app can populate it without re-wiring.
+    mcp._paperless_mcp_shared = shared  # type: ignore[attr-defined]
     return mcp
 
 
 def build_app(settings: Settings) -> Starlette:
-    """Build the Starlette ASGI app with auth middleware in front of FastMCP."""
+    """Build the Starlette ASGI app with the PaperlessClient hosted at app scope.
+
+    Auth middleware (if a token is configured) is layered in front of the
+    FastMCP streamable-HTTP app.
+    """
     mcp = build_mcp(settings)
+    shared: dict[str, Any] = mcp._paperless_mcp_shared  # type: ignore[attr-defined]
     mcp_app = mcp.streamable_http_app()
+
+    @asynccontextmanager
+    async def app_lifespan(app: Starlette) -> AsyncIterator[None]:
+        async with PaperlessClient(settings.paperless_url, settings.paperless_token) as paperless:
+            log.info(
+                "Connected to Paperless-ngx %s (API v%s)",
+                getattr(paperless, "host_version", "?"),
+                getattr(paperless, "host_api_version", "?"),
+            )
+            shared[CLIENT_KEY] = paperless
+            try:
+                # Delegate to the inner FastMCP app's own ASGI lifespan so its
+                # session manager (a background task group) starts and stops
+                # cleanly. Without this the streamable-HTTP transport would
+                # not be ready to accept sessions.
+                async with mcp_app.router.lifespan_context(app):
+                    yield
+            finally:
+                shared[CLIENT_KEY] = None
 
     middleware: list[Middleware] = []
     if settings.auth_token:
@@ -68,7 +107,7 @@ def build_app(settings: Settings) -> Starlette:
     return Starlette(
         routes=[Mount("/", app=mcp_app)],
         middleware=middleware,
-        lifespan=mcp_app.router.lifespan_context,
+        lifespan=app_lifespan,
     )
 
 

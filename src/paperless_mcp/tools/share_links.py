@@ -10,30 +10,40 @@ from mcp.server.fastmcp import Context, FastMCP
 from ..client import get_client
 from ..config import Settings
 from ..formatting import format_share_link
+from ._helpers import collect, safe_tool
 
 
 def register(mcp: FastMCP, settings: Settings) -> None:
     """Register share-link tools."""
 
     @mcp.tool()
+    @safe_tool
     async def list_share_links(
-        ctx: Context, document_id: int | None = None, limit: int = 100
+        ctx: Context,
+        document_id: int | None = None,
+        offset: int = 0,
+        limit: int = 100,
     ) -> dict[str, Any]:
         """List share links, optionally filtered to a single document."""
         paperless = get_client(ctx)
         filters: dict[str, Any] = {}
         if document_id is not None:
             filters["document__id"] = document_id
-        items = []
-        async for sl in paperless.share_links.filter(**filters):
-            items.append(format_share_link(sl))
-            if len(items) >= limit:
-                break
-        return {"share_links": items, "returned": len(items)}
+        items, has_more = await collect(
+            paperless.share_links.filter(**filters), offset=offset, limit=limit
+        )
+        return {
+            "share_links": [format_share_link(sl) for sl in items],
+            "returned": len(items),
+            "offset": offset,
+            "limit": limit,
+            "has_more": has_more,
+        }
 
     if settings.expose_writes:
 
         @mcp.tool()
+        @safe_tool
         async def create_share_link(
             ctx: Context,
             document_id: int,
@@ -58,6 +68,7 @@ def register(mcp: FastMCP, settings: Settings) -> None:
     if settings.expose_deletes:
 
         @mcp.tool()
+        @safe_tool
         async def delete_share_link(ctx: Context, share_link_id: int) -> dict[str, Any]:
             """Delete a share link."""
             paperless = get_client(ctx)

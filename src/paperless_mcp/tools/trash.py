@@ -9,25 +9,30 @@ from mcp.server.fastmcp import Context, FastMCP
 from ..client import get_client
 from ..config import Settings
 from ..formatting import format_document
+from ._helpers import collect, safe_tool
 
 
 def register(mcp: FastMCP, settings: Settings) -> None:
     """Register trash tools."""
 
     @mcp.tool()
-    async def list_trash(ctx: Context, limit: int = 100) -> dict[str, Any]:
+    @safe_tool
+    async def list_trash(ctx: Context, offset: int = 0, limit: int = 100) -> dict[str, Any]:
         """List documents currently in the trash."""
         paperless = get_client(ctx)
-        items = []
-        async for doc in paperless.trash.filter():
-            items.append(format_document(doc))
-            if len(items) >= limit:
-                break
-        return {"trashed": items, "returned": len(items)}
+        items, has_more = await collect(paperless.trash.filter(), offset=offset, limit=limit)
+        return {
+            "trashed": [format_document(d) for d in items],
+            "returned": len(items),
+            "offset": offset,
+            "limit": limit,
+            "has_more": has_more,
+        }
 
     if settings.expose_writes:
 
         @mcp.tool()
+        @safe_tool
         async def restore_documents(ctx: Context, document_ids: list[int]) -> dict[str, Any]:
             """Restore one or more trashed documents."""
             paperless = get_client(ctx)
@@ -37,6 +42,7 @@ def register(mcp: FastMCP, settings: Settings) -> None:
     if settings.expose_deletes:
 
         @mcp.tool()
+        @safe_tool
         async def empty_trash(
             ctx: Context, document_ids: list[int] | None = None
         ) -> dict[str, Any]:

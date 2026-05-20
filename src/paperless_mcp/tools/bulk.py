@@ -8,6 +8,7 @@ from mcp.server.fastmcp import Context, FastMCP
 
 from ..client import get_client
 from ..config import Settings
+from ._helpers import safe_tool
 
 
 def register(mcp: FastMCP, settings: Settings) -> None:
@@ -16,6 +17,7 @@ def register(mcp: FastMCP, settings: Settings) -> None:
         return
 
     @mcp.tool()
+    @safe_tool
     async def bulk_edit_documents(
         ctx: Context,
         document_ids: list[int],
@@ -28,7 +30,8 @@ def register(mcp: FastMCP, settings: Settings) -> None:
         """Apply assignments to many documents at once.
 
         Every non-null argument triggers its own bulk-edit operation against the
-        Paperless backend; the response reports which operations ran.
+        Paperless backend. Operations run sequentially; if one fails, the
+        ``applied`` list reflects only the ones that succeeded.
         """
         paperless = get_client(ctx)
         applied: list[str] = []
@@ -51,6 +54,7 @@ def register(mcp: FastMCP, settings: Settings) -> None:
         return {"document_ids": document_ids, "applied": applied}
 
     @mcp.tool()
+    @safe_tool
     async def bulk_reprocess_documents(ctx: Context, document_ids: list[int]) -> dict[str, Any]:
         """Re-run OCR / metadata parsing on the given documents."""
         paperless = get_client(ctx)
@@ -58,6 +62,7 @@ def register(mcp: FastMCP, settings: Settings) -> None:
         return {"document_ids": document_ids, "reprocessing": True}
 
     @mcp.tool()
+    @safe_tool
     async def bulk_merge_documents(
         ctx: Context,
         document_ids: list[int],

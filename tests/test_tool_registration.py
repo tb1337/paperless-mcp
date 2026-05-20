@@ -34,6 +34,7 @@ async def test_readonly_hides_writes_and_deletes() -> None:
     assert "search_documents" in names
     assert "get_document" in names
     assert "list_tags" in names
+    assert "get_saved_view" in names
     # Writes/deletes must be absent.
     for forbidden in (
         "upload_document",

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import binascii
 import datetime as dt
 from typing import Any
 
@@ -10,7 +11,13 @@ from mcp.server.fastmcp import Context, FastMCP
 
 from ..client import get_client, get_settings
 from ..config import Settings
-from ..formatting import format_document, format_document_detail, format_note
+from ..formatting import format_document, format_document_detail, format_note, safe_dump
+from ._helpers import collect, safe_tool
+
+# Updatable fields that accept a "clear" instruction via the clear_fields list.
+_CLEARABLE_FIELDS: frozenset[str] = frozenset(
+    {"correspondent", "document_type", "storage_path", "archive_serial_number"}
+)
 
 
 def _build_doc_filters(
@@ -73,6 +80,7 @@ def register(mcp: FastMCP, settings: Settings) -> None:
     # -- READ --------------------------------------------------------------
 
     @mcp.tool()
+    @safe_tool
     async def search_documents(
         ctx: Context,
         query: str | None = None,
@@ -92,13 +100,16 @@ def register(mcp: FastMCP, settings: Settings) -> None:
         created_before: str | None = None,
         added_after: str | None = None,
         added_before: str | None = None,
+        offset: int = 0,
         limit: int = 25,
     ) -> dict[str, Any]:
         """Search documents in Paperless-ngx.
 
         Pass ``query`` for a full-text search; pass any of the other arguments to
         filter server-side. Date arguments are ISO dates (``YYYY-MM-DD``). Tag
-        IDs are integers. Returns up to ``limit`` documents.
+        IDs are integers. Use ``offset`` and ``limit`` to page through results;
+        the response indicates ``has_more`` so the caller knows whether to fetch
+        the next page.
         """
         paperless = get_client(ctx)
         filters = _build_doc_filters(
@@ -122,14 +133,19 @@ def register(mcp: FastMCP, settings: Settings) -> None:
         if query:
             filters["query"] = query
 
-        results: list[dict[str, Any]] = []
-        async for doc in paperless.documents.filter(**filters):
-            results.append(format_document(doc))
-            if len(results) >= limit:
-                break
-        return {"documents": results, "returned": len(results), "limit": limit}
+        items, has_more = await collect(
+            paperless.documents.filter(**filters), offset=offset, limit=limit
+        )
+        return {
+            "documents": [format_document(d) for d in items],
+            "returned": len(items),
+            "offset": offset,
+            "limit": limit,
+            "has_more": has_more,
+        }
 
     @mcp.tool()
+    @safe_tool
     async def get_document(ctx: Context, document_id: int) -> dict[str, Any]:
         """Fetch a single document including content, notes, and custom fields."""
         paperless = get_client(ctx)
@@ -137,6 +153,7 @@ def register(mcp: FastMCP, settings: Settings) -> None:
         return format_document_detail(doc)
 
     @mcp.tool()
+    @safe_tool
     async def get_document_content(ctx: Context, document_id: int) -> dict[str, Any]:
         """Return only the OCR'd text content of a document."""
         paperless = get_client(ctx)
@@ -144,15 +161,16 @@ def register(mcp: FastMCP, settings: Settings) -> None:
         return {"id": doc.id, "content": getattr(doc, "content", None)}
 
     @mcp.tool()
+    @safe_tool
     async def get_document_metadata(ctx: Context, document_id: int) -> dict[str, Any]:
         """Return detailed metadata (file info, checksums, original filename, ...)."""
         paperless = get_client(ctx)
         meta = await paperless.documents.metadata(document_id)
-        if hasattr(meta, "model_dump"):
-            return meta.model_dump(mode="json")
-        return dict(meta)
+        dumped = safe_dump(meta)
+        return dumped if isinstance(dumped, dict) else {"metadata": dumped}
 
     @mcp.tool()
+    @safe_tool
     async def get_document_notes(ctx: Context, document_id: int) -> dict[str, Any]:
         """List all notes attached to a document."""
         paperless = get_client(ctx)
@@ -160,29 +178,34 @@ def register(mcp: FastMCP, settings: Settings) -> None:
         return {"document_id": document_id, "notes": [format_note(n) for n in notes]}
 
     @mcp.tool()
+    @safe_tool
     async def get_document_history(ctx: Context, document_id: int) -> dict[str, Any]:
         """Return the audit history of a document."""
         paperless = get_client(ctx)
         history = await paperless.documents.history(document_id)
-        entries = []
-        for h in history:
-            entries.append(h.model_dump(mode="json") if hasattr(h, "model_dump") else dict(h))
-        return {"document_id": document_id, "history": entries}
+        return {"document_id": document_id, "history": [safe_dump(h) for h in history]}
 
     @mcp.tool()
+    @safe_tool
     async def find_similar_documents(
-        ctx: Context, document_id: int, limit: int = 10
+        ctx: Context, document_id: int, offset: int = 0, limit: int = 10
     ) -> dict[str, Any]:
         """Find documents semantically similar to the given document."""
         paperless = get_client(ctx)
-        results: list[dict[str, Any]] = []
-        async for doc in paperless.documents.more_like(document_id):
-            results.append(format_document(doc))
-            if len(results) >= limit:
-                break
-        return {"reference": document_id, "documents": results}
+        items, has_more = await collect(
+            paperless.documents.more_like(document_id), offset=offset, limit=limit
+        )
+        return {
+            "reference": document_id,
+            "documents": [format_document(d) for d in items],
+            "returned": len(items),
+            "offset": offset,
+            "limit": limit,
+            "has_more": has_more,
+        }
 
     @mcp.tool()
+    @safe_tool
     async def download_document(
         ctx: Context, document_id: int, original: bool = False
     ) -> dict[str, Any]:
@@ -214,6 +237,7 @@ def register(mcp: FastMCP, settings: Settings) -> None:
         }
 
     @mcp.tool()
+    @safe_tool
     async def get_document_thumbnail(ctx: Context, document_id: int) -> dict[str, Any]:
         """Return the document's thumbnail image as base64."""
         paperless = get_client(ctx)
@@ -222,7 +246,11 @@ def register(mcp: FastMCP, settings: Settings) -> None:
         content: bytes = getattr(thumb, "content", b"")
         size = len(content)
         if size > cfg.max_file_bytes:
-            return {"error": "file_too_large", "size_bytes": size, "max_bytes": cfg.max_file_bytes}
+            return {
+                "error": "file_too_large",
+                "size_bytes": size,
+                "max_bytes": cfg.max_file_bytes,
+            }
         return {
             "document_id": document_id,
             "content_type": getattr(thumb, "content_type", "image/webp"),
@@ -235,6 +263,7 @@ def register(mcp: FastMCP, settings: Settings) -> None:
     if settings.expose_writes:
 
         @mcp.tool()
+        @safe_tool
         async def upload_document(
             ctx: Context,
             filename: str,
@@ -257,7 +286,7 @@ def register(mcp: FastMCP, settings: Settings) -> None:
             paperless = get_client(ctx)
             try:
                 content = base64.b64decode(content_base64, validate=True)
-            except Exception as exc:
+            except (binascii.Error, ValueError) as exc:
                 return {"error": "invalid_base64", "detail": str(exc)}
 
             draft = paperless.documents.create()
@@ -282,6 +311,7 @@ def register(mcp: FastMCP, settings: Settings) -> None:
             return {"task_uuid": task_uuid, "filename": filename}
 
         @mcp.tool()
+        @safe_tool
         async def update_document(
             ctx: Context,
             document_id: int,
@@ -293,36 +323,67 @@ def register(mcp: FastMCP, settings: Settings) -> None:
             archive_serial_number: int | None = None,
             content: str | None = None,
             created: str | None = None,
+            clear_fields: list[str] | None = None,
         ) -> dict[str, Any]:
             """Update fields on an existing document.
 
-            Only the fields you pass will be modified. To clear an FK pass
-            ``-1``; the call will be translated to ``None``.
+            Only the fields you pass are modified. To explicitly clear a foreign
+            key or ASN, list its name in ``clear_fields``; allowed names are
+            ``correspondent``, ``document_type``, ``storage_path``,
+            ``archive_serial_number``. Passing both ``correspondent_id=5`` and
+            ``clear_fields=["correspondent"]`` is an error.
             """
             paperless = get_client(ctx)
+
+            clear_set: set[str] = set(clear_fields or [])
+            invalid = clear_set - _CLEARABLE_FIELDS
+            if invalid:
+                return {
+                    "error": "invalid_argument",
+                    "detail": (
+                        f"Unknown clear_fields: {sorted(invalid)}. "
+                        f"Allowed: {sorted(_CLEARABLE_FIELDS)}."
+                    ),
+                }
+            conflicts: list[str] = []
+            if "correspondent" in clear_set and correspondent_id is not None:
+                conflicts.append("correspondent")
+            if "document_type" in clear_set and document_type_id is not None:
+                conflicts.append("document_type")
+            if "storage_path" in clear_set and storage_path_id is not None:
+                conflicts.append("storage_path")
+            if "archive_serial_number" in clear_set and archive_serial_number is not None:
+                conflicts.append("archive_serial_number")
+            if conflicts:
+                return {
+                    "error": "invalid_argument",
+                    "detail": f"Fields cannot be set and cleared at once: {conflicts}.",
+                }
+
             doc = await paperless.documents(document_id)
             if title is not None:
                 doc.title = title
             if correspondent_id is not None:
-                doc.correspondent = None if correspondent_id == -1 else correspondent_id
+                doc.correspondent = correspondent_id
             if document_type_id is not None:
-                doc.document_type = None if document_type_id == -1 else document_type_id
+                doc.document_type = document_type_id
             if storage_path_id is not None:
-                doc.storage_path = None if storage_path_id == -1 else storage_path_id
+                doc.storage_path = storage_path_id
+            if archive_serial_number is not None:
+                doc.archive_serial_number = archive_serial_number
             if tag_ids is not None:
                 doc.tags = tag_ids
-            if archive_serial_number is not None:
-                doc.archive_serial_number = (
-                    None if archive_serial_number == -1 else archive_serial_number
-                )
             if content is not None:
                 doc.content = content
             if created is not None:
                 doc.created = dt.datetime.fromisoformat(created)
+            for field in clear_set:
+                setattr(doc, field, None)
             await paperless.documents.update(doc)
             return format_document(doc)
 
         @mcp.tool()
+        @safe_tool
         async def add_document_note(ctx: Context, document_id: int, note: str) -> dict[str, Any]:
             """Add a free-text note to a document."""
             paperless = get_client(ctx)
@@ -336,6 +397,7 @@ def register(mcp: FastMCP, settings: Settings) -> None:
     if settings.expose_deletes:
 
         @mcp.tool()
+        @safe_tool
         async def delete_document(ctx: Context, document_id: int) -> dict[str, Any]:
             """Move a document to the trash (recoverable via restore_documents)."""
             paperless = get_client(ctx)
@@ -344,6 +406,7 @@ def register(mcp: FastMCP, settings: Settings) -> None:
             return {"document_id": document_id, "deleted": True}
 
         @mcp.tool()
+        @safe_tool
         async def delete_document_note(
             ctx: Context, document_id: int, note_id: int
         ) -> dict[str, Any]:
