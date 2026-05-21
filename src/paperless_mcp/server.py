@@ -16,7 +16,9 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
+import httpx
 import uvicorn
+from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 from pypaperless import PaperlessClient
 from starlette.applications import Starlette
@@ -46,7 +48,10 @@ def build_mcp(settings: Settings) -> FastMCP:
             # We're being run without an outer app lifespan (e.g. from tests).
             # Open and close a one-shot client so tools that try to use it can
             # at least operate.
-            async with PaperlessClient(settings.paperless_url, settings.paperless_token) as p:
+            http_client = httpx.AsyncClient(verify=settings.verify_ssl)
+            async with PaperlessClient(
+                settings.paperless_url, settings.paperless_token, client=http_client
+            ) as p:
                 yield {CLIENT_KEY: p, SETTINGS_KEY: settings}
             return
         yield shared
@@ -78,7 +83,10 @@ def build_app(settings: Settings) -> Starlette:
 
     @asynccontextmanager
     async def app_lifespan(app: Starlette) -> AsyncIterator[None]:
-        async with PaperlessClient(settings.paperless_url, settings.paperless_token) as paperless:
+        http_client = httpx.AsyncClient(verify=settings.verify_ssl)
+        async with PaperlessClient(
+            settings.paperless_url, settings.paperless_token, client=http_client
+        ) as paperless:
             log.info(
                 "Connected to Paperless-ngx %s (API v%s)",
                 getattr(paperless, "host_version", "?"),
@@ -111,8 +119,27 @@ def build_app(settings: Settings) -> Starlette:
     )
 
 
+def serve_stdio() -> None:
+    """Entry point: load settings and run the MCP server over stdio.
+
+    This mode is used when Claude Desktop (or another MCP client) launches the
+    server as a subprocess.  No HTTP listener is started; all communication
+    happens over stdin/stdout.
+    """
+    load_dotenv()
+    # Keep logging quiet so it does not pollute the stdio transport stream.
+    logging.basicConfig(
+        level=logging.WARNING,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+    settings = load_settings()
+    mcp = build_mcp(settings)
+    mcp.run()  # defaults to stdio transport
+
+
 def serve() -> None:
     """Entry point: load settings, build the app and run uvicorn."""
+    load_dotenv()
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",

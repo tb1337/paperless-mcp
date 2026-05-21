@@ -1,10 +1,15 @@
 """Module entry point: ``python -m paperless_mcp``."""
 
-from .server import serve
+import sys
+
+from .server import serve, serve_stdio
 
 
 def main() -> None:
-    serve()
+    if "--stdio" in sys.argv:
+        serve_stdio()
+    else:
+        serve()
 
 
 if __name__ == "__main__":
