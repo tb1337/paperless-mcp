@@ -8,10 +8,6 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     UV_LINK_MODE=copy \
     UV_COMPILE_BYTECODE=1
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends git ca-certificates curl \
-    && rm -rf /var/lib/apt/lists/*
-
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 
 WORKDIR /app
@@ -27,7 +23,13 @@ FROM python:3.13-slim AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PATH="/app/.venv/bin:$PATH"
+    PATH="/app/.venv/bin:$PATH" \
+    # The image serves the network transport; stdio is for locally spawned
+    # servers and would be useless in a long-running container.
+    PAPERLESS_MCP_TRANSPORT=http \
+    # Reachable from outside the container, unlike the CLI's 127.0.0.1 default.
+    PAPERLESS_MCP_HOST=0.0.0.0 \
+    PAPERLESS_MCP_PORT=8000
 
 # Non-root user.
 RUN groupadd --system --gid 1000 app \
@@ -44,4 +46,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD python -m paperless_mcp.healthcheck || exit 1
 
-ENTRYPOINT ["python", "-m", "paperless_mcp"]
+ENTRYPOINT ["paperless-mcp"]
+CMD ["--transport", "http"]

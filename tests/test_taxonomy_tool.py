@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from pypaperless.models.types import CustomFieldType, MatchingAlgorithm
 
 from tests.conftest import build_mcp, call_tool, make_settings
 
@@ -16,9 +17,12 @@ def _tag(tag_id: int, name: str, color: str | None = None) -> SimpleNamespace:
         name=name,
         slug=name.lower(),
         color=color,
+        text_color=None,
         match=None,
         matching_algorithm=None,
+        is_insensitive=None,
         is_inbox_tag=False,
+        parent=None,
         document_count=0,
         owner=None,
     )
@@ -33,21 +37,55 @@ async def test_list_tags_paginates_and_filters(make_paperless: Any) -> None:
     page = await call_tool(mcp, "list_tags", offset=1, limit=2, name_contains="t")
     assert [t["id"] for t in page["tags"]] == [2, 3]
     assert page["has_more"] is True
+    assert page["total"] == 5
     assert paperless.tags.filter_calls == [{"name__icontains": "t"}]
 
 
 @pytest.mark.asyncio
-async def test_create_tag_saves_draft(make_paperless: Any) -> None:
+async def test_create_tag_fills_the_required_draft_fields(make_paperless: Any) -> None:
+    """TagDraft requires colour and the full matching triple, not just a name."""
     paperless = make_paperless()
     paperless.tags.save_returns = 77
     mcp = build_mcp(make_settings(), paperless)
 
     result = await call_tool(mcp, "create_tag", name="Invoice", color="#abcdef")
     assert result == {"tag": {"id": 77, "name": "Invoice"}}
-    assert len(paperless.tags.save_calls) == 1
+
     draft = paperless.tags.save_calls[0]
     assert draft.name == "Invoice"
     assert draft.color == "#abcdef"
+    assert draft.is_inbox_tag is False
+    assert draft.match == ""
+    assert draft.matching_algorithm is MatchingAlgorithm.NONE
+    assert draft.is_insensitive is True
+
+
+@pytest.mark.asyncio
+async def test_create_tag_defaults_the_colour(make_paperless: Any) -> None:
+    paperless = make_paperless()
+    mcp = build_mcp(make_settings(), paperless)
+
+    await call_tool(mcp, "create_tag", name="Invoice")
+    assert paperless.tags.save_calls[0].color.startswith("#")
+
+
+@pytest.mark.asyncio
+async def test_create_tag_converts_the_matching_algorithm(make_paperless: Any) -> None:
+    paperless = make_paperless()
+    mcp = build_mcp(make_settings(), paperless)
+
+    await call_tool(mcp, "create_tag", name="Invoice", match="acme", matching_algorithm=6)
+    assert paperless.tags.save_calls[0].matching_algorithm is MatchingAlgorithm.AUTO
+
+
+@pytest.mark.asyncio
+async def test_create_tag_rejects_an_unknown_matching_algorithm(make_paperless: Any) -> None:
+    paperless = make_paperless()
+    mcp = build_mcp(make_settings(), paperless)
+
+    result = await call_tool(mcp, "create_tag", name="Invoice", matching_algorithm=99)
+    assert result["error"] == "invalid_argument"
+    assert paperless.tags.save_calls == []
 
 
 @pytest.mark.asyncio
@@ -60,18 +98,18 @@ async def test_update_tag_only_sets_passed_fields(make_paperless: Any) -> None:
     await call_tool(mcp, "update_tag", tag_id=5, name="New")
     assert tag.name == "New"
     assert tag.color == "#000000"  # unchanged
+    assert tag.match is None  # create-time defaults must not leak into updates
     assert paperless.tags.update_calls == [tag]
 
 
 @pytest.mark.asyncio
 async def test_delete_tag_hidden_without_enable_delete(make_paperless: Any) -> None:
-    paperless = make_paperless()
-    mcp = build_mcp(make_settings(enable_delete=False), paperless)
+    mcp = build_mcp(make_settings(enable_delete=False), make_paperless())
     assert "delete_tag" not in mcp._tool_manager._tools
 
 
 @pytest.mark.asyncio
-async def test_delete_tag_calls_service(make_paperless: Any) -> None:
+async def test_delete_tag_fetches_lazily(make_paperless: Any) -> None:
     tag = _tag(5, "Old")
     paperless = make_paperless()
     paperless.tags.get_result = tag
@@ -79,7 +117,21 @@ async def test_delete_tag_calls_service(make_paperless: Any) -> None:
 
     result = await call_tool(mcp, "delete_tag", tag_id=5)
     assert result == {"tag_id": 5, "deleted": True}
-    assert paperless.tags.delete_calls == [tag]
+    assert paperless.tags.get_calls == [(5, {"lazy": True})]
+    assert paperless.tags.delete_calls == [{"obj": tag, "args": ()}]
+
+
+@pytest.mark.asyncio
+async def test_create_correspondent_fills_matching_defaults(make_paperless: Any) -> None:
+    paperless = make_paperless()
+    paperless.correspondents.save_returns = 4
+    mcp = build_mcp(make_settings(), paperless)
+
+    result = await call_tool(mcp, "create_correspondent", name="ACME")
+    assert result == {"correspondent": {"id": 4, "name": "ACME"}}
+    draft = paperless.correspondents.save_calls[0]
+    assert draft.name == "ACME"
+    assert draft.matching_algorithm is MatchingAlgorithm.NONE
 
 
 @pytest.mark.asyncio
@@ -95,3 +147,24 @@ async def test_create_storage_path_includes_path(make_paperless: Any) -> None:
     draft = paperless.storage_paths.save_calls[0]
     assert draft.name == "Tax"
     assert draft.path == "{{correspondent}}/{{title}}"
+
+
+@pytest.mark.asyncio
+async def test_create_custom_field_converts_the_data_type(make_paperless: Any) -> None:
+    paperless = make_paperless()
+    paperless.custom_fields.save_returns = 9
+    mcp = build_mcp(make_settings(), paperless)
+
+    result = await call_tool(mcp, "create_custom_field", name="Amount", data_type="monetary")
+    assert result["custom_field"] == {"id": 9, "name": "Amount", "data_type": "monetary"}
+    assert paperless.custom_fields.save_calls[0].data_type is CustomFieldType.MONETARY
+
+
+@pytest.mark.asyncio
+async def test_create_custom_field_rejects_an_unknown_type(make_paperless: Any) -> None:
+    paperless = make_paperless()
+    mcp = build_mcp(make_settings(), paperless)
+
+    result = await call_tool(mcp, "create_custom_field", name="X", data_type="quaternion")
+    assert result["error"] == "invalid_argument"
+    assert paperless.custom_fields.save_calls == []

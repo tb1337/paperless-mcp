@@ -1,154 +1,181 @@
-"""Verify lifespan semantics in the ASGI app.
+"""Verify connection lifetime and transport wiring.
 
-Two invariants matter here:
+Three invariants matter here:
 
-1. The PaperlessClient is opened **once per app**, not once per MCP session —
-   otherwise every client handshake would spin up a fresh httpx pool.
-2. The auth middleware sits in front of the MCP transport.
+1. Over HTTP the Paperless connection is opened **once per app**, not once per
+   MCP session - otherwise every client handshake spins up a fresh httpx pool.
+2. Over stdio the session lifespan owns the connection, so it opens and closes
+   with the process.
+3. A Paperless instance that is down at startup must not abort the MCP
+   handshake; the tools return a structured error instead.
 """
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, ClassVar
 from unittest.mock import patch
 
-from mcp.server.fastmcp import FastMCP
-from starlette.applications import Starlette
-from starlette.middleware import Middleware
-from starlette.routing import Mount
+import pytest
+from pypaperless.exceptions import PaperlessConnectionError
 from starlette.testclient import TestClient
 
-from paperless_mcp.auth import BearerAuthMiddleware
-from paperless_mcp.client import CLIENT_KEY, SETTINGS_KEY
+from paperless_mcp import server as server_mod
+from paperless_mcp.client import PaperlessConnection
 from paperless_mcp.config import Settings
-from paperless_mcp.tools import register_all
-from tests.conftest import make_settings
+from tests.conftest import call_tool, make_settings
 
 
-def _build_app(settings: Settings, paperless: Any, *, counter: dict[str, int]) -> Starlette:
-    """Replica of ``server.build_app`` that opens ``paperless`` at app scope.
+class _FakePaperlessClient:
+    """Records initialize/close calls in place of the real client."""
 
-    We record every enter/exit of the *outer* lifespan to confirm it fires
-    exactly once per app, regardless of how many MCP sessions are opened.
-    """
-    shared: dict[str, Any] = {CLIENT_KEY: None, SETTINGS_KEY: settings}
+    instances: ClassVar[list[_FakePaperlessClient]] = []
 
-    @asynccontextmanager
-    async def session_lifespan(_server: FastMCP) -> AsyncIterator[dict[str, Any]]:
-        # Per-session: just hand out the shared dict.
-        yield shared
+    def __init__(self, url: str, token: str | None = None, *, client: Any = None) -> None:
+        self.url = url
+        self.token = token
+        self.http = client
+        self.is_initialized = False
+        self.initialize_calls = 0
+        self.close_calls = 0
+        self.host_version = "3.0.0"
+        self.host_api_version = 10
+        self.base_url = url
+        self.initialize_error: BaseException | None = None
+        type(self).instances.append(self)
 
-    mcp = FastMCP("paperless-mcp-lifespan-test", lifespan=session_lifespan)
-    register_all(mcp, settings)
-    mcp_app = mcp.streamable_http_app()
+    async def initialize(self) -> None:
+        self.initialize_calls += 1
+        if self.initialize_error is not None:
+            raise self.initialize_error
+        self.is_initialized = True
 
-    @asynccontextmanager
-    async def app_lifespan(app: Starlette) -> AsyncIterator[None]:
-        counter["enter"] += 1
-        shared[CLIENT_KEY] = paperless
+    async def close(self) -> None:
+        self.close_calls += 1
+
+
+@pytest.fixture
+def fake_client_class() -> Any:
+    _FakePaperlessClient.instances = []
+    with patch("paperless_mcp.client.PaperlessClient", _FakePaperlessClient):
+        yield _FakePaperlessClient
+
+
+# ----------------------------------------------------------------- connection object
+@pytest.mark.asyncio
+async def test_connection_opens_and_closes_both_halves(fake_client_class: Any) -> None:
+    async with PaperlessConnection(make_settings()) as connection:
+        client = await connection.client()
+        assert client.initialize_calls == 1
+        # The httpx client is ours, so pypaperless will not close it for us.
+        assert client.http is not None
+    assert client.close_calls == 1
+    assert client.http.is_closed
+
+
+@pytest.mark.asyncio
+async def test_connection_retries_after_a_failed_startup(fake_client_class: Any) -> None:
+    """A Paperless that is down at launch must not kill the MCP session."""
+    connection = PaperlessConnection(make_settings())
+    with patch.object(
+        _FakePaperlessClient,
+        "initialize",
+        autospec=True,
+        side_effect=_fail_once(),
+    ):
+        await connection.open()  # must not raise
         try:
-            async with mcp_app.router.lifespan_context(app):
-                yield
+            client = await connection.client()
         finally:
-            shared[CLIENT_KEY] = None
-            counter["exit"] += 1
-
-    middleware: list[Middleware] = []
-    if settings.auth_token:
-        middleware.append(Middleware(BearerAuthMiddleware, token=settings.auth_token))
-    return Starlette(
-        routes=[Mount("/", app=mcp_app)],
-        middleware=middleware,
-        lifespan=app_lifespan,
-    )
+            await connection.close()
+    assert client.is_initialized
 
 
-def test_paperless_client_lifespan_is_app_scoped(make_paperless: Any) -> None:
-    """Three requests must not result in three PaperlessClient instances."""
-    counter = {"enter": 0, "exit": 0}
-    app = _build_app(make_settings(), make_paperless(), counter=counter)
+def _fail_once() -> Any:
+    state = {"calls": 0}
 
+    async def _initialize(self: Any) -> None:
+        state["calls"] += 1
+        if state["calls"] == 1:
+            raise PaperlessConnectionError("paperless is down")
+        self.is_initialized = True
+
+    return _initialize
+
+
+@pytest.mark.asyncio
+async def test_connection_reuses_an_initialized_client(fake_client_class: Any) -> None:
+    async with PaperlessConnection(make_settings()) as connection:
+        first = await connection.client()
+        second = await connection.client()
+    assert first is second
+    assert first.initialize_calls == 1
+
+
+# ----------------------------------------------------------------- stdio transport
+@pytest.mark.asyncio
+async def test_stdio_session_lifespan_owns_its_connection(fake_client_class: Any) -> None:
+    mcp = server_mod.build_mcp(make_settings())
+    async with mcp._mcp_server.lifespan(mcp._mcp_server) as ctx:  # type: ignore[arg-type]
+        connection = ctx["paperless"]
+        assert isinstance(connection, PaperlessConnection)
+        await connection.client()
+    assert len(fake_client_class.instances) == 1
+    assert fake_client_class.instances[0].close_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_tools_report_a_down_paperless_instead_of_crashing(
+    fake_client_class: Any,
+) -> None:
+    mcp = server_mod.build_mcp(make_settings())
+    with patch.object(
+        _FakePaperlessClient,
+        "initialize",
+        autospec=True,
+        side_effect=_always_fail,
+    ):
+        result = await call_tool(mcp, "get_paperless_info")
+    assert result["error"] == "connection_error"
+
+
+async def _always_fail(_self: Any) -> None:
+    raise PaperlessConnectionError("paperless is down")
+
+
+# ----------------------------------------------------------------- http transport
+def test_http_app_opens_the_connection_once(fake_client_class: Any) -> None:
+    app = server_mod.build_app(make_settings())
     with TestClient(app) as client:
         for _ in range(3):
-            response = client.get("/mcp", headers={"Accept": "application/json,text/event-stream"})
-            # MCP transport may reject (421 from TestClient host header, 400/406
-            # without a valid MCP envelope) — we only care that the request
-            # reached the app at all.
-            assert response.status_code in (200, 400, 406, 421)
-        assert counter["enter"] == 1, "PaperlessClient must be opened once per app"
-        assert counter["exit"] == 0
-
-    assert counter["enter"] == 1
-    assert counter["exit"] == 1
+            client.get("/mcp", headers={"Accept": "application/json,text/event-stream"})
+    assert len(fake_client_class.instances) == 1, "the connection must be app-scoped"
+    assert fake_client_class.instances[0].close_calls == 1
 
 
-def test_real_build_app_opens_client_once(make_paperless: Any) -> None:
-    """End-to-end: server.build_app must open PaperlessClient exactly once.
-
-    We patch the PaperlessClient constructor so we can observe how many times
-    it gets called regardless of HTTP traffic.
-    """
-    from paperless_mcp import server as server_mod
-
-    paperless = make_paperless()
-    instances: list[Any] = []
-
-    @asynccontextmanager
-    async def fake_client(_url: str, _token: str) -> AsyncIterator[Any]:
-        instances.append(paperless)
-        yield paperless
-
-    class _FakeClass:
-        def __init__(self, url: str, token: str) -> None:
-            self._cm = fake_client(url, token)
-
-        async def __aenter__(self) -> Any:
-            return await self._cm.__aenter__()
-
-        async def __aexit__(self, *exc: Any) -> Any:
-            return await self._cm.__aexit__(*exc)
-
-    with patch.object(server_mod, "PaperlessClient", _FakeClass):
-        app = server_mod.build_app(make_settings())
-        with TestClient(app) as client:
-            for _ in range(3):
-                client.get("/mcp")
-
-    assert len(instances) == 1, f"Expected 1 PaperlessClient instance, got {len(instances)}"
+def test_http_app_serves_an_unauthenticated_health_endpoint(fake_client_class: Any) -> None:
+    app = server_mod.build_app(_secured(make_settings(), "secret"))
+    with TestClient(app) as client:
+        health = client.get("/healthz")
+        assert health.status_code == 200
+        assert health.json()["status"] == "ok"
 
 
-def test_bearer_auth_blocks_before_lifespan_traffic(make_paperless: Any) -> None:
-    """Auth runs in front of the MCP transport — unauthenticated requests must
-    never reach the inner app, even though the outer lifespan is still entered
-    once.
-    """
-    counter = {"enter": 0, "exit": 0}
-    settings = make_settings()
-    secured = Settings(
-        paperless_url=settings.paperless_url,
-        paperless_token=settings.paperless_token,
-        auth_token="secret",
-        host=settings.host,
-        port=settings.port,
-        readonly=settings.readonly,
-        enable_delete=settings.enable_delete,
-        max_file_bytes=settings.max_file_bytes,
-    )
-    app = _build_app(secured, make_paperless(), counter=counter)
-
+def test_bearer_auth_guards_the_mcp_endpoint(fake_client_class: Any) -> None:
+    app = server_mod.build_app(_secured(make_settings(), "secret"))
     with TestClient(app) as client:
         assert client.get("/mcp").status_code == 401
         assert client.get("/mcp", headers={"Authorization": "Bearer nope"}).status_code == 401
-        right = client.get(
+        allowed = client.get(
             "/mcp",
             headers={
                 "Authorization": "Bearer secret",
                 "Accept": "application/json,text/event-stream",
             },
         )
-        assert right.status_code != 401
+        assert allowed.status_code != 401
 
-    assert counter["enter"] == 1
-    assert counter["exit"] == 1
+
+def _secured(settings: Settings, token: str) -> Settings:
+    from dataclasses import replace
+
+    return replace(settings, auth_token=token, transport="http")

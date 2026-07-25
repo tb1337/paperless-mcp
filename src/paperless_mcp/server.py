@@ -1,156 +1,181 @@
-"""FastMCP server wiring: lifespans, tool registration, HTTP app.
+"""FastMCP server wiring: lifespans, tool registration, transports.
 
-Architecture note: FastMCP's ``lifespan`` parameter is invoked **per MCP
-session**, not once per ASGI app — see ``mcp/server/lowlevel/server.py`` where
-``self.lifespan(self)`` is entered inside ``Server.run()``. Naively opening a
-PaperlessClient there would create a brand-new httpx connection pool on every
-client handshake. We therefore open the PaperlessClient in the outer Starlette
-lifespan (which runs once per app) and let the FastMCP per-session lifespan
-simply hand back a reference to it.
+Architecture note: FastMCP's ``lifespan`` parameter runs **per MCP session**,
+not once per ASGI app — see ``mcp/server/lowlevel/server.py``, where
+``self.lifespan(self)`` is entered inside ``Server.run()``. Opening a
+:class:`~paperless_mcp.client.PaperlessConnection` there would build a fresh
+httpx connection pool on every client handshake, so for the HTTP transport the
+connection is opened in the outer Starlette lifespan (which runs once per app)
+and the per-session lifespan just hands back a reference. Over stdio there is
+exactly one session for the lifetime of the process, so the session lifespan
+owns the connection directly.
 """
 
 from __future__ import annotations
 
 import logging
+import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
-import httpx
 import uvicorn
-from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
-from pypaperless import PaperlessClient
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
-from starlette.routing import Mount
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+from starlette.routing import Mount, Route
 
+from . import __version__
 from .auth import BearerAuthMiddleware
-from .client import CLIENT_KEY, SETTINGS_KEY
-from .config import Settings, load_settings
+from .client import CLIENT_KEY, SETTINGS_KEY, PaperlessConnection
+from .config import Settings
 from .tools import register_all
 
 log = logging.getLogger("paperless_mcp")
 
+#: Unauthenticated liveness endpoint used by the container healthcheck.
+HEALTH_PATH = "/healthz"
 
-def build_mcp(settings: Settings) -> FastMCP:
-    """Build a configured FastMCP instance with all enabled tools registered.
+INSTRUCTIONS = """\
+Tools for searching, reading and curating documents in a Paperless-ngx archive.
 
-    The returned server's per-session lifespan yields a placeholder dict whose
-    paperless client is ``None``; in production this is replaced by
-    :func:`build_app` which wires the long-lived client into the lifespan.
+Start with `search_documents` (full-text `query` plus Django-style filters) and
+`get_document_content` for the OCR'd text. Tags, correspondents, document types
+and storage paths are referenced by numeric ID everywhere — resolve names with
+`list_tags`, `list_correspondents`, `list_document_types` and
+`list_storage_paths` before filtering or assigning.
+
+List-shaped tools page with `offset`/`limit` and report `total` plus `has_more`.
+Failures come back as `{"error": ..., "detail": ..., "cause": ...}` rather than
+as exceptions, so read the result before retrying.
+"""
+
+
+def configure_logging(settings: Settings) -> None:
+    """Send logs to stderr.
+
+    Over stdio, stdout carries the JSON-RPC framing — a single stray byte there
+    breaks the session, so every handler must target stderr.
     """
-    shared: dict[str, Any] = {CLIENT_KEY: None, SETTINGS_KEY: settings}
+    logging.basicConfig(
+        level=settings.log_level,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        stream=sys.stderr,
+        force=True,
+    )
+
+
+def build_mcp(settings: Settings, connection: PaperlessConnection | None = None) -> FastMCP:
+    """Build a FastMCP instance with every enabled tool registered.
+
+    Args:
+        settings: Resolved runtime configuration.
+        connection: A connection opened and owned by the caller (HTTP mode).
+            When ``None`` the per-session lifespan opens and closes its own,
+            which is what stdio mode wants.
+    """
 
     @asynccontextmanager
     async def session_lifespan(_server: FastMCP) -> AsyncIterator[dict[str, Any]]:
-        if shared[CLIENT_KEY] is None:
-            # We're being run without an outer app lifespan (e.g. from tests).
-            # Open and close a one-shot client so tools that try to use it can
-            # at least operate.
-            http_client = httpx.AsyncClient(verify=settings.verify_ssl)
-            async with PaperlessClient(
-                settings.paperless_url, settings.paperless_token, client=http_client
-            ) as p:
-                yield {CLIENT_KEY: p, SETTINGS_KEY: settings}
+        if connection is not None:
+            yield {CLIENT_KEY: connection, SETTINGS_KEY: settings}
             return
-        yield shared
+        async with PaperlessConnection(settings) as owned:
+            yield {CLIENT_KEY: owned, SETTINGS_KEY: settings}
 
     mcp = FastMCP(
         "paperless-mcp",
-        instructions=(
-            "Tools for reading and (optionally) writing documents in a Paperless-ngx "
-            "instance via pypaperless. Document discovery uses Django-style filters; "
-            "use search_documents for full-text queries."
-        ),
+        instructions=INSTRUCTIONS,
         lifespan=session_lifespan,
+        host=settings.host,
+        port=settings.port,
     )
+    # FastMCP has no `version` parameter, so the low-level server would report
+    # the MCP SDK's version as ours during the handshake.
+    mcp._mcp_server.version = __version__
     register_all(mcp, settings)
-    # Attach the shared dict so build_app can populate it without re-wiring.
-    mcp._paperless_mcp_shared = shared  # type: ignore[attr-defined]
     return mcp
 
 
 def build_app(settings: Settings) -> Starlette:
-    """Build the Starlette ASGI app with the PaperlessClient hosted at app scope.
-
-    Auth middleware (if a token is configured) is layered in front of the
-    FastMCP streamable-HTTP app.
-    """
-    mcp = build_mcp(settings)
-    shared: dict[str, Any] = mcp._paperless_mcp_shared  # type: ignore[attr-defined]
+    """Build the Starlette ASGI app with the Paperless connection at app scope."""
+    connection = PaperlessConnection(settings)
+    mcp = build_mcp(settings, connection)
     mcp_app = mcp.streamable_http_app()
+
+    async def health(_request: Request) -> JSONResponse:
+        return JSONResponse({"status": "ok", "version": __version__})
 
     @asynccontextmanager
     async def app_lifespan(app: Starlette) -> AsyncIterator[None]:
-        http_client = httpx.AsyncClient(verify=settings.verify_ssl)
-        async with PaperlessClient(
-            settings.paperless_url, settings.paperless_token, client=http_client
-        ) as paperless:
-            log.info(
-                "Connected to Paperless-ngx %s (API v%s)",
-                getattr(paperless, "host_version", "?"),
-                getattr(paperless, "host_api_version", "?"),
-            )
-            shared[CLIENT_KEY] = paperless
-            try:
-                # Delegate to the inner FastMCP app's own ASGI lifespan so its
-                # session manager (a background task group) starts and stops
-                # cleanly. Without this the streamable-HTTP transport would
-                # not be ready to accept sessions.
-                async with mcp_app.router.lifespan_context(app):
-                    yield
-            finally:
-                shared[CLIENT_KEY] = None
+        # The inner FastMCP app's own ASGI lifespan has to run too: it starts
+        # and stops the session manager (a background task group), without
+        # which the streamable-HTTP transport never accepts sessions.
+        async with connection, mcp_app.router.lifespan_context(app):
+            yield
 
     middleware: list[Middleware] = []
     if settings.auth_token:
-        middleware.append(Middleware(BearerAuthMiddleware, token=settings.auth_token))
+        middleware.append(
+            Middleware(
+                BearerAuthMiddleware,
+                token=settings.auth_token,
+                # The container healthcheck must work without the shared secret.
+                exempt_paths=(HEALTH_PATH,),
+            )
+        )
     else:
         log.warning(
-            "PAPERLESS_MCP_AUTH_TOKEN is not set — the MCP endpoint is unauthenticated. "
+            "PAPERLESS_MCP_AUTH_TOKEN is not set - the MCP endpoint is unauthenticated. "
             "Only acceptable on a trusted network or behind a reverse proxy."
         )
 
     return Starlette(
-        routes=[Mount("/", app=mcp_app)],
+        routes=[Route(HEALTH_PATH, health), Mount("/", app=mcp_app)],
         middleware=middleware,
         lifespan=app_lifespan,
     )
 
 
-def serve_stdio() -> None:
-    """Entry point: load settings and run the MCP server over stdio.
+def serve_stdio(settings: Settings) -> None:
+    """Run the MCP server over stdio.
 
-    This mode is used when Claude Desktop (or another MCP client) launches the
-    server as a subprocess.  No HTTP listener is started; all communication
-    happens over stdin/stdout.
+    This is the transport an MCP client such as Claude Desktop uses when it
+    launches the server as a subprocess: no listener is opened, and all
+    communication happens over stdin/stdout.
     """
-    load_dotenv()
-    # Keep logging quiet so it does not pollute the stdio transport stream.
-    logging.basicConfig(
-        level=logging.WARNING,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
-    settings = load_settings()
-    mcp = build_mcp(settings)
-    mcp.run()  # defaults to stdio transport
-
-
-def serve() -> None:
-    """Entry point: load settings, build the app and run uvicorn."""
-    load_dotenv()
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
-    settings = load_settings()
     log.info(
-        "Starting paperless-mcp on %s:%d (readonly=%s, enable_delete=%s)",
+        "Starting paperless-mcp %s over stdio (readonly=%s, deletes=%s)",
+        __version__,
+        settings.readonly,
+        settings.expose_deletes,
+    )
+    build_mcp(settings).run(transport="stdio")
+
+
+def serve_http(settings: Settings) -> None:
+    """Run the MCP server over Streamable HTTP behind uvicorn."""
+    log.info(
+        "Starting paperless-mcp %s on http://%s:%d/mcp (readonly=%s, deletes=%s)",
+        __version__,
         settings.host,
         settings.port,
         settings.readonly,
-        settings.enable_delete,
+        settings.expose_deletes,
     )
-    app = build_app(settings)
-    uvicorn.run(app, host=settings.host, port=settings.port, log_level="info")
+    uvicorn.run(
+        build_app(settings),
+        host=settings.host,
+        port=settings.port,
+        log_level=settings.log_level.lower(),
+    )
+
+
+def serve(settings: Settings) -> None:
+    """Run the server using the transport named in *settings*."""
+    if settings.transport == "http":
+        serve_http(settings)
+    else:
+        serve_stdio(settings)
