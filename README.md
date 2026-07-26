@@ -58,8 +58,9 @@ Config file locations:
 | Windows | `%APPDATA%\Claude\claude_desktop_config.json` |
 | Linux | `~/.config/Claude/claude_desktop_config.json` |
 
-Ready-made files live in [`examples/`](examples/) — one for the published
-package and one for running out of a git checkout with `uv run`.
+Ready-made files live in [`examples/`](examples/): the published package, a git
+checkout via `uv run`, and a networked Docker container (see
+[below](#connecting-claude-desktop-to-the-container)).
 
 Get the API token from Paperless-ngx under **Settings → API tokens** (or
 `/api/token/`). The server runs read+write by default; add
@@ -109,6 +110,60 @@ Running it without Docker:
 ```bash
 uvx --from paperless-mcp paperless-mcp --http --host 0.0.0.0 --port 8000
 ```
+
+### Connecting Claude Desktop to the container
+
+Claude Desktop cannot point at a LAN address directly. Its **custom connector**
+UI hands the URL to Anthropic's cloud, which then calls it — so the endpoint
+would have to be reachable from the public internet, and that path currently
+offers only OAuth credentials, no bearer header. Everything Claude Desktop
+launches itself speaks stdio.
+
+The bridge for this is [`mcp-remote`][mcpremote]: Claude Desktop starts it over
+stdio, and it forwards to the container's HTTP endpoint. It needs Node.js on
+the machine running Claude Desktop.
+
+```json
+{
+  "mcpServers": {
+    "paperless": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote@latest",
+        "http://paperless-mcp.lan:8000/mcp",
+        "--allow-http",
+        "--transport", "http-only",
+        "--header", "Authorization:${AUTH_HEADER}"
+      ],
+      "env": { "AUTH_HEADER": "Bearer your-paperless-mcp-auth-token" }
+    }
+  }
+}
+```
+
+Also in [`examples/claude_desktop_config.docker-http.json`](examples/claude_desktop_config.docker-http.json).
+
+Four details that are easy to get wrong:
+
+- The token goes in `env`, not inline in `args`. Claude Desktop on Windows does
+  not escape spaces inside `args`, which would split `Bearer <token>` in two —
+  hence `Authorization:${AUTH_HEADER}` with no space after the colon.
+- `--allow-http` is required for a plain `http://` URL; drop it once you put
+  the endpoint behind TLS.
+- `--transport http-only` skips a pointless SSE fallback — this server only
+  implements Streamable HTTP.
+- Claude Desktop reads the config once at startup. Quit it completely (not just
+  close the window) and reopen.
+
+If the token is missing or wrong, `mcp-remote` treats the 401 as an
+authentication challenge, tries to discover an OAuth server, and exits with a
+bare `Fatal error: ServerError` that never mentions the token. Check that
+`AUTH_HEADER` matches the container's `PAPERLESS_MCP_AUTH_TOKEN` and starts
+with `Bearer `. `curl http://<host>:8000/healthz` (no auth needed) tells you
+whether the container itself is reachable.
+
+[mcpremote]: https://github.com/geelen/mcp-remote
 
 ## Configuration
 
