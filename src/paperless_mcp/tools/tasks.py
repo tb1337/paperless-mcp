@@ -42,14 +42,20 @@ def register(mcp: FastMCP, settings: Settings) -> None:
         offset: int = 0,
         limit: int = 25,
     ) -> dict[str, Any]:
-        """List tasks from the full history, newest first.
+        """List tasks from the full task history.
 
         ``status`` is one of ``pending``, ``started``, ``success``,
         ``failure``, ``revoked``. ``task_type`` is e.g. ``consume_file``,
         ``train_classifier``, ``sanity_check``, ``index_optimize``,
-        ``mail_fetch``, ``empty_trash``.
+        ``mail_fetch``, ``empty_trash``. Newest tasks come first where
+        Paperless supports ordering on this endpoint; check ``date_created``
+        rather than relying on position.
         """
         paperless = await get_client(ctx)
+        # `ordering` is a DRF OrderingFilter parameter rather than a FilterSet
+        # field — pypaperless 6.0.0rc2 dropped it from TaskFilters for that
+        # reason. Whether /api/tasks/ honours it is version-dependent; Paperless
+        # ignores it silently when it does not, so requesting it is free.
         filters: dict[str, Any] = {"ordering": "-date_created"}
         if status:
             filters["status"] = status

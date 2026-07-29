@@ -254,3 +254,38 @@ def test_safe_tool_preserves_the_wrapped_signature() -> None:
 
     assert list(inspect.signature(tool).parameters) == ["document_id", "title"]
     assert tool.__doc__ == "Doc."
+
+
+# --------------------------------------------------- real-library contract guard
+@pytest.mark.parametrize(
+    "service_name",
+    [
+        "documents",
+        "tags",
+        "correspondents",
+        "document_types",
+        "storage_paths",
+        "custom_fields",
+        "share_links",
+        "saved_views",
+        "tasks",
+        "trash",
+    ],
+)
+def test_paginated_services_keep_the_filter_plus_pages_contract(service_name: str) -> None:
+    """`paginate()` needs `filter()` as an async CM whose scope exposes `pages()`.
+
+    Checked against the real pypaperless services rather than the test fakes:
+    6.0.0rc2 removed `TrashService.filter()` because that endpoint declares no
+    filters, and only a check like this notices an override changing shape.
+    """
+    from pypaperless import PaperlessClient
+
+    # Constructing the client performs no I/O; the services are cached properties.
+    service = getattr(PaperlessClient("http://test", "token"), service_name)
+
+    assert hasattr(service, "pages"), f"{type(service).__name__} must expose pages()"
+    scoped = service.filter()
+    assert hasattr(scoped, "__aenter__"), (
+        f"{type(service).__name__}.filter() must be an async context manager"
+    )

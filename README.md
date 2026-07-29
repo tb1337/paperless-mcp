@@ -7,7 +7,7 @@ can serve a whole network from Docker.
 
 [mcp]: https://modelcontextprotocol.io/
 [pngx]: https://github.com/paperless-ngx/paperless-ngx
-[pyp]: https://github.com/tb1337/paperless-api
+[pyp]: https://github.com/tb1337/pypaperless
 
 ## Features
 
@@ -29,7 +29,7 @@ can serve a whole network from Docker.
   and retried per call, so the MCP handshake never fails just because the
   server was briefly down.
 - **Thumbnails as real images**, viewable inline in the client.
-- Built on **pypaperless 6.0.0rc1** — requires **Paperless-ngx 3.0+**.
+- Built on **pypaperless 6.0.0rc2** — requires **Paperless-ngx 3.0+**.
 
 ## Quick start — Claude Desktop
 
@@ -247,7 +247,7 @@ Notes on semantics:
 
 ## Upgrading from 0.1.x
 
-0.2.0 pins `pypaperless==6.0.0rc1` from PyPI (0.1.x tracked the library's git
+0.2.0 pins `pypaperless==6.0.0rc2` from PyPI (0.1.x tracked the library's git
 `main`) and follows its API changes. What that means for callers:
 
 - Task fields follow Paperless-ngx 3.0: `type` → `task_type`, `result` →

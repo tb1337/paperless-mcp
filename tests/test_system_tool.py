@@ -110,7 +110,7 @@ async def test_list_active_tasks_windows_the_plain_list(make_paperless: Any) -> 
 
 
 @pytest.mark.asyncio
-async def test_list_tasks_orders_newest_first(make_paperless: Any) -> None:
+async def test_list_tasks_requests_newest_first(make_paperless: Any) -> None:
     paperless = make_paperless()
     paperless.tasks.filter_results = [_task(i) for i in range(1, 3)]
     mcp = build_mcp(make_settings(), paperless)

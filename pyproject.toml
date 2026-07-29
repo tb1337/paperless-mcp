@@ -17,7 +17,7 @@ classifiers = [
 ]
 dependencies = [
     "mcp>=1.9.0",
-    "pypaperless==6.0.0rc1",
+    "pypaperless==6.0.0rc2",
     "httpx>=0.28.1",
     "python-dotenv>=1.0",
     "uvicorn>=0.30",
