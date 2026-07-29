@@ -1,0 +1,24 @@
+{
+  "//": "Claude Desktop against a paperless-mcp container on your network. Claude Desktop only launches stdio servers itself, so mcp-remote bridges stdio to the container's Streamable HTTP endpoint. Requires Node.js on the machine running Claude Desktop.",
+  "//url": "Replace paperless-mcp.lan:8000 with your container's host and port; the path is always /mcp.",
+  "//auth": "AUTH_HEADER must be 'Bearer ' plus the PAPERLESS_MCP_AUTH_TOKEN the container was started with. It lives in env, not in args, because Claude Desktop on Windows does not escape spaces inside args.",
+  "//tls": "Drop --allow-http once the endpoint is served over https.",
+  "mcpServers": {
+    "paperless": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote@latest",
+        "http://paperless-mcp.lan:8000/mcp",
+        "--allow-http",
+        "--transport",
+        "http-only",
+        "--header",
+        "Authorization:${AUTH_HEADER}"
+      ],
+      "env": {
+        "AUTH_HEADER": "Bearer your-paperless-mcp-auth-token"
+      }
+    }
+  }
+}

@@ -14,8 +14,11 @@ __pycache__
 coverage.xml
 htmlcov
 tests
+examples
 Dockerfile.dev
 docker-compose.yml
-README.md
-*.md
 script
+*.md
+# hatchling reads `readme = "README.md"` from pyproject.toml, so the build
+# context has to keep it even though every other markdown file is dropped.
+!README.md

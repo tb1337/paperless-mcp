@@ -1,6 +1,6 @@
 [project]
 name = "paperless-mcp"
-version = "0.1.0"
+version = "0.2.0"
 description = "Model Context Protocol server for Paperless-ngx, backed by pypaperless."
 readme = "README.md"
 requires-python = ">=3.13"
@@ -16,9 +16,10 @@ classifiers = [
     "Topic :: Office/Business",
 ]
 dependencies = [
-    "mcp>=1.2.0",
-    "pypaperless @ git+https://github.com/tb1337/paperless-api@main",
-    "httpx>=0.27",
+    "mcp>=1.9.0",
+    "pypaperless==6.0.0rc2",
+    "httpx>=0.28.1",
+    "python-dotenv>=1.0",
     "uvicorn>=0.30",
     "starlette>=0.37",
 ]
@@ -46,9 +47,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/paperless_mcp"]
-
-[tool.hatch.metadata]
-allow-direct-references = true
 
 [tool.ruff]
 target-version = "py313"
@@ -89,7 +87,3 @@ python_version = "3.13"
 strict = true
 packages = ["paperless_mcp"]
 mypy_path = "src"
-
-[[tool.mypy.overrides]]
-module = ["pypaperless.*"]
-ignore_missing_imports = true

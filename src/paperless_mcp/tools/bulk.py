@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.fastmcp import FastMCP
 
-from ..client import get_client
+from ..client import ToolContext, get_client
 from ..config import Settings
-from ._helpers import safe_tool
+from ._helpers import ToolInputError, safe_tool
 
 
 def register(mcp: FastMCP, settings: Settings) -> None:
@@ -19,7 +19,7 @@ def register(mcp: FastMCP, settings: Settings) -> None:
     @mcp.tool()
     @safe_tool
     async def bulk_edit_documents(
-        ctx: Context,
+        ctx: ToolContext,
         document_ids: list[int],
         correspondent_id: int | None = None,
         document_type_id: int | None = None,
@@ -29,11 +29,14 @@ def register(mcp: FastMCP, settings: Settings) -> None:
     ) -> dict[str, Any]:
         """Apply assignments to many documents at once.
 
-        Every non-null argument triggers its own bulk-edit operation against the
-        Paperless backend. Operations run sequentially; if one fails, the
-        ``applied`` list reflects only the ones that succeeded.
+        Unlike ``update_document``, tags are *added* and *removed* individually
+        rather than replaced wholesale. Every non-null argument triggers its own
+        bulk-edit request; they run in order, and if one fails the ``applied``
+        list reflects only the operations that already succeeded.
         """
-        paperless = get_client(ctx)
+        if not document_ids:
+            raise ToolInputError("document_ids must not be empty")
+        paperless = await get_client(ctx)
         applied: list[str] = []
         if correspondent_id is not None:
             await paperless.documents.bulk_edit.set_correspondent(document_ids, correspondent_id)
@@ -51,20 +54,28 @@ def register(mcp: FastMCP, settings: Settings) -> None:
                 remove_tags=remove_tag_ids or [],
             )
             applied.append("tags")
+        if not applied:
+            raise ToolInputError("Nothing to do: pass at least one field to change.")
         return {"document_ids": document_ids, "applied": applied}
 
     @mcp.tool()
     @safe_tool
-    async def bulk_reprocess_documents(ctx: Context, document_ids: list[int]) -> dict[str, Any]:
-        """Re-run OCR / metadata parsing on the given documents."""
-        paperless = get_client(ctx)
+    async def bulk_reprocess_documents(ctx: ToolContext, document_ids: list[int]) -> dict[str, Any]:
+        """Re-run OCR and metadata parsing on the given documents.
+
+        Runs asynchronously in the Paperless task queue; follow it with
+        ``list_active_tasks``.
+        """
+        if not document_ids:
+            raise ToolInputError("document_ids must not be empty")
+        paperless = await get_client(ctx)
         await paperless.documents.bulk_edit.reprocess(document_ids)
         return {"document_ids": document_ids, "reprocessing": True}
 
     @mcp.tool()
     @safe_tool
     async def bulk_merge_documents(
-        ctx: Context,
+        ctx: ToolContext,
         document_ids: list[int],
         metadata_from_id: int | None = None,
         delete_originals: bool = False,
@@ -72,13 +83,35 @@ def register(mcp: FastMCP, settings: Settings) -> None:
         """Merge several documents into a single new one.
 
         ``metadata_from_id`` selects which source document supplies the metadata
-        for the merged result. When ``delete_originals`` is true the source
-        documents are moved to the trash after merging.
+        for the merged result. With ``delete_originals=True`` the sources move
+        to the trash after merging.
         """
-        paperless = get_client(ctx)
+        if len(document_ids) < 2:
+            raise ToolInputError("Merging needs at least two document_ids")
+        if metadata_from_id is not None and metadata_from_id not in document_ids:
+            raise ToolInputError("metadata_from_id must be one of document_ids")
+        paperless = await get_client(ctx)
         await paperless.documents.bulk_edit.merge(
             document_ids,
             metadata_document_id=metadata_from_id,
             delete_originals=delete_originals,
         )
-        return {"merged": document_ids, "metadata_from_id": metadata_from_id}
+        return {
+            "merged": document_ids,
+            "metadata_from_id": metadata_from_id,
+            "delete_originals": delete_originals,
+        }
+
+    @mcp.tool()
+    @safe_tool
+    async def bulk_rotate_documents(
+        ctx: ToolContext, document_ids: list[int], degrees: int
+    ) -> dict[str, Any]:
+        """Rotate documents by 90, 180 or 270 degrees clockwise."""
+        if not document_ids:
+            raise ToolInputError("document_ids must not be empty")
+        if degrees not in {90, 180, 270}:
+            raise ToolInputError(f"degrees must be 90, 180 or 270, got {degrees}")
+        paperless = await get_client(ctx)
+        await paperless.documents.bulk_edit.rotate(document_ids, degrees)
+        return {"document_ids": document_ids, "degrees": degrees}

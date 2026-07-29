@@ -1,46 +1,109 @@
-"""Shared helpers used by tool modules: pagination and error translation."""
+"""Shared helpers used by tool modules: error translation and pagination."""
 
 from __future__ import annotations
 
+import datetime as dt
 import functools
 import logging
-from collections.abc import AsyncIterator, Awaitable, Callable
-from typing import Any
+from collections.abc import Awaitable, Callable, Mapping
+from typing import Any, Protocol, cast
+
+from pydantic import ValidationError
+from pypaperless.exceptions import (
+    AsnRequestError,
+    AuthError,
+    BadJsonResponseError,
+    BulkEditError,
+    DeletionError,
+    DispatchError,
+    DraftError,
+    DraftFieldRequiredError,
+    DraftNotSupportedError,
+    ForbiddenError,
+    InitializationError,
+    ItemNotFoundError,
+    JsonResponseWithError,
+    NotFoundError,
+    PaperlessConnectionError,
+    PaperlessError,
+    PaperlessTimeoutError,
+    PrimaryKeyRequiredError,
+    ResponseError,
+    SendEmailError,
+    TaskNotFoundError,
+    UnexpectedStatusError,
+)
 
 log = logging.getLogger(__name__)
 
 
-# Mapping of pypaperless exception class names to (error_code, http-ish hint).
-# We match by class name so we don't have to import every exception (and so
-# the helper works even if pypaperless adds new ones).
-_ERROR_MAP: dict[str, tuple[str, str]] = {
-    "ItemNotFoundError": ("not_found", "The requested object does not exist."),
-    "TaskNotFoundError": ("not_found", "The requested task does not exist."),
-    "PrimaryKeyRequiredError": ("invalid_argument", "A primary key is required."),
-    "AuthError": ("auth_failed", "Paperless rejected our API token."),
-    "InvalidTokenError": ("auth_failed", "Paperless API token is invalid."),
-    "InactiveOrDeletedError": ("auth_failed", "The Paperless user is inactive or deleted."),
-    "ForbiddenError": ("forbidden", "Paperless denied access to this resource."),
-    "BulkEditError": ("bulk_edit_failed", "Paperless rejected the bulk edit."),
-    "DraftFieldRequiredError": ("missing_field", "A required field was not set on the draft."),
-    "DraftError": ("draft_invalid", "The draft was rejected by Paperless."),
-    "DeletionError": ("delete_failed", "Paperless refused the delete."),
-    "AsnRequestError": ("asn_failed", "Paperless could not assign a next ASN."),
-    "SendEmailError": ("email_failed", "Paperless rejected the email request."),
-    "JsonResponseWithError": ("paperless_error", "Paperless returned an error payload."),
-    "BadJsonResponseError": ("upstream_error", "Paperless returned invalid JSON."),
-    "PaperlessConnectionError": ("connection_error", "Could not reach the Paperless server."),
-    "ResponseError": ("upstream_error", "Paperless returned an unexpected response."),
-}
+class ToolInputError(ValueError):
+    """Raised when a tool argument is malformed.
+
+    Surfaces to the model as ``{"error": "invalid_argument", ...}`` rather than
+    as an MCP protocol error, so it can correct itself and retry.
+    """
+
+
+#: Ordered most-specific-first: the first matching entry wins, so subclasses
+#: must precede their bases (``PaperlessTimeoutError`` before
+#: ``PaperlessConnectionError`` before ``InitializationError``).
+_ERROR_MAP: tuple[tuple[type[BaseException], str, str], ...] = (
+    (ToolInputError, "invalid_argument", "A tool argument was rejected."),
+    (NotFoundError, "not_found", "Paperless has no such object (HTTP 404)."),
+    (ItemNotFoundError, "not_found", "The requested object does not exist."),
+    (TaskNotFoundError, "not_found", "The requested task does not exist."),
+    (PrimaryKeyRequiredError, "invalid_argument", "A primary key is required."),
+    (
+        PaperlessTimeoutError,
+        "timeout",
+        "Paperless did not respond in time. Retry, or raise PAPERLESS_MCP_TIMEOUT.",
+    ),
+    (
+        PaperlessConnectionError,
+        "connection_error",
+        "Could not reach the Paperless server. Check PAPERLESS_URL and the network.",
+    ),
+    (AuthError, "auth_failed", "Paperless rejected the API token. Check PAPERLESS_TOKEN."),
+    (ForbiddenError, "forbidden", "The Paperless user may not access this resource."),
+    (BulkEditError, "bulk_edit_failed", "Paperless rejected the bulk edit."),
+    (DraftFieldRequiredError, "missing_field", "A required field was not supplied."),
+    (DraftNotSupportedError, "unsupported", "This resource cannot be created via the API."),
+    (DraftError, "draft_invalid", "The new object was rejected by Paperless."),
+    (DeletionError, "delete_failed", "Paperless refused the delete."),
+    (AsnRequestError, "asn_failed", "Paperless could not assign the next archive serial number."),
+    (SendEmailError, "email_failed", "Paperless rejected the email request."),
+    (JsonResponseWithError, "paperless_error", "Paperless returned an error payload."),
+    (BadJsonResponseError, "upstream_error", "Paperless returned invalid JSON."),
+    (UnexpectedStatusError, "upstream_error", "Paperless returned an unexpected HTTP status."),
+    (DispatchError, "unsupported", "pypaperless cannot route this operation to a service."),
+    (InitializationError, "connection_error", "Could not initialize the Paperless connection."),
+    (ResponseError, "upstream_error", "Paperless returned an unexpected response."),
+    (ValidationError, "invalid_argument", "The supplied values are not what Paperless expects."),
+    # Catch-all for anything pypaperless raises that is not enumerated above.
+    (PaperlessError, "paperless_error", "The Paperless client reported an error."),
+)
+
+
+def translate_error(exc: BaseException) -> dict[str, Any] | None:
+    """Return an LLM-friendly error dict for *exc*, or ``None`` when unmapped."""
+    for exc_type, code, message in _ERROR_MAP:
+        if isinstance(exc, exc_type):
+            return {
+                "error": code,
+                "detail": message,
+                "cause": str(exc) or type(exc).__name__,
+            }
+    return None
 
 
 def safe_tool[F: Callable[..., Awaitable[Any]]](func: F) -> F:
-    """Translate pypaperless errors into LLM-friendly dict results.
+    """Translate pypaperless errors into structured tool results.
 
     Tools wrapped with this decorator never raise on expected pypaperless
-    failures; instead they return ``{"error": <code>, "detail": <message>}``.
-    Unexpected exceptions still propagate so they show up as MCP errors and
-    in the server log.
+    failures; instead they return ``{"error": <code>, "detail": ..., "cause":
+    ...}``. Unexpected exceptions still propagate so they surface as MCP errors
+    and land in the server log.
     """
 
     @functools.wraps(func)
@@ -48,48 +111,171 @@ def safe_tool[F: Callable[..., Awaitable[Any]]](func: F) -> F:
         try:
             return await func(*args, **kwargs)
         except Exception as exc:
-            name = type(exc).__name__
-            if name not in _ERROR_MAP:
-                # Re-raise unexpected exceptions so MCP marks the result as
-                # an error and the trace ends up in the logs.
+            translated = translate_error(exc)
+            if translated is None:
                 raise
-            code, message = _ERROR_MAP[name]
-            log.info("%s raised %s: %s", func.__name__, name, exc)
-            return {"error": code, "detail": message, "cause": str(exc) or name}
+            log.info("%s raised %s: %s", func.__name__, type(exc).__name__, exc)
+            return translated
 
-    return wrapper  # type: ignore[return-value]
+    return cast("F", wrapper)
 
 
-async def collect[T](
-    aiter: AsyncIterator[T],
+def parse_date(value: str, *, field: str) -> dt.date:
+    """Parse an ISO date (``YYYY-MM-DD``) or datetime, keeping only the date part.
+
+    Raises:
+        ToolInputError: When *value* is not ISO 8601.
+    """
+    try:
+        return dt.datetime.fromisoformat(value).date()
+    except ValueError:
+        pass
+    try:
+        return dt.date.fromisoformat(value)
+    except ValueError as exc:
+        raise ToolInputError(
+            f"{field} must be an ISO date (YYYY-MM-DD) or datetime, got {value!r}"
+        ) from exc
+
+
+def parse_datetime(value: str, *, field: str) -> dt.datetime:
+    """Parse an ISO datetime, widening a bare date to midnight.
+
+    Raises:
+        ToolInputError: When *value* is not ISO 8601.
+    """
+    try:
+        return dt.datetime.fromisoformat(value)
+    except ValueError:
+        pass
+    try:
+        return dt.datetime.combine(dt.date.fromisoformat(value), dt.time.min)
+    except ValueError as exc:
+        raise ToolInputError(f"{field} must be an ISO datetime or date, got {value!r}") from exc
+
+
+class Filterable(Protocol):
+    """Structural type of a pypaperless service that filters and paginates."""
+
+    def filter(self, **kwargs: Any) -> Any:
+        """Return an async context manager scoping subsequent iteration."""
+        ...
+
+
+def normalize_csv_filters(filters: Mapping[str, Any]) -> dict[str, Any]:
+    """Join list-valued lookups into the comma-separated form Paperless expects.
+
+    ``IterableService.pages()`` already does this for ``__in`` and ``__all``;
+    ``__none`` would otherwise go out as repeated query parameters, of which
+    Django reads only the last one.
+    """
+    return {
+        key: ",".join(str(item) for item in value) if isinstance(value, list) else value
+        for key, value in filters.items()
+    }
+
+
+def _slice_plan(offset: int, limit: int) -> tuple[int, int, int]:
+    """Return ``(page_size, first_page, skip_within_first_page)`` for a window.
+
+    Paperless paginates by page number, so an arbitrary offset becomes "start
+    at the page holding it, then drop the leading items". Using
+    ``page_size == limit`` keeps every window to at most two requests.
+    """
+    page_size = max(limit, 1)
+    return page_size, offset // page_size + 1, offset % page_size
+
+
+async def paginate(
+    service: Filterable,
+    filters: Mapping[str, Any] | None = None,
     *,
     offset: int = 0,
     limit: int = 25,
-) -> tuple[list[T], bool]:
-    """Materialize an async iterator with offset/limit, returning (items, has_more).
+) -> tuple[list[Any], int | None]:
+    """Fetch a single offset/limit window from an iterable pypaperless service.
 
-    ``has_more`` is True when at least one more item was available past
-    ``offset + limit``. We probe by attempting one extra element rather than
-    consuming the whole iterator.
+    Paging happens server-side, so the cost does not grow with ``offset``.
+
+    Returns:
+        ``(items, total)``, where ``total`` is the match count reported by
+        Paperless or ``None`` when it did not report one.
+
+    Raises:
+        ValueError: When ``offset`` or ``limit`` is negative.
     """
     if offset < 0 or limit < 0:
         raise ValueError("offset and limit must be non-negative")
-    if limit == 0:
-        # Still report whether anything would have been available.
-        async for _ in aiter:
-            return [], True
-        return [], False
 
-    items: list[T] = []
-    skipped = 0
-    has_more = False
-    async for item in aiter:
-        if skipped < offset:
-            skipped += 1
-            continue
-        if len(items) < limit:
+    params = normalize_csv_filters(filters or {})
+    page_size, first_page, skip = _slice_plan(offset, limit)
+
+    async with service.filter(**params) as scoped:
+        pages = scoped.pages(page=first_page, page_size=page_size)
+        try:
+            return await _drain(pages, skip=skip, limit=limit)
+        except NotFoundError:
+            # DRF answers 404 for a page number past the end of the result set.
+            return [], None
+        finally:
+            await pages.aclose()
+
+
+async def _drain(pages: Any, *, skip: int, limit: int) -> tuple[list[Any], int | None]:
+    """Collect up to *limit* items from *pages*, dropping the leading *skip*."""
+    items: list[Any] = []
+    total: int | None = None
+
+    async for page in pages:
+        if total is None:
+            total = page.count if isinstance(getattr(page, "count", None), int) else None
+        if limit == 0:
+            # One request is still worth it: the caller gets an accurate total.
+            break
+        for item in page:
+            if skip > 0:
+                skip -= 1
+                continue
             items.append(item)
-            continue
-        has_more = True
-        break
-    return items, has_more
+            if len(items) >= limit:
+                return items, total
+        if page.is_last_page:
+            break
+    return items, total
+
+
+def window[ItemT](items: list[ItemT], *, offset: int, limit: int) -> tuple[list[ItemT], int]:
+    """Apply an offset/limit window to an already-materialized list.
+
+    Used for the Paperless endpoints that answer with a bare list instead of a
+    paginated envelope (document notes, a document's share links, active tasks).
+
+    Raises:
+        ValueError: When ``offset`` or ``limit`` is negative.
+    """
+    if offset < 0 or limit < 0:
+        raise ValueError("offset and limit must be non-negative")
+    return items[offset : offset + limit], len(items)
+
+
+def page_result(
+    key: str,
+    items: list[Any],
+    *,
+    offset: int,
+    limit: int,
+    total: int | None,
+    formatter: Callable[[Any], Any],
+    **extra: Any,
+) -> dict[str, Any]:
+    """Build the uniform envelope every list-shaped tool returns."""
+    has_more = (offset + len(items)) < total if total is not None else len(items) == limit
+    return {
+        key: [formatter(item) for item in items],
+        "returned": len(items),
+        "offset": offset,
+        "limit": limit,
+        "total": total,
+        "has_more": has_more,
+        **extra,
+    }

@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.fastmcp import FastMCP
 
 from .. import __version__
-from ..client import get_client
+from ..client import ToolContext, get_client, get_settings
 from ..config import Settings
 from ..formatting import format_saved_view, safe_dump
-from ._helpers import collect, safe_tool
+from ._helpers import page_result, paginate, safe_tool
 
 
 def register(mcp: FastMCP, settings: Settings) -> None:
@@ -18,59 +18,58 @@ def register(mcp: FastMCP, settings: Settings) -> None:
 
     @mcp.tool()
     @safe_tool
-    async def get_paperless_info(ctx: Context) -> dict[str, Any]:
-        """Return Paperless-ngx version info and the MCP server version."""
-        paperless = get_client(ctx)
+    async def get_paperless_info(ctx: ToolContext) -> dict[str, Any]:
+        """Return Paperless-ngx version info and this MCP server's configuration."""
+        paperless = await get_client(ctx)
+        cfg = get_settings(ctx)
         return {
-            "paperless_version": getattr(paperless, "host_version", None),
-            "paperless_api_version": getattr(paperless, "host_api_version", None),
-            "paperless_base_url": getattr(paperless, "base_url", None),
+            "paperless_version": paperless.host_version,
+            "paperless_api_version": paperless.host_api_version,
+            "paperless_base_url": paperless.base_url,
             "mcp_server_version": __version__,
+            "readonly": cfg.readonly,
+            "deletes_enabled": cfg.expose_deletes,
         }
 
     @mcp.tool()
     @safe_tool
-    async def get_statistics(ctx: Context) -> dict[str, Any]:
-        """Return aggregate document statistics (total counts, inbox, etc.)."""
-        paperless = get_client(ctx)
+    async def get_statistics(ctx: ToolContext) -> dict[str, Any]:
+        """Return aggregate statistics: document totals, inbox count, file types."""
+        paperless = await get_client(ctx)
         stats = await paperless.statistics()
         dumped = safe_dump(stats)
         return dumped if isinstance(dumped, dict) else {"statistics": dumped}
 
     @mcp.tool()
     @safe_tool
-    async def list_saved_views(ctx: Context, offset: int = 0, limit: int = 100) -> dict[str, Any]:
-        """List all saved views (a.k.a. dashboards)."""
-        paperless = get_client(ctx)
-        items, has_more = await collect(paperless.saved_views.filter(), offset=offset, limit=limit)
-        return {
-            "saved_views": [format_saved_view(v) for v in items],
-            "returned": len(items),
-            "offset": offset,
-            "limit": limit,
-            "has_more": has_more,
-        }
+    async def list_saved_views(
+        ctx: ToolContext, offset: int = 0, limit: int = 50
+    ) -> dict[str, Any]:
+        """List all saved views (the user's stored document filters)."""
+        paperless = await get_client(ctx)
+        items, total = await paginate(paperless.saved_views, offset=offset, limit=limit)
+        return page_result(
+            "saved_views",
+            items,
+            offset=offset,
+            limit=limit,
+            total=total,
+            formatter=format_saved_view,
+        )
 
     @mcp.tool()
     @safe_tool
-    async def get_saved_view(ctx: Context, view_id: int) -> dict[str, Any]:
-        """Return the full configuration of a saved view, including filter rules.
+    async def get_saved_view(ctx: ToolContext, view_id: int) -> dict[str, Any]:
+        """Return a saved view's full configuration, including its filter rules.
 
-        Note: filter rules use Paperless' internal numeric ``rule_type`` codes
-        (see Paperless-ngx source for the canonical mapping). To actually run
-        the view, translate the rules into ``search_documents`` arguments
-        yourself — there is no automatic execution.
+        Filter rules use Paperless' internal numeric ``rule_type`` codes. There
+        is no automatic execution: translate the rules into ``search_documents``
+        arguments yourself.
         """
-        paperless = get_client(ctx)
+        paperless = await get_client(ctx)
         view = await paperless.saved_views(view_id)
-        rules = []
-        for rule in getattr(view, "filter_rules", []) or []:
-            rules.append(
-                {
-                    "rule_type": getattr(rule, "rule_type", None),
-                    "value": getattr(rule, "value", None),
-                }
-            )
         out = format_saved_view(view)
-        out["filter_rules"] = rules
+        out["filter_rules"] = [
+            {"rule_type": rule.rule_type, "value": rule.value} for rule in (view.filter_rules or [])
+        ]
         return out

@@ -1,0 +1,18 @@
+{
+  "//": "Variant for running paperless-mcp from a git checkout instead of PyPI. Replace /absolute/path/to/paperless-mcp with your clone. `uv run` creates and syncs the venv on first launch, so no manual install step is needed.",
+  "mcpServers": {
+    "paperless": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "/absolute/path/to/paperless-mcp",
+        "paperless-mcp"
+      ],
+      "env": {
+        "PAPERLESS_URL": "https://paperless.example.com",
+        "PAPERLESS_TOKEN": "your-paperless-api-token"
+      }
+    }
+  }
+}

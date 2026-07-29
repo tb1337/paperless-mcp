@@ -1,53 +1,44 @@
-"""AI-assisted tools: suggestions, AI suggestions, document chat."""
+"""Suggestion tools: classifier suggestions and (optional) LLM suggestions."""
 
 from __future__ import annotations
 
 from typing import Any
 
-from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.fastmcp import FastMCP
 
-from ..client import get_client
+from ..client import ToolContext, get_client
 from ..config import Settings
 from ..formatting import safe_dump
 from ._helpers import safe_tool
 
 
 def register(mcp: FastMCP, settings: Settings) -> None:
-    """Register AI tools (read-only)."""
+    """Register suggestion tools (read-only)."""
 
     @mcp.tool()
     @safe_tool
-    async def get_document_suggestions(ctx: Context, document_id: int) -> dict[str, Any]:
+    async def get_document_suggestions(ctx: ToolContext, document_id: int) -> dict[str, Any]:
         """Return Paperless' classifier-based suggestions for a document.
 
-        Suggested tags, correspondent, document type, etc. based on the trained
-        ML classifier. Cheap to call.
+        Suggested correspondents, tags, document types, storage paths and dates
+        from the locally trained classifier — cheap, no LLM involved. The values
+        are IDs; resolve them with ``list_tags`` and friends.
         """
-        paperless = get_client(ctx)
+        paperless = await get_client(ctx)
         suggestions = await paperless.documents.suggestions(document_id)
         return {"document_id": document_id, "suggestions": safe_dump(suggestions)}
 
     @mcp.tool()
     @safe_tool
-    async def get_document_ai_suggestions(ctx: Context, document_id: int) -> dict[str, Any]:
-        """Return AI-generated suggestions (requires Paperless AI to be configured).
+    async def get_document_ai_suggestions(ctx: ToolContext, document_id: int) -> dict[str, Any]:
+        """Return LLM-generated suggestions for a document.
 
-        Uses the LLM backend Paperless is configured against.
+        Requires the AI features to be enabled on the Paperless-ngx side
+        (``PAPERLESS_AI_ENABLED``); otherwise Paperless answers with an error,
+        which is returned as a structured error result. Unlike
+        ``get_document_suggestions`` this can also propose *new* tag and
+        correspondent names, returned in the ``suggested_*`` lists.
         """
-        paperless = get_client(ctx)
+        paperless = await get_client(ctx)
         suggestions = await paperless.documents.ai_suggestions(document_id)
         return {"document_id": document_id, "ai_suggestions": safe_dump(suggestions)}
-
-    @mcp.tool()
-    @safe_tool
-    async def chat_with_documents(
-        ctx: Context, query: str, document_id: int | None = None
-    ) -> dict[str, Any]:
-        """Run a natural-language question against Paperless' chat endpoint.
-
-        Pass ``document_id`` to scope the conversation to a single document;
-        omit it to chat across the whole collection.
-        """
-        paperless = get_client(ctx)
-        response = await paperless.documents.chat(query, document_id=document_id)
-        return {"query": query, "document_id": document_id, "response": safe_dump(response)}

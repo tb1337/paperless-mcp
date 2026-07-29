@@ -1,0 +1,15 @@
+{
+  "//": "Copy the paperless entry into your claude_desktop_config.json. Locations: macOS ~/Library/Application Support/Claude/claude_desktop_config.json, Windows %APPDATA%\\Claude\\claude_desktop_config.json, Linux ~/.config/Claude/claude_desktop_config.json. Restart Claude Desktop afterwards.",
+  "mcpServers": {
+    "paperless": {
+      "command": "uvx",
+      "args": ["--from", "paperless-mcp", "paperless-mcp"],
+      "env": {
+        "PAPERLESS_URL": "https://paperless.example.com",
+        "PAPERLESS_TOKEN": "your-paperless-api-token",
+        "PAPERLESS_MCP_READONLY": "false",
+        "PAPERLESS_MCP_ENABLE_DELETE": "false"
+      }
+    }
+  }
+}
