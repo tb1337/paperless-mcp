@@ -1,6 +1,8 @@
 [project]
 name = "paperless-mcp"
-version = "0.2.0"
+# Placeholder. The release workflow rewrites this from the git tag before
+# building, so the tag is the single source of truth for a published version.
+version = "0.0.0"
 description = "Model Context Protocol server for Paperless-ngx, backed by pypaperless."
 readme = "README.md"
 requires-python = ">=3.13"
