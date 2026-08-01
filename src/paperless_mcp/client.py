@@ -16,8 +16,7 @@ import logging
 from typing import TYPE_CHECKING, Any, Self
 
 import httpx
-from mcp.server.fastmcp import Context
-from mcp.server.session import ServerSession
+from mcp.server.mcpserver import Context
 from pypaperless import PaperlessClient
 from pypaperless.exceptions import PaperlessError
 
@@ -30,10 +29,11 @@ CLIENT_KEY = "paperless"
 SETTINGS_KEY = "settings"
 
 #: The ``Context`` flavour every tool handler receives. It must stay a plain
-#: assignment: FastMCP finds the context parameter with ``issubclass``, and
+#: assignment: MCPServer finds the context parameter with ``issubclass``, and
 #: pydantic's generic machinery makes ``Context[...]`` a real class, whereas a
 #: PEP 695 ``type`` alias would resolve to a TypeAliasType and go undetected.
-ToolContext = Context[ServerSession, dict[str, Any], Any]
+#: The parameters are ``Context[LifespanContextT, RequestT]``.
+ToolContext = Context[dict[str, Any], Any]
 
 
 class PaperlessConnection:
@@ -131,6 +131,6 @@ async def get_client(ctx: ToolContext) -> PaperlessClient:
 
 
 def get_settings(ctx: ToolContext) -> Settings:
-    """Return the Settings attached to the FastMCP lifespan context."""
+    """Return the Settings attached to the MCPServer lifespan context."""
     settings: Settings = _lifespan(ctx)[SETTINGS_KEY]
     return settings

@@ -115,7 +115,7 @@ async def test_connection_reuses_an_initialized_client(fake_client_class: Any) -
 @pytest.mark.asyncio
 async def test_stdio_session_lifespan_owns_its_connection(fake_client_class: Any) -> None:
     mcp = server_mod.build_mcp(make_settings())
-    async with mcp._mcp_server.lifespan(mcp._mcp_server) as ctx:  # type: ignore[arg-type]
+    async with mcp._lowlevel_server.lifespan(mcp._lowlevel_server) as ctx:  # type: ignore[arg-type]
         connection = ctx["paperless"]
         assert isinstance(connection, PaperlessConnection)
         await connection.client()

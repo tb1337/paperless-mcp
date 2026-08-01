@@ -125,20 +125,20 @@ async def test_tool_schemas_are_json_serializable() -> None:
 
     tools = await build_mcp(_settings(readonly=False, enable_delete=True)).list_tools()
     for tool in tools:
-        json.dumps(tool.inputSchema)
+        json.dumps(tool.input_schema)
 
 
 def test_handshake_reports_our_own_version() -> None:
     """Without this the client sees the MCP SDK's version as the server's."""
     mcp = build_mcp(_settings(readonly=False, enable_delete=False))
-    options = mcp._mcp_server.create_initialization_options()
+    options = mcp._lowlevel_server.create_initialization_options()
     assert options.server_name == "paperless-mcp"
     assert options.server_version == __version__
     assert options.instructions and "Paperless-ngx" in options.instructions
 
 
 def test_every_tool_receives_the_lifespan_context() -> None:
-    """FastMCP injects ``ctx`` only when it recognises the annotation.
+    """MCPServer injects ``ctx`` only when it recognises the annotation.
 
     ``ToolContext`` is a parameterized ``Context[...]``; if that ever stops
     being detected, every tool would be called without a client and the ``ctx``

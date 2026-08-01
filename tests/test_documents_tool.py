@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from mcp.server.fastmcp.utilities.types import Image
+from mcp.server.mcpserver.utilities.types import Image
 from pypaperless.exceptions import ItemNotFoundError
 
 from tests.conftest import FakeService, build_mcp, call_tool, make_settings
@@ -348,7 +348,7 @@ async def test_get_document_thumbnail_returns_image_content(make_paperless: Any)
     result = await call_tool(mcp, "get_document_thumbnail", document_id=1)
     assert isinstance(result, Image)
     assert result.data == b"webpdata"
-    assert result.to_image_content().mimeType == "image/webp"
+    assert result.to_image_content().mime_type == "image/webp"
 
 
 @pytest.mark.asyncio

@@ -6,8 +6,8 @@ import base64
 import binascii
 from typing import Any
 
-from mcp.server.fastmcp import FastMCP
-from mcp.server.fastmcp.utilities.types import Image
+from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.utilities.types import Image
 
 from ..client import ToolContext, get_client, get_settings
 from ..config import Settings
@@ -137,7 +137,7 @@ def _as_image(content: bytes, content_type: str | None) -> Image | None:
     return Image(data=content, format=image_format)
 
 
-def register(mcp: FastMCP, settings: Settings) -> None:
+def register(mcp: MCPServer, settings: Settings) -> None:
     """Register document tools according to the configured visibility flags."""
     _register_reads(mcp)
     if settings.expose_writes:
@@ -146,7 +146,7 @@ def register(mcp: FastMCP, settings: Settings) -> None:
         _register_deletes(mcp)
 
 
-def _register_reads(mcp: FastMCP) -> None:
+def _register_reads(mcp: MCPServer) -> None:
     @mcp.tool()
     @safe_tool
     async def search_documents(
@@ -359,7 +359,7 @@ def _register_reads(mcp: FastMCP) -> None:
         content: bytes = thumb.content or b""
         size = len(content)
         if size > cfg.max_file_bytes:
-            # The declared return type is Image, but FastMCP serializes any
+            # The declared return type is Image, but MCPServer serializes any
             # other value as text content, which is how error results surface.
             return {  # type: ignore[return-value]
                 "error": "file_too_large",
@@ -377,7 +377,7 @@ def _register_reads(mcp: FastMCP) -> None:
         return image
 
 
-def _register_writes(mcp: FastMCP) -> None:
+def _register_writes(mcp: MCPServer) -> None:
     @mcp.tool()
     @safe_tool
     async def upload_document(
@@ -496,7 +496,7 @@ def _register_writes(mcp: FastMCP) -> None:
         return {"document_id": document_id, "note_id": note_id}
 
 
-def _register_deletes(mcp: FastMCP) -> None:
+def _register_deletes(mcp: MCPServer) -> None:
     @mcp.tool()
     @safe_tool
     async def delete_document(ctx: ToolContext, document_id: int) -> dict[str, Any]:

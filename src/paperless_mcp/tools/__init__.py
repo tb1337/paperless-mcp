@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 from ..config import Settings
 from . import ai, bulk, documents, share_links, system, tasks, taxonomy, trash
 
 
-def register_all(mcp: FastMCP, settings: Settings) -> None:
-    """Register every enabled tool module on the FastMCP instance."""
+def register_all(mcp: MCPServer, settings: Settings) -> None:
+    """Register every enabled tool module on the MCPServer instance."""
     documents.register(mcp, settings)
     taxonomy.register(mcp, settings)
     bulk.register(mcp, settings)

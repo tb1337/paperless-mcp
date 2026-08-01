@@ -29,7 +29,8 @@ can serve a whole network from Docker.
   and retried per call, so the MCP handshake never fails just because the
   server was briefly down.
 - **Thumbnails as real images**, viewable inline in the client.
-- Built on **pypaperless 6.0.0rc2** — requires **Paperless-ngx 3.0+**.
+- Built on **pypaperless 6.0.0rc2** and the **MCP Python SDK 2.0** — requires
+  **Paperless-ngx 3.0+**.
 
 ## Quick start — Claude Desktop
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 from ..client import ToolContext, get_client
 from ..config import Settings
@@ -12,7 +12,7 @@ from ..formatting import format_task
 from ._helpers import ToolInputError, page_result, paginate, safe_tool, window
 
 
-def register(mcp: FastMCP, settings: Settings) -> None:
+def register(mcp: MCPServer, settings: Settings) -> None:
     """Register task tools."""
 
     @mcp.tool()
