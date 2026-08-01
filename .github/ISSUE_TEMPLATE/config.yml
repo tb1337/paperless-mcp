@@ -1,0 +1,9 @@
+---
+blank_issues_enabled: false
+contact_links:
+  - name: 📖 Documentation
+    url: https://github.com/tb1337/paperless-mcp#readme
+    about: Check the README for setup, configuration and the full tool list
+  - name: 🐛 Paperless-ngx itself
+    url: https://github.com/paperless-ngx/paperless-ngx/issues
+    about: Issues with Paperless-ngx itself belong in its own tracker

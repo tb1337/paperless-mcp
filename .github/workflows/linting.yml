@@ -1,0 +1,45 @@
+---
+name: Linting
+
+# No paths filter on purpose: this is a required check, and GitHub treats a
+# required check that never started as permanently pending. A filtered workflow
+# would deadlock every PR that only touches docs or config.
+# yamllint disable-line rule:truthy
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DEFAULT_PYTHON: "3.14"
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: ⤵️ Check out code from GitHub
+        uses: actions/checkout@v7.0.1
+      - name: 🏗 Set up Python ${{ env.DEFAULT_PYTHON }}
+        id: python
+        uses: actions/setup-python@v7.0.0
+        with:
+          python-version: ${{ env.DEFAULT_PYTHON }}
+      - name: 🏗 Set up uv
+        uses: astral-sh/setup-uv@v9.0.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+      - name: 🏗 Install Python dependencies
+        run: uv sync --group dev
+      - name: 🚀 Run ruff (with GitHub annotations)
+        run: |
+          uv run ruff check --output-format=github .
+          uv run ruff format --check .
+      - name: 🚀 Run remaining hooks via prek
+        env:
+          SKIP: mypy,pytest,ruff-check,ruff-format
+        run: uv run prek run --all-files --show-diff-on-failure

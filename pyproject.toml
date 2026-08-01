@@ -13,6 +13,7 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Office/Business",
 ]
 dependencies = [
@@ -35,16 +36,22 @@ paperless-mcp = "paperless_mcp.__main__:main"
 
 [project.urls]
 Homepage = "https://github.com/tb1337/paperless-mcp"
-Issues = "https://github.com/tb1337/paperless-mcp/issues"
+"Source Code" = "https://github.com/tb1337/paperless-mcp"
+"Bug Reports" = "https://github.com/tb1337/paperless-mcp/issues"
+Coverage = "https://codecov.io/gh/tb1337/paperless-mcp"
 
 [dependency-groups]
 dev = [
-    "ruff>=0.16.1",
+    "codespell>=2.4.3",
+    "covdefaults>=2.3.0",
+    "coverage>=7.15.2",
+    "mypy>=2.3.0",
+    "prek>=0.4.11",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "pytest-cov>=7.1.0",
-    "mypy>=2.3.0",
-    "prek>=0.4.11",
+    "ruff>=0.16.1",
+    "yamllint>=1.38.0",
 ]
 
 [build-system]
@@ -83,10 +90,23 @@ ignore = [
 [tool.ruff.lint.pydocstyle]
 convention = "google"
 
+[tool.codespell]
+skip = "./uv.lock,./.git"
+
+[tool.coverage.run]
+plugins = ["covdefaults"]
+source = ["paperless_mcp"]
+
+[tool.coverage.report]
+# covdefaults defaults this to 100; the real figure is tracked here instead so
+# the gate moves deliberately rather than by accident.
+fail_under = 80
+show_missing = true
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-addopts = "-ra"
+addopts = "-ra --cov --cov-report=term --cov-report=xml"
 
 [tool.mypy]
 python_version = "3.13"
