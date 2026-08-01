@@ -36,22 +36,27 @@ categories:
     labels:
       - "dev-deps"
 
+# TEMPORARY (until revoked by @tb1337): "breaking-change" and "new-feature"
+# resolve to a patch bump instead of major/minor. To restore the normal scheme,
+# move "breaking-change" back under major and "new-feature" back under minor.
+# The bare "major"/"minor" labels stay wired up as a manual override in the
+# meantime — put one on a PR to force that bump for a single release.
 version-resolver:
   major:
     labels:
       - "major"
-      - "breaking-change"
   minor:
     labels:
       - "minor"
-      - "new-feature"
   patch:
     labels:
+      - "breaking-change" # temporary, see note above
       - "bugfix"
       - "ci"
       - "dependencies"
       - "dev-deps"
       - "enhancement"
+      - "new-feature" # temporary, see note above
       - "performance"
       - "refactor"
   default: patch
