@@ -9,13 +9,13 @@ from mcp.server.mcpserver import MCPServer
 from ..client import ToolContext, get_client
 from ..config import Settings
 from ..formatting import safe_dump
-from ._helpers import safe_tool
+from ._helpers import read_tool, safe_tool
 
 
 def register(mcp: MCPServer, settings: Settings) -> None:
     """Register suggestion tools (read-only)."""
 
-    @mcp.tool()
+    @read_tool(mcp)
     @safe_tool
     async def get_document_suggestions(ctx: ToolContext, document_id: int) -> dict[str, Any]:
         """Return Paperless' classifier-based suggestions for a document.
@@ -28,7 +28,7 @@ def register(mcp: MCPServer, settings: Settings) -> None:
         suggestions = await paperless.documents.suggestions(document_id)
         return {"document_id": document_id, "suggestions": safe_dump(suggestions)}
 
-    @mcp.tool()
+    @read_tool(mcp)
     @safe_tool
     async def get_document_ai_suggestions(ctx: ToolContext, document_id: int) -> dict[str, Any]:
         """Return LLM-generated suggestions for a document.

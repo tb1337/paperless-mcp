@@ -55,6 +55,17 @@ wins, so subclasses must precede their bases.
 schema the model sees. Spell out every parameter with a type and a docstring;
 that schema is the only documentation the model gets.
 
+**Tools register through `read_tool` / `write_tool` / `delete_tool`**, never
+through a bare `@mcp.tool()`. Those helpers in `tools/_helpers.py` attach the MCP
+annotations and derive the display title from the function name, so the hints
+stay consistent across 54 tools instead of being retyped per call site. Picking
+the two `write_tool` flags is a judgement call worth making deliberately:
+`destructive` means the call can overwrite data that was already stored,
+`idempotent` means repeating the identical call converges on the same state
+(false for anything that adds a row, queues a task, or accumulates — rotation
+being the obvious trap). `tests/test_tool_registration.py` pins the
+non-obvious ones.
+
 **List tools paginate.** Anything list-shaped takes `offset`/`limit` and returns
 `total` and `has_more` via `page_result`. Do not add a tool that can return an
 unbounded result set.

@@ -8,7 +8,7 @@ from mcp.server.mcpserver import MCPServer
 
 from ..client import ToolContext, get_client
 from ..config import Settings
-from ._helpers import ToolInputError, safe_tool
+from ._helpers import ToolInputError, safe_tool, write_tool
 
 
 def register(mcp: MCPServer, settings: Settings) -> None:
@@ -16,7 +16,7 @@ def register(mcp: MCPServer, settings: Settings) -> None:
     if not settings.expose_writes:
         return
 
-    @mcp.tool()
+    @write_tool(mcp, destructive=True, idempotent=True)
     @safe_tool
     async def bulk_edit_documents(
         ctx: ToolContext,
@@ -58,7 +58,7 @@ def register(mcp: MCPServer, settings: Settings) -> None:
             raise ToolInputError("Nothing to do: pass at least one field to change.")
         return {"document_ids": document_ids, "applied": applied}
 
-    @mcp.tool()
+    @write_tool(mcp, destructive=True, idempotent=False)
     @safe_tool
     async def bulk_reprocess_documents(ctx: ToolContext, document_ids: list[int]) -> dict[str, Any]:
         """Re-run OCR and metadata parsing on the given documents.
@@ -72,7 +72,7 @@ def register(mcp: MCPServer, settings: Settings) -> None:
         await paperless.documents.bulk_edit.reprocess(document_ids)
         return {"document_ids": document_ids, "reprocessing": True}
 
-    @mcp.tool()
+    @write_tool(mcp, destructive=True, idempotent=False)
     @safe_tool
     async def bulk_merge_documents(
         ctx: ToolContext,
@@ -102,7 +102,7 @@ def register(mcp: MCPServer, settings: Settings) -> None:
             "delete_originals": delete_originals,
         }
 
-    @mcp.tool()
+    @write_tool(mcp, destructive=True, idempotent=False)
     @safe_tool
     async def bulk_rotate_documents(
         ctx: ToolContext, document_ids: list[int], degrees: int

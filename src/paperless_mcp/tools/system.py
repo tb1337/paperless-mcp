@@ -10,13 +10,13 @@ from .. import __version__
 from ..client import ToolContext, get_client, get_settings
 from ..config import Settings
 from ..formatting import format_saved_view, safe_dump
-from ._helpers import page_result, paginate, safe_tool
+from ._helpers import page_result, paginate, read_tool, safe_tool
 
 
 def register(mcp: MCPServer, settings: Settings) -> None:
     """Register system / saved view tools."""
 
-    @mcp.tool()
+    @read_tool(mcp)
     @safe_tool
     async def get_paperless_info(ctx: ToolContext) -> dict[str, Any]:
         """Return Paperless-ngx version info and this MCP server's configuration."""
@@ -31,7 +31,7 @@ def register(mcp: MCPServer, settings: Settings) -> None:
             "deletes_enabled": cfg.expose_deletes,
         }
 
-    @mcp.tool()
+    @read_tool(mcp)
     @safe_tool
     async def get_statistics(ctx: ToolContext) -> dict[str, Any]:
         """Return aggregate statistics: document totals, inbox count, file types."""
@@ -40,7 +40,7 @@ def register(mcp: MCPServer, settings: Settings) -> None:
         dumped = safe_dump(stats)
         return dumped if isinstance(dumped, dict) else {"statistics": dumped}
 
-    @mcp.tool()
+    @read_tool(mcp)
     @safe_tool
     async def list_saved_views(
         ctx: ToolContext, offset: int = 0, limit: int = 50
@@ -57,7 +57,7 @@ def register(mcp: MCPServer, settings: Settings) -> None:
             formatter=format_saved_view,
         )
 
-    @mcp.tool()
+    @read_tool(mcp)
     @safe_tool
     async def get_saved_view(ctx: ToolContext, view_id: int) -> dict[str, Any]:
         """Return a saved view's full configuration, including its filter rules.
