@@ -7,97 +7,128 @@ Guidance for AI coding agents working in this repo.
 MCP (Model Context Protocol) server exposing Paperless-ngx to LLM clients, built on
 **pypaperless**. Package manager: **uv**. Layout is a `src/` package.
 
-- `src/paperless_mcp/`
-  - `tools/` — one module per resource area (`documents`, `taxonomy`, `bulk`, `trash`,
-    `tasks`, `system`, `ai`, `share_links`), each exposing a `register(mcp, settings)`
-    function; `tools/__init__.py` calls them all from `register_all()`
-  - `tools/_helpers.py` — `safe_tool` (exception → structured error), `paginate` /
-    `page_result` (offset/limit → Paperless pages), `ToolInputError`
-  - `server.py` — MCPServer wiring, lifespans, stdio + Streamable HTTP transports
-  - `client.py` — `PaperlessConnection`, lazy connect, `get_client` / `ToolContext`
-  - `config.py` — env-driven `Settings` dataclass and `load_settings()`
-  - `formatting.py` — pypaperless models → plain dicts for tool responses
-  - `auth.py` — bearer-token middleware for the HTTP transport
-  - `healthcheck.py` — unauthenticated `/healthz` probe helper
-- `tests/` — pytest with an in-process MCPServer harness over a fake PaperlessClient
+Public entry point: the `paperless-mcp` console script → `paperless_mcp.__main__:main`;
+in-process it is `build_mcp(settings)` / `serve(settings)` in `server.py`.
+
+- `src/paperless_mcp/` — server source
+  - `tools/` — one module per resource area (`documents`, `taxonomy`, `bulk`, `trash`, `tasks`,
+    `system`, `ai`, `share_links`), each exposing a `register(mcp, settings)` function;
+    `tools/__init__.py` calls them all from `register_all()`
+  - `tools/_helpers.py` — registration decorators (`read_tool`, `write_tool`, `delete_tool`),
+    `safe_tool` (exception → structured error), `paginate` / `page_result` (offset/limit →
+    Paperless pages), `ToolInputError`
+  - top-level: `server.py` (MCPServer wiring, lifespans, stdio + Streamable HTTP transports),
+    `client.py` (`PaperlessConnection`, lazy connect, `get_client` / `get_settings` /
+    `ToolContext`), `config.py` (env-driven `Settings` dataclass, `load_settings()`),
+    `formatting.py` (pypaperless models → plain dicts), `auth.py` (bearer-token middleware for
+    the HTTP transport), `healthcheck.py` (unauthenticated `/healthz` probe)
+- `tests/` — pytest driving the real `MCPServer` in-process over a fake PaperlessClient
   (`tests/conftest.py`); no network in tests
 - `script/` — `bootstrap` (resync dev venv), `setup` (devcontainer entry point)
 - `examples/` — ready-made `claude_desktop_config.json` variants
 
-## Commands
+Current code surface (trust these over older docs): MCP SDK 2.x — the server class is `MCPServer`
+from `mcp.server.mcpserver`, not `FastMCP` · pypaperless is pinned exactly (`==6.0.0rc2`), so a
+version bump is a deliberate change with a test run, never an automerge · 54 tools (25 read,
+20 write, 9 delete), enumerated in `tests/test_tool_registration.py`.
 
-```bash
-script/bootstrap             # uv sync --group dev
-uv run pytest                # full suite + coverage (gate: 80 %)
-uv run pytest -x -q          # fast loop
-uv run mypy                  # strict, on the paperless_mcp package
-uv run ruff check --fix .    # lint
-uv run ruff format .         # format
-prek run --all-files         # everything the CI lints, in one go
-```
+## Dev Commands
 
-## Conventions that matter here
+- `script/bootstrap` — install deps (`uv sync --group dev`); idempotent, safe to rerun
+- `uv run pytest` — full suite + coverage (gate: 80 %)
+- `uv run pytest -x -q` — fast loop
+- `uv run mypy` — static type check (strict, on the `paperless_mcp` package)
+- `uv run ruff check --fix .` — lint
+- `uv run ruff format .` — format (Markdown too: it formats Python snippets inside code fences)
+- `uv run codespell` — spell check
+- `uv run yamllint .` — lint YAML
+- `prek run --all-files` — every hook CI runs, in one go
 
-**The tool surface is the public API.** Renaming a tool, dropping a parameter or
-changing a return shape breaks every MCP client in the field. Treat it like a
-released interface: additive changes are cheap, everything else is a breaking
-change and gets the `breaking-change` label.
+Local dev instance credentials live in the git-ignored `.env` (`PAPERLESS_URL`,
+`PAPERLESS_TOKEN`) — copy `.env.example` to `.env`. That file documents every `PAPERLESS_MCP_*`
+knob, so read it before adding a setting. `script/setup` is the devcontainer entry point and also
+installs the prek hooks.
 
-**Tools never raise.** Every tool is wrapped in `@safe_tool`, which turns
-pypaperless exceptions into `{"error": ..., "detail": ..., "cause": ...}`. A
-protocol-level failure gives the model nothing to recover from; a structured
-error lets it retry or pick a different call. Bad arguments raise
-`ToolInputError`, which maps to `invalid_argument`. When adding an exception
-mapping to `_ERROR_MAP`, keep it ordered most-specific-first — the first match
-wins, so subclasses must precede their bases.
+## Testing instructions
 
-**Explicit signatures, not `**kwargs`.** The tool signature becomes the JSON
-schema the model sees. Spell out every parameter with a type and a docstring;
-that schema is the only documentation the model gets.
+1. `uv run pytest -x -q` — always required, all green, coverage ≥ 80 %.
+2. Try the change against a live Paperless-ngx instance — **only** when it could affect live API
+   interaction: a new or changed tool, or edits to `client.py`, `config.py` or `formatting.py`.
+   There is no smoketest script; run the server against your `.env` and call the tool.
 
-**Tools register through `read_tool` / `write_tool` / `delete_tool`**, never
-through a bare `@mcp.tool()`. Those helpers in `tools/_helpers.py` attach the MCP
-annotations and derive the display title from the function name, so the hints
-stay consistent across 54 tools instead of being retyped per call site. Picking
-the two `write_tool` flags is a judgement call worth making deliberately:
-`destructive` means the call can overwrite data that was already stored,
-`idempotent` means repeating the identical call converges on the same state
-(false for anything that adds a row, queues a task, or accumulates — rotation
-being the obvious trap). `tests/test_tool_registration.py` pins the
-non-obvious ones.
+For docs, pure refactors and docstrings, run the unit tests only and state that the live check was
+skipped and why. Report both results (or the skip reason) before closing the task.
 
-**List tools paginate.** Anything list-shaped takes `offset`/`limit` and returns
-`total` and `has_more` via `page_result`. Do not add a tool that can return an
-unbounded result set.
+The fakes in `tests/conftest.py` mirror pypaperless v6's shape: `filter()` is an async context
+manager scoping a subsequent `pages()` call, and `pages()` yields page objects carrying a
+server-reported `count`. If a fake and the real library drift apart, the tests pass and production
+breaks — when pypaperless changes, check the fakes first.
 
-**Writes and deletes are gated.** `settings.expose_writes` and
-`settings.expose_deletes` decide whether a tool is registered at all — check them
-in `register()` rather than failing at call time, so a read-only deployment
-simply does not advertise the tool.
+New behavior needs a test. `tests/*` is exempt from the pydocstyle rules.
 
-**Register new modules in two places**: `tools/__init__.py` and the expected-tool
-list in `tests/test_tool_registration.py`.
+## Tool contract
 
-**pypaperless is pinned exactly.** The MCP layer is written against one library
-surface, so a version bump is a deliberate change with a test run, never an
-automerge.
+The tool surface is the public API. Renaming a tool, dropping a parameter or changing a return
+shape breaks every MCP client in the field: additive changes are cheap, everything else is a
+breaking change and gets the `breaking-change` label.
 
-## Testing
+- **Tools never raise.** Every tool is wrapped in `@safe_tool`, which turns pypaperless exceptions
+  into `{"error": ..., "detail": ..., "cause": ...}`. A protocol-level failure gives the model
+  nothing to recover from; a structured error lets it retry or pick a different call. Bad
+  arguments raise `ToolInputError`, which maps to `invalid_argument`.
+- **`_ERROR_MAP` stays ordered most-specific-first** — the first match wins, so subclasses must
+  precede their bases.
+- **Explicit signatures, never `**kwargs`.** The signature becomes the JSON schema the model sees;
+  that schema plus the docstring is the only documentation it ever gets. Spell out every parameter
+  with a type, and describe the non-obvious ones in the docstring body.
+- **Register through `read_tool` / `write_tool` / `delete_tool`**, never a bare `@mcp.tool()`.
+  Those helpers attach the MCP annotations and derive the display title from the function name, so
+  the hints stay consistent across 54 tools instead of being retyped per call site. The two
+  `write_tool` flags are a judgement call worth making deliberately: `destructive` means the call
+  can overwrite data that was already stored, `idempotent` means repeating the identical call
+  converges on the same state — false for anything that adds a row, queues a task or accumulates
+  (rotation being the obvious trap). `tests/test_tool_registration.py` pins the non-obvious ones.
+- **List tools paginate.** Anything list-shaped takes `offset` / `limit` and returns `total` and
+  `has_more` via `page_result`. Do not add a tool that can return an unbounded result set.
+- **Writes and deletes are gated.** `settings.expose_writes` and `settings.expose_deletes` decide
+  whether a tool is registered at all — check them in `register()` rather than failing at call
+  time, so a read-only deployment simply does not advertise the tool.
+- **A new tool module goes in two places**: `tools/__init__.py` and the expected-tool list in
+  `tests/test_tool_registration.py`.
 
-Tests drive the real `MCPServer` in-process against fakes that mirror pypaperless
-v6's shape: `filter()` is an async context manager scoping a subsequent `pages()`
-call, and `pages()` yields page objects carrying a server-reported `count`. If a
-fake and the real library drift apart, the tests pass and production breaks —
-when pypaperless changes, check the fakes in `tests/conftest.py` first.
+## PR instructions
 
-Coverage gate is 80 %. New behavior needs a test; `tests/*` is exempt from the
-pydocstyle rules.
+- Branch off `main`; keep the branch scoped to one logical change. A pre-commit hook blocks
+  committing to `main` directly.
+- Title format: `<type>: <summary>` (e.g. `fix:`, `feat:`, `docs:`, `ci:`); a breaking change is
+  `feat!:`.
+- Every PR needs at least one of `breaking-change`, `bugfix`, `ci`, `dependencies`,
+  `documentation`, `enhancement`, `maintenance`, `new-feature`, `performance`, `refactor` or CI
+  fails. The label drives both the release-notes category and the version bump, so pick the one
+  that matches the user-visible effect.
+- Before opening a PR, all `## Dev Commands` pass and the `## Testing instructions` are satisfied
+  (report the live-check result or the skip reason).
+- Fill in the PR template and do not uncheck/remove its checkboxes.
 
-## Pull requests
+## Code style
 
-Every PR needs one of these labels or CI fails: `breaking-change`, `bugfix`, `ci`,
-`dependencies`, `documentation`, `enhancement`, `maintenance`, `new-feature`,
-`performance`, `refactor`. The label drives both the release-notes category and
-the version bump, so pick the one that matches the user-visible effect.
+- Ruff and mypy (strict) must report **0 findings** on new/modified code. Line length 100, target
+  Python 3.13.
+- Suppressions are a last resort — fix the root cause. The few `# type: ignore[...]` in the tree
+  each sit under a comment saying why the annotation is wrong; match that bar or do not add one.
+- PEP 695 syntax is in use (`type X = ...`, `def f[T](...)`), and every module starts with
+  `from __future__ import annotations`.
+- Docstrings: Google convention (ruff pydocstyle), one-line summary first. Tool docstrings are
+  written for the model, not the maintainer.
+- `formatting.py` owns the model → dict conversion. Tools return plain JSON-able dicts, never
+  pypaperless model objects.
 
-Do not commit directly to `main` — a pre-commit hook blocks it.
+## Good practices
+
+- Comments explain *why* (non-obvious constraints, surprises, workarounds), never *what*. Prefer
+  one short line, or none. Never justify a change by referencing what the code used to be.
+- Keep try-clauses minimal: wrap only the statement that can raise, catch only expected exceptions.
+- Version pins carry their reasoning in `pyproject.toml` — when you touch a pin, update its
+  comment.
+- Anything user-facing (a new env var, a new tool, a changed default) lands in `README.md` and
+  `.env.example` in the same change.
