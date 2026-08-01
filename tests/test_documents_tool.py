@@ -381,3 +381,36 @@ def _returns(value: Any) -> Any:
         return value
 
     return _call
+
+
+@pytest.mark.asyncio
+async def test_search_documents_resolves_ids_to_names(make_paperless: Any) -> None:
+    """The names come from the shared snapshot, not from a per-document lookup."""
+    paperless = make_paperless()
+    doc = _doc(1)
+    doc.correspondent = 10
+    doc.tags = [40, 99]
+    paperless.documents.filter_results = [doc]
+    paperless.correspondents.filter_results = [SimpleNamespace(id=10, name="Utilities")]
+    paperless.tags.filter_results = [SimpleNamespace(id=40, name="paid")]
+    mcp = build_mcp(make_settings(), paperless)
+
+    result = await call_tool(mcp, "search_documents")
+
+    found = result["documents"][0]
+    assert found["correspondent"] == 10
+    assert found["correspondent_name"] == "Utilities"
+    assert found["tag_names"] == ["paid", None]
+
+
+@pytest.mark.asyncio
+async def test_get_document_warms_the_cache_before_fetching(make_paperless: Any) -> None:
+    """Order matters: pypaperless enriches custom fields while parsing the document."""
+    paperless = make_paperless()
+    paperless.documents.get_result = _doc(1)
+    paperless.custom_fields.filter_results = [SimpleNamespace(id=7, name="Status")]
+    mcp = build_mcp(make_settings(), paperless)
+
+    await call_tool(mcp, "get_document", document_id=1)
+
+    assert paperless.runtime.cache.custom_fields == {7: paperless.custom_fields.filter_results[0]}

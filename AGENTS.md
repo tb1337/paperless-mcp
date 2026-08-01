@@ -18,10 +18,12 @@ in-process it is `build_mcp(settings)` / `serve(settings)` in `server.py`.
     `safe_tool` (exception → structured error), `paginate` / `page_result` (offset/limit →
     Paperless pages), `ToolInputError`
   - top-level: `server.py` (MCPServer wiring, lifespans, stdio + Streamable HTTP transports),
-    `client.py` (`PaperlessConnection`, lazy connect, `get_client` / `get_settings` /
-    `ToolContext`), `config.py` (env-driven `Settings` dataclass, `load_settings()`),
-    `formatting.py` (pypaperless models → plain dicts), `auth.py` (bearer-token middleware for
-    the HTTP transport), `healthcheck.py` (unauthenticated `/healthz` probe)
+    `client.py` (`PaperlessConnection`, lazy connect, `get_client` / `get_names` /
+    `invalidate_names` / `get_settings` / `ToolContext`), `config.py` (env-driven `Settings`
+    dataclass, `load_settings()`), `names.py` (`NameMap` snapshot of the master data,
+    `load_names()`, the TTL'd `NameCache`), `formatting.py` (pypaperless models → plain dicts),
+    `auth.py` (bearer-token middleware for the HTTP transport), `healthcheck.py`
+    (unauthenticated `/healthz` probe)
 - `tests/` — pytest driving the real `MCPServer` in-process over a fake PaperlessClient
   (`tests/conftest.py`); no network in tests
 - `script/` — `bootstrap` (resync dev venv), `setup` (devcontainer entry point)
@@ -90,6 +92,11 @@ breaking change and gets the `breaking-change` label.
   (rotation being the obvious trap). `tests/test_tool_registration.py` pins the non-obvious ones.
 - **List tools paginate.** Anything list-shaped takes `offset` / `limit` and returns `total` and
   `has_more` via `page_result`. Do not add a tool that can return an unbounded result set.
+- **IDs come with names.** A relation is reported as the raw ID *plus* a `<field>_name` resolved
+  through the `NameMap` a tool passes into the formatter. Await `get_names(ctx)` before fetching
+  documents, never after: the same call fills pypaperless' custom-field cache, which enriches a
+  `Document` while it is being parsed. Anything that creates, renames or deletes master data
+  calls `invalidate_names(ctx)`.
 - **Writes and deletes are gated.** `settings.expose_writes` and `settings.expose_deletes` decide
   whether a tool is registered at all — check them in `register()` rather than failing at call
   time, so a read-only deployment simply does not advertise the tool.

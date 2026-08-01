@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 from pypaperless.models.types import CustomFieldType, MatchingAlgorithm
 
-from tests.conftest import build_mcp, call_tool, make_settings
+from tests.conftest import build_mcp, call_tool, make_settings, tool_session
 
 
 def _tag(tag_id: int, name: str, color: str | None = None) -> SimpleNamespace:
@@ -168,3 +168,35 @@ async def test_create_custom_field_rejects_an_unknown_type(make_paperless: Any) 
     result = await call_tool(mcp, "create_custom_field", name="X", data_type="quaternion")
     assert result["error"] == "invalid_argument"
     assert paperless.custom_fields.save_calls == []
+
+
+@pytest.mark.asyncio
+async def test_list_tags_resolves_the_parent_name(make_paperless: Any) -> None:
+    parent = _tag(1, "Contract")
+    child = _tag(2, "Electricity")
+    child.parent = 1
+    paperless = make_paperless()
+    paperless.tags.filter_results = [parent, child]
+    mcp = build_mcp(make_settings(), paperless)
+
+    page = await call_tool(mcp, "list_tags")
+
+    assert page["tags"][1]["parent_name"] == "Contract"
+
+
+@pytest.mark.asyncio
+async def test_creating_a_tag_invalidates_the_name_snapshot(make_paperless: Any) -> None:
+    """A tag created through this server must not stay nameless until the TTL."""
+    paperless = make_paperless()
+    paperless.tags.filter_results = [_tag(1, "Contract")]
+    mcp = build_mcp(make_settings(), paperless)
+
+    async with tool_session(mcp) as call:
+        await call("list_tags")
+        reads_before = len(paperless.tags.page_calls)
+
+        await call("create_tag", name="Electricity")
+        await call("list_tags")
+
+    # The create dropped the snapshot, so the second list had to reload it.
+    assert len(paperless.tags.page_calls) > reads_before + 1

@@ -17,12 +17,15 @@ from pypaperless.transport import PaperlessTransport
 
 from paperless_mcp.formatting import (
     CONTENT_PREVIEW_CHARS,
+    enrich_suggestions,
+    format_document,
     format_document_detail,
     format_saved_view,
     format_tag,
     format_task,
     safe_dump,
 )
+from paperless_mcp.names import NameMap
 
 
 @pytest.fixture
@@ -58,10 +61,11 @@ def test_format_document_detail_reads_embedded_notes(runtime: PaperlessRuntime) 
             "document": 42,
             "created": "2026-01-03T10:00:00+00:00",
             "user": None,
+            "user_name": None,
         }
     ]
     assert result["custom_fields"] == [
-        {"field": 3, "name": None, "data_type": None, "value": "open"}
+        {"field": 3, "name": None, "data_type": None, "label": None, "value": "open"}
     ]
 
 
@@ -180,3 +184,71 @@ def test_safe_dump_serializes_pydantic_models(runtime: PaperlessRuntime) -> None
     dumped = safe_dump(tag)
     assert dumped["id"] == 1
     assert dumped["matching_algorithm"] == 1
+
+
+def test_format_document_resolves_every_relation(runtime: PaperlessRuntime) -> None:
+    doc = Document.from_data(
+        runtime,
+        {
+            "id": 1,
+            "correspondent": 10,
+            "document_type": 20,
+            "storage_path": 30,
+            "tags": [40, 99],
+            "owner": 50,
+        },
+    )
+    names = NameMap(
+        correspondents={10: "Utilities"},
+        document_types={20: "Invoice"},
+        storage_paths={30: "Archive"},
+        tags={40: "paid"},
+        users={50: "clerk"},
+    )
+
+    result = format_document(doc, names)
+
+    assert result["correspondent"] == 10
+    assert result["correspondent_name"] == "Utilities"
+    assert result["document_type_name"] == "Invoice"
+    assert result["storage_path_name"] == "Archive"
+    assert result["owner_name"] == "clerk"
+    # Unknown tag 99 keeps its slot rather than shifting "paid" onto it.
+    assert result["tags"] == [40, 99]
+    assert result["tag_names"] == ["paid", None]
+
+
+def test_format_document_without_a_snapshot_still_has_the_name_keys(
+    runtime: PaperlessRuntime,
+) -> None:
+    """The result shape must not depend on whether the master data could be read."""
+    doc = Document.from_data(runtime, {"id": 1, "correspondent": 10, "tags": [40]})
+
+    result = format_document(doc)
+
+    assert result["correspondent_name"] is None
+    assert result["tag_names"] == [None]
+
+
+def test_format_tag_resolves_its_parent_and_owner(runtime: PaperlessRuntime) -> None:
+    tag = Tag.from_data(runtime, {"id": 2, "name": "Electricity", "parent": 1, "owner": 50})
+
+    result = format_tag(tag, NameMap(tags={1: "Contract"}, users={50: "clerk"}))
+
+    assert result["parent"] == 1
+    assert result["parent_name"] == "Contract"
+    assert result["owner_name"] == "clerk"
+
+
+def test_enrich_suggestions_adds_names_beside_the_id_lists() -> None:
+    suggestions = {"correspondents": [10], "tags": [40, 99], "dates": ["2026-01-01"]}
+
+    result = enrich_suggestions(
+        suggestions, NameMap(correspondents={10: "Utilities"}, tags={40: "paid"})
+    )
+
+    assert result["correspondent_names"] == ["Utilities"]
+    assert result["tag_names"] == ["paid", None]
+    # Keys the payload does not carry must not be invented.
+    assert "storage_path_names" not in result
+    assert result["dates"] == ["2026-01-01"]

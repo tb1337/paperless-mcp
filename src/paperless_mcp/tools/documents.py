@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import base64
 import binascii
+from functools import partial
 from typing import Any
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.utilities.types import Image
 
-from ..client import ToolContext, get_client, get_settings
+from ..client import ToolContext, get_client, get_names, get_settings
 from ..config import Settings
 from ..formatting import (
     format_document,
@@ -196,6 +197,7 @@ def _register_reads(mcp: MCPServer) -> None:
         included — call ``get_document_content`` for that.
         """
         paperless = await get_client(ctx)
+        names = await get_names(ctx)
         filters = _build_doc_filters(
             title_contains=title_contains,
             content_contains=content_contains,
@@ -227,7 +229,7 @@ def _register_reads(mcp: MCPServer) -> None:
             offset=offset,
             limit=limit,
             total=total,
-            formatter=format_document,
+            formatter=partial(format_document, names=names),
         )
 
     @read_tool(mcp)
@@ -241,8 +243,11 @@ def _register_reads(mcp: MCPServer) -> None:
         inspecting a document's tags or dates from costing a whole scan.
         """
         paperless = await get_client(ctx)
+        # Before the fetch, not after: this is what fills the custom-field cache
+        # pypaperless enriches the document from while it is being parsed.
+        names = await get_names(ctx)
         doc = await paperless.documents(document_id)
-        return format_document_detail(doc)
+        return format_document_detail(doc, names)
 
     @read_tool(mcp)
     @safe_tool
@@ -272,8 +277,9 @@ def _register_reads(mcp: MCPServer) -> None:
     async def get_document_notes(ctx: ToolContext, document_id: int) -> dict[str, Any]:
         """List all notes attached to a document."""
         paperless = await get_client(ctx)
+        names = await get_names(ctx)
         notes = await paperless.documents.notes(document_id)
-        return {"document_id": document_id, "notes": [format_note(n) for n in notes]}
+        return {"document_id": document_id, "notes": [format_note(n, names) for n in notes]}
 
     @read_tool(mcp)
     @safe_tool
@@ -305,6 +311,7 @@ def _register_reads(mcp: MCPServer) -> None:
         index to be built.
         """
         paperless = await get_client(ctx)
+        names = await get_names(ctx)
         items, total = await paginate(
             paperless.documents,
             {"more_like_id": document_id},
@@ -317,7 +324,7 @@ def _register_reads(mcp: MCPServer) -> None:
             offset=offset,
             limit=limit,
             total=total,
-            formatter=format_document,
+            formatter=partial(format_document, names=names),
             reference=document_id,
         )
 
@@ -454,6 +461,7 @@ def _register_writes(mcp: MCPServer) -> None:
         same field in one call is rejected.
         """
         paperless = await get_client(ctx)
+        names = await get_names(ctx)
 
         clear_set = set(clear_fields or [])
         invalid = clear_set - _CLEARABLE_FIELDS
@@ -492,7 +500,7 @@ def _register_writes(mcp: MCPServer) -> None:
             setattr(doc, field, None)
 
         changed = await paperless.documents.update(doc)
-        return {"changed": changed, **format_document(doc)}
+        return {"changed": changed, **format_document(doc, names)}
 
     @write_tool(mcp, destructive=False, idempotent=False)
     @safe_tool
