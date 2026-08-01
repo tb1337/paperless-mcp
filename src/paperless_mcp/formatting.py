@@ -96,14 +96,23 @@ def format_custom_field_value(value: Any) -> dict[str, Any]:
     }
 
 
+#: How much of the OCR text ``format_document_detail`` carries as a preview.
+CONTENT_PREVIEW_CHARS = 500
+
+
 def format_document_detail(doc: Any) -> dict[str, Any]:
     """Project a Document model including notes and custom fields.
 
-    The OCR text is deliberately left out: it dwarfs every other field and has
-    its own tool (``get_document_content``), so callers that only need the
-    document's fields do not pay for a whole scan.
+    The OCR text is capped at :data:`CONTENT_PREVIEW_CHARS` — enough to tell
+    what a document is, bounded enough that the result size does not depend on
+    how long the scan was. ``content_characters`` reports the untruncated
+    length, so a caller can decide whether fetching the rest through
+    ``get_document_content`` is worth the tokens.
     """
     base = format_document(doc)
+    content = _safe(doc, "content") or ""
+    base["content_preview"] = content[:CONTENT_PREVIEW_CHARS]
+    base["content_characters"] = len(content)
     base["custom_fields"] = [
         format_custom_field_value(cf) for cf in (_safe(doc, "custom_fields") or [])
     ]

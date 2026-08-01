@@ -42,8 +42,9 @@ INSTRUCTIONS = """\
 Tools for searching, reading and curating documents in a Paperless-ngx archive.
 
 Start with `search_documents` (full-text `query` plus Django-style filters). No
-tool returns a document's OCR'd text unless you ask for it: `get_document` gives
-you the fields, `get_document_content` the text. Tags, correspondents, document types
+tool returns a document's full OCR'd text unless you ask for it: `get_document`
+gives you the fields plus a short `content_preview`, and `get_document_content`
+the whole text. Tags, correspondents, document types
 and storage paths are referenced by numeric ID everywhere — resolve names with
 `list_tags`, `list_correspondents`, `list_document_types` and
 `list_storage_paths` before filtering or assigning.

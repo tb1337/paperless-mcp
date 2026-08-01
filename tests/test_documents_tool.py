@@ -117,8 +117,10 @@ async def test_get_document_returns_detail(make_paperless: Any) -> None:
     assert result["id"] == 42
     assert result["title"] == "Bill"
     assert result["notes"] == []
-    # The OCR text belongs to ``get_document_content`` alone.
+    # Only a preview of the OCR text; the full text is get_document_content's job.
     assert "content" not in result
+    assert result["content_preview"] == "ocr text"
+    assert result["content_characters"] == len("ocr text")
 
 
 @pytest.mark.asyncio
