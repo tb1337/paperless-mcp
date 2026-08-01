@@ -54,7 +54,7 @@ the caller, not a human clicking through a UI:
   `/healthz` for container probes.
 - **Tunable surface**: writes can be disabled (`PAPERLESS_MCP_READONLY=true`)
   and deletes require explicit opt-in (`PAPERLESS_MCP_ENABLE_DELETE=true`).
-  45 tools by default, 54 with deletes enabled.
+  47 tools by default, 56 with deletes enabled.
 - **Names, not just IDs**: Paperless reports correspondents, tags, document
   types, storage paths and owners as bare numbers. The master data is read once
   per connection and cached, so every result carries `correspondent_name`,
@@ -67,7 +67,7 @@ the caller, not a human clicking through a UI:
 - **Structured errors**: pypaperless exceptions become results like
   `{"error": "not_found", "detail": "...", "cause": "..."}` instead of
   protocol-level failures, so the model can recover rather than give up.
-- **Behaviour hints on every tool**: each of the 54 tools ships MCP tool
+- **Behaviour hints on every tool**: each of the 56 tools ships MCP tool
   annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`,
   `openWorldHint`) plus a display title, so a client can wave a search through
   and stop to ask before a rotate, a merge or an `empty_trash`.
@@ -315,7 +315,8 @@ with `--env-file`) and never overwrites variables the MCP client already set.
 `acknowledge_tasks`, `create_tag`, `update_tag`, `create_correspondent`,
 `update_correspondent`, `create_document_type`, `update_document_type`,
 `create_storage_path`, `update_storage_path`, `create_custom_field`,
-`update_custom_field`, `create_share_link`, `restore_documents`.
+`update_custom_field`, `set_document_custom_field`,
+`remove_document_custom_field`, `create_share_link`, `restore_documents`.
 
 **Delete** (requires `ENABLE_DELETE=true`): `delete_document`,
 `delete_document_note`, `delete_tag`, `delete_correspondent`,
@@ -332,6 +333,22 @@ Notes on semantics:
   same field in one call is rejected. Use `bulk_edit_documents` to add or
   remove individual tags.
 - `upload_document` returns a task UUID; poll it with `get_task`.
+- `set_document_custom_field` **upserts** one field value on one document: a
+  field the document does not carry yet is added, an existing one is replaced.
+  The value is checked against the field's `data_type` first, so `1` is not
+  quietly stored as `true` and `1.0` is rejected instead of rounded. Setting
+  the value a field already holds writes nothing and reports `changed: false`.
+  Two things to know before a `documentlink` write: the list of IDs **replaces**
+  the stored one (to add a link, read the current list from `get_document` and
+  send it back with the new ID appended), and Paperless maintains the reverse
+  link itself, so linking A to B makes B show A — never set both directions.
+- `remove_document_custom_field` clears the value on one document; the field
+  definition and its values elsewhere are untouched, which is what
+  `delete_custom_field` would destroy instead. A field that is not set is not
+  an error: the call reports `removed: false` and changes nothing.
+- Both write the document's custom fields as one array, because that is the
+  only thing the API accepts — a value another client stored between the read
+  and the write is lost.
 
 ### Tool annotations
 
