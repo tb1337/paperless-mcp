@@ -63,30 +63,139 @@ the caller, not a human clicking through a UI:
 
 ## Installation — uv
 
-The package is not on PyPI yet, so install it from a clone. Pick a permanent
-location: the MCP client will launch the server straight out of this directory.
+[`paperless-mcp` is on PyPI](https://pypi.org/project/paperless-mcp/), so `uv`
+can install it without a clone. One wrinkle applies to every command below: this
+release depends on `pypaperless==6.0.0rc2`, a release **candidate**, and uv
+ignores pre-releases unless told otherwise. Two flags handle that:
 
-```bash
-git clone https://github.com/tb1337/paperless-mcp.git
-cd paperless-mcp
-uv sync
+```
+--prerelease=if-necessary-or-explicit --with 'pypaperless==6.0.0rc2'
 ```
 
-`uv sync` is optional — `uv run` would create the environment on first launch —
-but doing it once up front means the first tool call is not racing a dependency
-install behind the client's startup timeout.
+Naming pypaperless explicitly makes it the *one* package allowed to be a
+pre-release, so everything else stays on stable versions — the result is the
+same dependency set this repo's `uv.lock` pins and CI tests against. Do not
+reach for a bare `--prerelease=allow` instead: it opens the door for every
+dependency, uv then picks `httpx==1.0.dev3`, and the server dies on import with
+`module 'httpx' has no attribute 'AsyncClient'`. Both flags become unnecessary
+once pypaperless 6.0.0 final ships.
 
-Verify the entry point resolves before wiring anything up:
+### Install it as a tool (recommended)
 
 ```bash
-uv run paperless-mcp --help
+uv tool install --prerelease=if-necessary-or-explicit \
+  --with 'pypaperless==6.0.0rc2' paperless-mcp
 ```
+
+That leaves a standalone `paperless-mcp` executable on your `PATH`. Note down
+its absolute path — the MCP client will need it — and check it runs:
+
+```bash
+command -v paperless-mcp   # macOS/Linux, typically ~/.local/bin/paperless-mcp
+where paperless-mcp        # Windows
+paperless-mcp --help
+```
+
+Later releases: `uv tool upgrade paperless-mcp`, then restart the client.
+
+### Or run it straight from PyPI, without installing
+
+```bash
+uvx --prerelease=if-necessary-or-explicit --with 'pypaperless==6.0.0rc2' \
+  --from paperless-mcp paperless-mcp --help
+```
+
+`uvx` resolves into a cache on first use and reuses it afterwards. Handy for a
+quick look or for running the HTTP transport ad hoc; for a client that spawns
+the server on every launch, the installed tool above is the tidier option.
 
 ### Connect Claude Desktop
 
 Add the `paperless` entry to your `claude_desktop_config.json` and restart the
 app completely (quit it, don't just close the window — the config is read once
-at startup):
+at startup).
+
+With the tool installed, `command` is the only path involved:
+
+```json
+{
+  "mcpServers": {
+    "paperless": {
+      "command": "/absolute/path/to/paperless-mcp",
+      "env": {
+        "PAPERLESS_URL": "https://paperless.example.com",
+        "PAPERLESS_TOKEN": "your-paperless-api-token",
+        "PAPERLESS_MCP_READONLY": "false",
+        "PAPERLESS_MCP_ENABLE_DELETE": "false"
+      }
+    }
+  }
+}
+```
+
+Or let the client drive `uvx`, with the resolver flags moved into `args`:
+
+```json
+{
+  "mcpServers": {
+    "paperless": {
+      "command": "/absolute/path/to/uvx",
+      "args": [
+        "--prerelease=if-necessary-or-explicit",
+        "--with", "pypaperless==6.0.0rc2",
+        "--from", "paperless-mcp",
+        "paperless-mcp"
+      ],
+      "env": {
+        "PAPERLESS_URL": "https://paperless.example.com",
+        "PAPERLESS_TOKEN": "your-paperless-api-token",
+        "PAPERLESS_MCP_READONLY": "false",
+        "PAPERLESS_MCP_ENABLE_DELETE": "false"
+      }
+    }
+  }
+}
+```
+
+`command` must be **absolute** in both cases. Claude Desktop does not inherit
+your shell `PATH`, so a bare `paperless-mcp` or `uvx` usually fails to resolve —
+paste what `command -v` / `where` reported above.
+
+The last two `env` entries are the safety switches, spelled out here so they are
+easy to find: `PAPERLESS_MCP_READONLY=true` hides every write and delete tool,
+`PAPERLESS_MCP_ENABLE_DELETE=true` adds the delete tools on top of the default
+read+write set. See [Configuration](#configuration) for the rest.
+
+Config file locations:
+
+| OS | Path |
+|---|---|
+| macOS | `~/Library/Application Support/Claude/claude_desktop_config.json` |
+| Windows | `%APPDATA%\Claude\claude_desktop_config.json` |
+| Linux | `~/.config/Claude/claude_desktop_config.json` |
+
+Ready-made files live in [`examples/`](examples/):
+[`claude_desktop_config.json`](examples/claude_desktop_config.json) for the
+installed tool, and
+[`claude_desktop_config.local-checkout.json`](examples/claude_desktop_config.local-checkout.json)
+for the clone below.
+
+Any other MCP client that spawns stdio servers takes the same
+command/args/env triple.
+
+### From a git clone instead
+
+For hacking on the server, or to run something newer than the last release:
+
+```bash
+git clone https://github.com/tb1337/paperless-mcp.git
+cd paperless-mcp
+uv sync
+uv run paperless-mcp --help
+```
+
+The clone needs no resolver flags — `uv.lock` already pins the pre-release. Give
+the clone a permanent home and point the client at it; both paths absolute:
 
 ```json
 {
@@ -105,51 +214,23 @@ at startup):
 }
 ```
 
-Both paths must be **absolute**:
-
-- `command` — Claude Desktop does not inherit your shell `PATH`, so a bare `uv`
-  usually fails to resolve. Run `which uv` (macOS/Linux) or `where uv`
-  (Windows) and paste the result.
-- `--directory` — the clone from the step above. `uv run` switches into it and
-  uses that project's environment, whatever the client's working directory
-  happens to be.
-
-The last two `env` entries are the safety switches, spelled out here so they are
-easy to find: `PAPERLESS_MCP_READONLY=true` hides every write and delete tool,
-`PAPERLESS_MCP_ENABLE_DELETE=true` adds the delete tools on top of the default
-read+write set. See [Configuration](#configuration) for the rest.
-
-Config file locations:
-
-| OS | Path |
-|---|---|
-| macOS | `~/Library/Application Support/Claude/claude_desktop_config.json` |
-| Windows | `%APPDATA%\Claude\claude_desktop_config.json` |
-| Linux | `~/.config/Claude/claude_desktop_config.json` |
-
-A ready-made file lives in
-[`examples/claude_desktop_config.local-checkout.json`](examples/claude_desktop_config.local-checkout.json).
-
-Any other MCP client that spawns stdio servers takes the same
-command/args/env triple.
-
-### Staying up to date
-
-```bash
-git pull
-uv sync
-```
-
-`uv sync` again after every pull, so the environment matches the committed
-lockfile — then restart the MCP client to pick up the new server.
+`uv run` switches into `--directory` and uses that project's environment,
+whatever working directory the client happens to start it in. After every
+`git pull`, run `uv sync` again so the environment matches the committed
+lockfile, then restart the client.
 
 ### Troubleshooting
 
+- **`No solution found when resolving tool dependencies` naming
+  `pypaperless==6.0.0rc2`** — the pre-release flags are missing; see above.
+- **`module 'httpx' has no attribute 'AsyncClient'`** — resolved with
+  `--prerelease=allow`, which let uv pick an httpx dev build. Use the targeted
+  flags above.
 - **"Server disconnected" right after startup** — almost always the `command`.
-  Use the absolute path to `uv`; see above.
-- **"No such file or directory" / the server starts but nothing works** — the
-  `--directory` path does not point at the clone (it needs the directory
-  containing `pyproject.toml`).
+  Use an absolute path; see above.
+- **"No such file or directory" / the server starts but nothing works** — for
+  the clone setup, the `--directory` path does not point at the clone (it needs
+  the directory containing `pyproject.toml`).
 - **Tools appear but every call returns `connection_error`** — `PAPERLESS_URL`
   is wrong or unreachable from the machine running the client. The server
   starts anyway by design; the error text names the cause.
