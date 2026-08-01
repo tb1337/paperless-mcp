@@ -90,11 +90,12 @@ ignores pre-releases unless told otherwise. Two flags handle that:
 
 Naming pypaperless explicitly makes it the *one* package allowed to be a
 pre-release, so everything else stays on stable versions — the result is the
-same dependency set this repo's `uv.lock` pins and CI tests against. Do not
-reach for a bare `--prerelease=allow` instead: it opens the door for every
-dependency, uv then picks `httpx==1.0.dev3`, and the server dies on import with
-`module 'httpx' has no attribute 'AsyncClient'`. Both flags become unnecessary
-once pypaperless 6.0.0 final ships.
+same dependency set this repo's `uv.lock` pins and CI tests against. A bare
+`--prerelease=allow` is the trap to avoid: it opens the door for every
+dependency at once, so uv installs alpha and dev builds across the stack. On
+0.0.1 that includes `httpx==1.0.dev3`, which has no `AsyncClient`, and the
+server dies on import with `module 'httpx' has no attribute 'AsyncClient'`.
+Both flags become unnecessary once pypaperless 6.0.0 final ships.
 
 ### Install it as a tool (recommended)
 
@@ -239,9 +240,9 @@ lockfile, then restart the client.
 
 - **`No solution found when resolving tool dependencies` naming
   `pypaperless==6.0.0rc2`** — the pre-release flags are missing; see above.
-- **`module 'httpx' has no attribute 'AsyncClient'`** — resolved with
+- **`module 'httpx' has no attribute 'AsyncClient'`** — installed 0.0.1 with
   `--prerelease=allow`, which let uv pick an httpx dev build. Use the targeted
-  flags above.
+  flags above; releases after 0.0.1 cap httpx below 1.0 themselves.
 - **"Server disconnected" right after startup** — almost always the `command`.
   Use an absolute path; see above.
 - **"No such file or directory" / the server starts but nothing works** — for
