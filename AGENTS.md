@@ -114,8 +114,12 @@ breaking change and gets the `breaking-change` label.
 
 - Ruff and mypy (strict) must report **0 findings** on new/modified code. Line length 100, target
   Python 3.13.
-- Suppressions are a last resort — fix the root cause. The few `# type: ignore[...]` in the tree
-  each sit under a comment saying why the annotation is wrong; match that bar or do not add one.
+- `# noqa`, `# type: ignore` and all other suppressions are **forbidden** — fix the root cause.
+  The tree contains none; keep it that way. Only `# noqa: F401` on re-export lines in
+  `__init__.py` is allowed without asking. A type that cannot be expressed is a design problem:
+  `ToolResultError` exists because `get_document_thumbnail` must be annotated `-> Image` (the SDK
+  fails to build an output schema for a union containing MCP content) yet still has to report an
+  error.
 - PEP 695 syntax is in use (`type X = ...`, `def f[T](...)`), and every module starts with
   `from __future__ import annotations`.
 - Docstrings: Google convention (ruff pydocstyle), one-line summary first. Tool docstrings are
@@ -127,6 +131,8 @@ breaking change and gets the `breaking-change` label.
 
 - Comments explain *why* (non-obvious constraints, surprises, workarounds), never *what*. Prefer
   one short line, or none. Never justify a change by referencing what the code used to be.
+- No section/divider comments (e.g. `# --- Triggers ---`) — they go stale. A module that needs
+  them is a module that wants splitting.
 - Keep try-clauses minimal: wrap only the statement that can raise, catch only expected exceptions.
 - Version pins carry their reasoning in `pyproject.toml` — when you touch a pin, update its
   comment.

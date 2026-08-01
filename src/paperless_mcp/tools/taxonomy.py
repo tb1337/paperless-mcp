@@ -100,7 +100,6 @@ def register(mcp: MCPServer, settings: Settings) -> None:
     _register_custom_fields(mcp, settings)
 
 
-# --------------------------------------------------------------------------- tags
 def _register_tags(mcp: MCPServer, settings: Settings) -> None:
     @read_tool(mcp)
     @safe_tool
@@ -192,7 +191,6 @@ def _register_tags(mcp: MCPServer, settings: Settings) -> None:
             return {"tag_id": tag_id, "deleted": True}
 
 
-# --------------------------------------------------------------------- correspondents
 def _register_correspondents(mcp: MCPServer, settings: Settings) -> None:
     @read_tool(mcp)
     @safe_tool
@@ -271,7 +269,6 @@ def _register_correspondents(mcp: MCPServer, settings: Settings) -> None:
             return {"correspondent_id": correspondent_id, "deleted": True}
 
 
-# -------------------------------------------------------------------- document_types
 def _register_document_types(mcp: MCPServer, settings: Settings) -> None:
     @read_tool(mcp)
     @safe_tool
@@ -350,7 +347,6 @@ def _register_document_types(mcp: MCPServer, settings: Settings) -> None:
             return {"document_type_id": document_type_id, "deleted": True}
 
 
-# ---------------------------------------------------------------------- storage_paths
 def _register_storage_paths(mcp: MCPServer, settings: Settings) -> None:
     @read_tool(mcp)
     @safe_tool
@@ -437,7 +433,6 @@ def _register_storage_paths(mcp: MCPServer, settings: Settings) -> None:
             return {"storage_path_id": storage_path_id, "deleted": True}
 
 
-# ---------------------------------------------------------------------- custom_fields
 def _register_custom_fields(mcp: MCPServer, settings: Settings) -> None:
     @read_tool(mcp)
     @safe_tool

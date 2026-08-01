@@ -14,7 +14,12 @@ from typing import Any, Literal
 
 Transport = Literal["stdio", "http"]
 
-TRANSPORTS: frozenset[str] = frozenset({"stdio", "http"})
+#: Accepted spellings mapped to their literal. Looking a raw string up here is
+#: what narrows it to ``Transport``; ``TRANSPORTS`` is derived from the same
+#: mapping so the accepted set and the error message cannot drift apart.
+_TRANSPORT_LITERALS: Mapping[str, Transport] = {"stdio": "stdio", "http": "http"}
+
+TRANSPORTS: frozenset[str] = frozenset(_TRANSPORT_LITERALS)
 
 LOG_LEVELS: frozenset[str] = frozenset({"CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"})
 
@@ -123,9 +128,12 @@ def load_settings(overrides: Mapping[str, Any] | None = None) -> Settings:
             "Create one in Paperless-ngx under Settings -> API tokens."
         )
 
-    transport = str(_pick(over, "transport", _raw("PAPERLESS_MCP_TRANSPORT") or "stdio")).lower()
-    if transport not in TRANSPORTS:
-        raise ConfigError(f"Unknown transport {transport!r}; expected one of {sorted(TRANSPORTS)}.")
+    raw_transport = str(_pick(over, "transport", _raw("PAPERLESS_MCP_TRANSPORT") or "stdio"))
+    transport = _TRANSPORT_LITERALS.get(raw_transport.lower())
+    if transport is None:
+        raise ConfigError(
+            f"Unknown transport {raw_transport.lower()!r}; expected one of {sorted(TRANSPORTS)}."
+        )
 
     log_level = str(_pick(over, "log_level", _raw("PAPERLESS_MCP_LOG_LEVEL") or "INFO")).upper()
     if log_level not in LOG_LEVELS:
@@ -134,7 +142,7 @@ def load_settings(overrides: Mapping[str, Any] | None = None) -> Settings:
     settings = Settings(
         paperless_url=str(url),
         paperless_token=str(token),
-        transport=transport,  # type: ignore[arg-type]
+        transport=transport,
         auth_token=_pick(over, "auth_token", _raw("PAPERLESS_MCP_AUTH_TOKEN")),
         # Binding to every interface is right inside a container but a poor
         # default for a locally spawned helper, so it stays opt-in.

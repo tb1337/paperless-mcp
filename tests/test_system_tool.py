@@ -11,7 +11,6 @@ from paperless_mcp import __version__
 from tests.conftest import FakeService, build_mcp, call_tool, make_settings
 
 
-# ----------------------------------------------------------------------- system
 @pytest.mark.asyncio
 async def test_get_paperless_info_returns_version_metadata(make_paperless: Any) -> None:
     paperless = make_paperless()
@@ -75,7 +74,6 @@ async def test_run_saved_view_is_not_exposed(make_paperless: Any) -> None:
     assert "run_saved_view" not in mcp._tool_manager._tools
 
 
-# ----------------------------------------------------------------------- tasks
 def _task(task_id: int, status: str = "success") -> SimpleNamespace:
     return SimpleNamespace(
         id=task_id,
@@ -141,7 +139,6 @@ async def test_get_task_accepts_a_numeric_pk(make_paperless: Any) -> None:
     assert paperless.tasks.get_calls == [(9, {})]
 
 
-# ----------------------------------------------------------------------- share links
 def _link(link_id: int, document: int = 1) -> SimpleNamespace:
     return SimpleNamespace(
         id=link_id,

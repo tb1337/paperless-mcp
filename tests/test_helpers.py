@@ -15,6 +15,7 @@ from pypaperless.exceptions import (
 
 from paperless_mcp.tools._helpers import (
     ToolInputError,
+    ToolResultError,
     humanize,
     normalize_csv_filters,
     page_result,
@@ -48,7 +49,6 @@ def _not_found() -> NotFoundError:
     return NotFoundError(httpx.Response(404, request=request))
 
 
-# ----------------------------------------------------------------------- paginate
 @pytest.mark.asyncio
 async def test_paginate_returns_all_when_under_limit() -> None:
     service = FakeService(filter_results=[1, 2, 3])
@@ -136,7 +136,6 @@ async def test_paginate_lets_other_errors_propagate() -> None:
         await paginate(_Exploding(), offset=0, limit=5)
 
 
-# ----------------------------------------------------------------------- filters
 def test_normalize_csv_filters_joins_lists() -> None:
     assert normalize_csv_filters({"tags__id__none": [1, 2], "is_tagged": True}) == {
         "tags__id__none": "1,2",
@@ -144,7 +143,6 @@ def test_normalize_csv_filters_joins_lists() -> None:
     }
 
 
-# ----------------------------------------------------------------------- window
 def test_window_slices_and_reports_total() -> None:
     items, total = window([1, 2, 3, 4], offset=1, limit=2)
     assert items == [2, 3]
@@ -156,7 +154,6 @@ def test_window_rejects_negative() -> None:
         window([1], offset=0, limit=-1)
 
 
-# ----------------------------------------------------------------------- page_result
 def test_page_result_computes_has_more_from_total() -> None:
     assert page_result("xs", [1, 2], offset=0, limit=2, total=5, formatter=str) == {
         "xs": ["1", "2"],
@@ -173,7 +170,6 @@ def test_page_result_without_total_falls_back_to_a_full_page() -> None:
     assert not page_result("xs", [1], offset=0, limit=2, total=None, formatter=str)["has_more"]
 
 
-# ----------------------------------------------------------------------- dates
 @pytest.mark.parametrize(
     ("value", "expected"),
     [
@@ -199,7 +195,6 @@ def test_parse_datetime_rejects_garbage() -> None:
         parse_datetime("soon", field="expiration")
 
 
-# ----------------------------------------------------------------------- errors
 def test_translate_error_prefers_the_most_specific_match() -> None:
     # PaperlessTimeoutError subclasses PaperlessConnectionError, so ordering in
     # the map is what decides which entry wins.
@@ -216,6 +211,20 @@ def test_translate_error_maps_a_404_to_not_found() -> None:
 
 def test_translate_error_returns_none_for_foreign_exceptions() -> None:
     assert translate_error(RuntimeError("boom")) is None
+
+
+def test_translate_error_returns_a_tool_result_error_payload_verbatim() -> None:
+    translated = translate_error(ToolResultError("file_too_large", "Too big.", size_bytes=9))
+    assert translated == {"error": "file_too_large", "detail": "Too big.", "size_bytes": 9}
+
+
+def test_tool_result_error_is_not_swallowed_by_the_error_map() -> None:
+    # It is checked before the map, so a future entry matching Exception cannot
+    # replace the carried payload with a generic one.
+    assert translate_error(ToolResultError("boom", "Detail.")) == {
+        "error": "boom",
+        "detail": "Detail.",
+    }
 
 
 @pytest.mark.asyncio
@@ -272,7 +281,6 @@ def test_safe_tool_preserves_the_wrapped_signature() -> None:
     assert tool.__doc__ == "Doc."
 
 
-# --------------------------------------------------- real-library contract guard
 @pytest.mark.parametrize(
     "service_name",
     [
