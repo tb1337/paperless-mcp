@@ -1,6 +1,6 @@
-"""FastMCP server wiring: lifespans, tool registration, transports.
+"""MCP server wiring: lifespans, tool registration, transports.
 
-Architecture note: FastMCP's ``lifespan`` parameter runs **per MCP session**,
+Architecture note: MCPServer's ``lifespan`` parameter runs **per MCP session**,
 not once per ASGI app — see ``mcp/server/lowlevel/server.py``, where
 ``self.lifespan(self)`` is entered inside ``Server.run()``. Opening a
 :class:`~paperless_mcp.client.PaperlessConnection` there would build a fresh
@@ -20,7 +20,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 import uvicorn
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.requests import Request
@@ -67,8 +67,8 @@ def configure_logging(settings: Settings) -> None:
     )
 
 
-def build_mcp(settings: Settings, connection: PaperlessConnection | None = None) -> FastMCP:
-    """Build a FastMCP instance with every enabled tool registered.
+def build_mcp(settings: Settings, connection: PaperlessConnection | None = None) -> MCPServer:
+    """Build an MCPServer instance with every enabled tool registered.
 
     Args:
         settings: Resolved runtime configuration.
@@ -78,23 +78,19 @@ def build_mcp(settings: Settings, connection: PaperlessConnection | None = None)
     """
 
     @asynccontextmanager
-    async def session_lifespan(_server: FastMCP) -> AsyncIterator[dict[str, Any]]:
+    async def session_lifespan(_server: MCPServer) -> AsyncIterator[dict[str, Any]]:
         if connection is not None:
             yield {CLIENT_KEY: connection, SETTINGS_KEY: settings}
             return
         async with PaperlessConnection(settings) as owned:
             yield {CLIENT_KEY: owned, SETTINGS_KEY: settings}
 
-    mcp = FastMCP(
+    mcp = MCPServer(
         "paperless-mcp",
         instructions=INSTRUCTIONS,
+        version=__version__,
         lifespan=session_lifespan,
-        host=settings.host,
-        port=settings.port,
     )
-    # FastMCP has no `version` parameter, so the low-level server would report
-    # the MCP SDK's version as ours during the handshake.
-    mcp._mcp_server.version = __version__
     register_all(mcp, settings)
     return mcp
 
@@ -103,14 +99,18 @@ def build_app(settings: Settings) -> Starlette:
     """Build the Starlette ASGI app with the Paperless connection at app scope."""
     connection = PaperlessConnection(settings)
     mcp = build_mcp(settings, connection)
-    mcp_app = mcp.streamable_http_app()
+    # `host` is not a bind address here — the transport turns it into DNS
+    # rebinding protection, auto-allowing only localhost Host/Origin headers
+    # when it looks like a loopback address. Passing the configured host keeps
+    # the container default (0.0.0.0) reachable under its own hostname.
+    mcp_app = mcp.streamable_http_app(host=settings.host)
 
     async def health(_request: Request) -> JSONResponse:
         return JSONResponse({"status": "ok", "version": __version__})
 
     @asynccontextmanager
     async def app_lifespan(app: Starlette) -> AsyncIterator[None]:
-        # The inner FastMCP app's own ASGI lifespan has to run too: it starts
+        # The inner MCP app's own ASGI lifespan has to run too: it starts
         # and stops the session manager (a background task group), without
         # which the streamable-HTTP transport never accepts sessions.
         async with connection, mcp_app.router.lifespan_context(app):

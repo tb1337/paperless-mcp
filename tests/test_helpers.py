@@ -244,7 +244,7 @@ async def test_safe_tool_passes_through_normal_result() -> None:
 
 
 def test_safe_tool_preserves_the_wrapped_signature() -> None:
-    """FastMCP derives each tool's schema from the signature, so it must survive."""
+    """MCPServer derives each tool's schema from the signature, so it must survive."""
     import inspect
 
     @safe_tool

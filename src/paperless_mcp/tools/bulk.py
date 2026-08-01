@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 from ..client import ToolContext, get_client
 from ..config import Settings
 from ._helpers import ToolInputError, safe_tool
 
 
-def register(mcp: FastMCP, settings: Settings) -> None:
+def register(mcp: MCPServer, settings: Settings) -> None:
     """Register bulk document tools."""
     if not settings.expose_writes:
         return

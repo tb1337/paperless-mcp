@@ -1,4 +1,4 @@
-"""Shared test fixtures: an in-process FastMCP harness over a fake PaperlessClient.
+"""Shared test fixtures: an in-process MCPServer harness over a fake PaperlessClient.
 
 The fakes mirror pypaperless v6's service shape: ``filter()`` is an async
 context manager that scopes a subsequent ``pages()`` call, and ``pages()``
@@ -16,7 +16,7 @@ from typing import Any
 
 import httpx
 import pytest
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from pypaperless.exceptions import NotFoundError
 
 from paperless_mcp.client import CLIENT_KEY, SETTINGS_KEY
@@ -177,14 +177,14 @@ class FakeConnection:
 
 
 # ----------------------------------------------------------------------- harness
-def build_mcp(settings: Settings, paperless: Any) -> FastMCP:
-    """Build a FastMCP server whose lifespan yields the supplied fake client."""
+def build_mcp(settings: Settings, paperless: Any) -> MCPServer:
+    """Build an MCPServer whose lifespan yields the supplied fake client."""
 
     @asynccontextmanager
-    async def lifespan(_server: FastMCP) -> AsyncIterator[dict[str, Any]]:
+    async def lifespan(_server: MCPServer) -> AsyncIterator[dict[str, Any]]:
         yield {CLIENT_KEY: FakeConnection(paperless), SETTINGS_KEY: settings}
 
-    mcp = FastMCP("paperless-mcp-test", lifespan=lifespan)
+    mcp = MCPServer("paperless-mcp-test", lifespan=lifespan)
     register_all(mcp, settings)
     return mcp
 
@@ -199,28 +199,28 @@ class _FakeContext:
         self.request_context = _FakeRequestContext(lifespan_context)
 
 
-async def call_tool(mcp: FastMCP, tool_name: str, /, **kwargs: Any) -> Any:
+async def call_tool(mcp: MCPServer, tool_name: str, /, **kwargs: Any) -> Any:
     """Invoke a registered tool's underlying function with a fake Context.
 
-    Bypasses FastMCP's request pipeline (which only spins up inside a real MCP
+    Bypasses MCPServer's request pipeline (which only spins up inside a real MCP
     session) so tool bodies can be unit-tested directly. ``tool_name`` is
     positional-only so kwargs like ``name=...`` reach the tool.
     """
     tool = mcp._tool_manager._tools[tool_name]
-    async with mcp._mcp_server.lifespan(mcp._mcp_server) as lifespan_ctx:  # type: ignore[arg-type]
+    async with mcp._lowlevel_server.lifespan(mcp._lowlevel_server) as lifespan_ctx:  # type: ignore[arg-type]
         ctx = _FakeContext(lifespan_ctx)
         return await tool.fn(ctx=ctx, **kwargs)
 
 
 def parse_tool_result(result: Any) -> Any:
-    """Decode a FastMCP call_tool() return into a structured payload."""
+    """Decode an MCPServer call_tool() return into a structured payload."""
     if isinstance(result, tuple) and len(result) == 2:
         content, structured = result
         if structured is not None:
             return structured
         result = content
-    if hasattr(result, "structuredContent") and result.structuredContent is not None:
-        return result.structuredContent
+    if hasattr(result, "structured_content") and result.structured_content is not None:
+        return result.structured_content
     if hasattr(result, "content"):
         result = result.content
     if isinstance(result, list) and result:

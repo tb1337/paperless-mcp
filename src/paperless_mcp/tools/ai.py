@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 from ..client import ToolContext, get_client
 from ..config import Settings
@@ -12,7 +12,7 @@ from ..formatting import safe_dump
 from ._helpers import safe_tool
 
 
-def register(mcp: FastMCP, settings: Settings) -> None:
+def register(mcp: MCPServer, settings: Settings) -> None:
     """Register suggestion tools (read-only)."""
 
     @mcp.tool()

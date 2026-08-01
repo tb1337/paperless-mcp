@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 from .. import __version__
 from ..client import ToolContext, get_client, get_settings
@@ -13,7 +13,7 @@ from ..formatting import format_saved_view, safe_dump
 from ._helpers import page_result, paginate, safe_tool
 
 
-def register(mcp: FastMCP, settings: Settings) -> None:
+def register(mcp: MCPServer, settings: Settings) -> None:
     """Register system / saved view tools."""
 
     @mcp.tool()

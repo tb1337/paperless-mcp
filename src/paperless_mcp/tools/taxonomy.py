@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from pypaperless.models.types import CustomFieldType, MatchingAlgorithm
 
 from ..client import ToolContext, get_client
@@ -83,7 +83,7 @@ def _name_filters(name_contains: str | None) -> dict[str, Any]:
     return {"name__icontains": name_contains} if name_contains else {}
 
 
-def register(mcp: FastMCP, settings: Settings) -> None:
+def register(mcp: MCPServer, settings: Settings) -> None:
     """Register taxonomy CRUD tools."""
     _register_tags(mcp, settings)
     _register_correspondents(mcp, settings)
@@ -93,7 +93,7 @@ def register(mcp: FastMCP, settings: Settings) -> None:
 
 
 # --------------------------------------------------------------------------- tags
-def _register_tags(mcp: FastMCP, settings: Settings) -> None:
+def _register_tags(mcp: MCPServer, settings: Settings) -> None:
     @mcp.tool()
     @safe_tool
     async def list_tags(
@@ -185,7 +185,7 @@ def _register_tags(mcp: FastMCP, settings: Settings) -> None:
 
 
 # --------------------------------------------------------------------- correspondents
-def _register_correspondents(mcp: FastMCP, settings: Settings) -> None:
+def _register_correspondents(mcp: MCPServer, settings: Settings) -> None:
     @mcp.tool()
     @safe_tool
     async def list_correspondents(
@@ -264,7 +264,7 @@ def _register_correspondents(mcp: FastMCP, settings: Settings) -> None:
 
 
 # -------------------------------------------------------------------- document_types
-def _register_document_types(mcp: FastMCP, settings: Settings) -> None:
+def _register_document_types(mcp: MCPServer, settings: Settings) -> None:
     @mcp.tool()
     @safe_tool
     async def list_document_types(
@@ -343,7 +343,7 @@ def _register_document_types(mcp: FastMCP, settings: Settings) -> None:
 
 
 # ---------------------------------------------------------------------- storage_paths
-def _register_storage_paths(mcp: FastMCP, settings: Settings) -> None:
+def _register_storage_paths(mcp: MCPServer, settings: Settings) -> None:
     @mcp.tool()
     @safe_tool
     async def list_storage_paths(
@@ -430,7 +430,7 @@ def _register_storage_paths(mcp: FastMCP, settings: Settings) -> None:
 
 
 # ---------------------------------------------------------------------- custom_fields
-def _register_custom_fields(mcp: FastMCP, settings: Settings) -> None:
+def _register_custom_fields(mcp: MCPServer, settings: Settings) -> None:
     @mcp.tool()
     @safe_tool
     async def list_custom_fields(

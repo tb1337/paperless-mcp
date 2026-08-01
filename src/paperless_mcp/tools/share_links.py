@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from pypaperless.models.types import ShareLinkFileVersion
 
 from ..client import ToolContext, get_client
@@ -22,7 +22,7 @@ from ._helpers import (
 _FILE_VERSIONS = ("archive", "original")
 
 
-def register(mcp: FastMCP, settings: Settings) -> None:
+def register(mcp: MCPServer, settings: Settings) -> None:
     """Register share-link tools."""
 
     @mcp.tool()
