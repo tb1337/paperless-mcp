@@ -1,16 +1,12 @@
 ---
 name: Typing
 
+# No paths filter on purpose: this is a required check, and GitHub treats a
+# required check that never started as permanently pending. A filtered workflow
+# would deadlock every PR that only touches docs or config.
 # yamllint disable-line rule:truthy
 on:
   pull_request:
-    paths:
-      - "**.py"
-      - "pyproject.toml"
-      - "uv.lock"
-      - "src/**"
-      - "tests/**"
-      - ".github/workflows/typing.yml"
   workflow_dispatch:
 
 concurrency:
