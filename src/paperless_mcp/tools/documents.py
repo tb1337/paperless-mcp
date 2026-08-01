@@ -232,7 +232,13 @@ def _register_reads(mcp: MCPServer) -> None:
     @read_tool(mcp)
     @safe_tool
     async def get_document(ctx: ToolContext, document_id: int) -> dict[str, Any]:
-        """Fetch a single document including OCR content, notes and custom fields."""
+        """Fetch a single document's fields, notes and custom fields.
+
+        The OCR text comes back only as ``content_preview`` (the first 500
+        characters), with ``content_characters`` giving its full length. Call
+        ``get_document_content`` when the preview is not enough — that keeps
+        inspecting a document's tags or dates from costing a whole scan.
+        """
         paperless = await get_client(ctx)
         doc = await paperless.documents(document_id)
         return format_document_detail(doc)

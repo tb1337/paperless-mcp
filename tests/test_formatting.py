@@ -16,6 +16,7 @@ from pypaperless.runtime import PaperlessRuntime
 from pypaperless.transport import PaperlessTransport
 
 from paperless_mcp.formatting import (
+    CONTENT_PREVIEW_CHARS,
     format_document_detail,
     format_saved_view,
     format_tag,
@@ -47,8 +48,9 @@ def test_format_document_detail_reads_embedded_notes(runtime: PaperlessRuntime) 
 
     assert result["id"] == 42
     assert result["created"] == "2026-01-02"
-    assert result["content"] == "ocr text"
     assert result["tags"] == [1, 2]
+    assert "content" not in result
+    assert result["content_preview"] == "ocr text"
     assert result["notes"] == [
         {
             "id": 7,
@@ -61,6 +63,28 @@ def test_format_document_detail_reads_embedded_notes(runtime: PaperlessRuntime) 
     assert result["custom_fields"] == [
         {"field": 3, "name": None, "data_type": None, "value": "open"}
     ]
+
+
+def test_format_document_detail_caps_the_content_preview(runtime: PaperlessRuntime) -> None:
+    """A long scan must not blow up the result: preview is capped, length is not."""
+    ocr = "x" * (CONTENT_PREVIEW_CHARS * 3)
+    doc = Document.from_data(runtime, {"id": 1, "title": "Scan", "content": ocr})
+
+    result = format_document_detail(doc)
+
+    assert result["content_preview"] == "x" * CONTENT_PREVIEW_CHARS
+    assert result["content_characters"] == len(ocr)
+
+
+def test_format_document_detail_handles_a_document_without_content(
+    runtime: PaperlessRuntime,
+) -> None:
+    doc = Document.from_data(runtime, {"id": 1, "title": "Scan", "content": None})
+
+    result = format_document_detail(doc)
+
+    assert result["content_preview"] == ""
+    assert result["content_characters"] == 0
 
 
 def test_format_tag_unwraps_the_matching_algorithm_enum(runtime: PaperlessRuntime) -> None:
