@@ -19,6 +19,8 @@ from ..formatting import (
     format_note,
     safe_dump,
 )
+from ..names import cached_custom_fields
+from ._custom_field_query import build_custom_field_query
 from ._helpers import (
     ToolInputError,
     ToolResultError,
@@ -174,6 +176,7 @@ def _register_reads(mcp: MCPServer) -> None:
         created_before: str | None = None,
         added_after: str | None = None,
         added_before: str | None = None,
+        custom_field_query: Any = None,
         order_by: str | None = None,
         descending: bool = False,
         offset: int = 0,
@@ -187,6 +190,33 @@ def _register_reads(mcp: MCPServer) -> None:
         (``YYYY-MM-DD``); tag/correspondent/type arguments are numeric IDs, which
         you can look up with ``list_tags`` / ``list_correspondents`` /
         ``list_document_types``.
+
+        ``custom_field_query`` filters on custom field *values*, which no other
+        argument reaches — "invoices due in August" is one call instead of a
+        walk over the archive. It takes one expression, either as JSON text or
+        as the structure itself:
+
+        - an atom, ``[field, operator, value]``, where ``field`` is a custom
+          field's name or its ID: ``["Due", "range", ["2024-08-01", "2024-08-31"]]``
+        - ``["AND", [expr, ...]]``, ``["OR", [expr, ...]]``, ``["NOT", expr]``
+          around other expressions, nested as deep as needed
+
+        Which operators an atom may use depends on the field's ``data_type``, as
+        reported by ``list_custom_fields``:
+
+        - any type: ``exact``, ``in`` (a non-empty list), ``isnull`` and
+          ``exists`` (both take true/false — ``exists`` asks whether the
+          document carries the field at all)
+        - ``string``, ``longtext``, ``url``, ``monetary``: ``icontains``,
+          ``istartswith``, ``iendswith``
+        - ``date``, ``integer``, ``float``, ``monetary``: ``gt``, ``gte``,
+          ``lt``, ``lte``, ``range`` (``[start, end]``, both ends inclusive)
+        - ``documentlink``: ``contains``, taking a list of document IDs and
+          matching the documents linked to *all* of them
+        - a ``date`` field also takes a component in front of the operator:
+          ``["Due", "month__exact", 8]`` matches every August, over ``year``,
+          ``month``, ``day``, ``quarter``, ``week``, ``week_day``, ``iso_year``
+          and ``iso_week_day``
 
         ``order_by`` accepts ``created``, ``added``, ``modified``, ``title``,
         ``archive_serial_number``, ``correspondent__name``,
@@ -221,6 +251,12 @@ def _register_reads(mcp: MCPServer) -> None:
         )
         if query:
             filters["query"] = query
+        if custom_field_query is not None:
+            # Not part of _build_doc_filters: checking the expression needs the
+            # field definitions the snapshot above cached.
+            filters["custom_field_query"] = build_custom_field_query(
+                custom_field_query, cached_custom_fields(paperless)
+            )
 
         items, total = await paginate(paperless.documents, filters, offset=offset, limit=limit)
         return page_result(

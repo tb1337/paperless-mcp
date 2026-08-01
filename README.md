@@ -332,6 +332,25 @@ Notes on semantics:
 
 - `search_documents` combines a Whoosh full-text `query` with Django-style
   filters, and takes `order_by` / `descending`.
+- `search_documents` also takes `custom_field_query`, the only filter that
+  reaches custom field *values*. It is Paperless' JSON expression — an atom
+  `[field, operator, value]` where `field` is a custom field's name or ID, and
+  `["AND", [expr, ...]]` / `["OR", [expr, ...]]` / `["NOT", expr]` around
+  others — accepted either as JSON text or as the structure itself:
+
+  ```json
+  ["AND", [["Due", "range", ["2024-08-01", "2024-08-31"]], ["Paid", "exact", false]]]
+  ```
+
+  Which operators an atom may use depends on the field's `data_type`: `exact`,
+  `in`, `isnull` and `exists` on any type; `icontains` / `istartswith` /
+  `iendswith` on `string`, `longtext`, `url` and `monetary`; `gt` / `gte` /
+  `lt` / `lte` / `range` on `date`, `integer`, `float` and `monetary`;
+  `contains` on `documentlink`. A `date` field also takes a component in front
+  of the operator, so `["Due", "month__exact", 8]` matches every August. The
+  expression is checked against the cached field definitions before the
+  request goes out, because Paperless answers a bad one with a validation
+  payload keyed by position rather than by name.
 - `update_document` **replaces** the tag list and accepts a `clear_fields`
   list (`correspondent`, `document_type`, `storage_path`,
   `archive_serial_number`) to unset foreign keys. Setting and clearing the

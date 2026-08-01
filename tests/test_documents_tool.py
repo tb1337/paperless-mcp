@@ -12,6 +12,7 @@ from mcp.server.mcpserver.utilities.types import Image
 from pypaperless.exceptions import ItemNotFoundError
 from pypaperless.models import CustomField
 from pypaperless.models.documents.document import Document
+from pypaperless.models.types import CustomFieldType
 from pypaperless.runtime import PaperlessRuntime
 
 from tests.conftest import FakeService, build_mcp, call_tool, make_settings
@@ -91,6 +92,49 @@ async def test_search_documents_passes_filters(make_paperless: Any) -> None:
             "query": "invoice",
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_search_documents_sends_the_custom_field_query_as_json(
+    make_paperless: Any,
+) -> None:
+    paperless = make_paperless()
+    paperless.custom_fields.filter_results = [
+        SimpleNamespace(id=3, name="Due", data_type=CustomFieldType.DATE)
+    ]
+    mcp = build_mcp(make_settings(), paperless)
+
+    await call_tool(
+        mcp,
+        "search_documents",
+        document_type_id=2,
+        custom_field_query=["Due", "range", ["2024-08-01", "2024-09-01"]],
+    )
+
+    assert paperless.documents.filter_calls == [
+        {
+            "document_type__id": 2,
+            "custom_field_query": '["Due", "range", ["2024-08-01", "2024-09-01"]]',
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_search_documents_checks_the_query_against_the_definitions(
+    make_paperless: Any,
+) -> None:
+    """The snapshot search_documents already awaits is what makes the check free."""
+    paperless = make_paperless()
+    paperless.custom_fields.filter_results = [
+        SimpleNamespace(id=3, name="Due", data_type=CustomFieldType.DATE)
+    ]
+    mcp = build_mcp(make_settings(), paperless)
+
+    result = await call_tool(mcp, "search_documents", custom_field_query=["Duo", "exists", True])
+
+    assert result["error"] == "invalid_argument"
+    assert "'Due'" in result["cause"]
+    assert paperless.documents.filter_calls == []
 
 
 @pytest.mark.asyncio
