@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from typing import Any
 
 import pytest
 
@@ -81,8 +82,19 @@ _DELETE_TOOLS = frozenset(
 )
 
 
+_ALL_TOOLS = _READ_TOOLS | _WRITE_TOOLS | _DELETE_TOOLS
+
+
 def _settings(*, readonly: bool, enable_delete: bool) -> Settings:
     return replace(make_settings(), readonly=readonly, enable_delete=enable_delete)
+
+
+async def _tools_by_name(settings: Settings) -> dict[str, Any]:
+    return {tool.name: tool for tool in await build_mcp(settings).list_tools()}
+
+
+async def _full_surface() -> dict[str, Any]:
+    return await _tools_by_name(_settings(readonly=False, enable_delete=True))
 
 
 async def _tool_names(settings: Settings) -> set[str]:
@@ -135,6 +147,105 @@ def test_handshake_reports_our_own_version() -> None:
     assert options.server_name == "paperless-mcp"
     assert options.server_version == __version__
     assert options.instructions and "Paperless-ngx" in options.instructions
+
+
+@pytest.mark.asyncio
+async def test_every_tool_is_annotated_and_titled() -> None:
+    """An unannotated tool tells a client nothing about what a call will do."""
+    tools = await _full_surface()
+    assert set(tools) == _ALL_TOOLS
+    unannotated = [name for name, tool in tools.items() if tool.annotations is None]
+    untitled = [name for name, tool in tools.items() if not (tool.title or "").strip()]
+    assert unannotated == []
+    assert untitled == []
+
+
+@pytest.mark.asyncio
+async def test_read_tools_are_marked_read_only_and_nothing_else_is() -> None:
+    """``readOnlyHint`` is what lets a client run a tool without a confirmation."""
+    tools = await _full_surface()
+    read_only = {name for name, tool in tools.items() if tool.annotations.read_only_hint}
+    assert read_only == set(_READ_TOOLS)
+
+
+@pytest.mark.asyncio
+async def test_read_tools_omit_the_hints_that_only_apply_to_writes() -> None:
+    """The spec gives destructive/idempotent meaning only when writes are possible."""
+    tools = await _full_surface()
+    for name in _READ_TOOLS:
+        annotations = tools[name].annotations
+        assert annotations.destructive_hint is None, name
+        assert annotations.idempotent_hint is None, name
+
+
+@pytest.mark.asyncio
+async def test_write_and_delete_tools_declare_both_write_hints() -> None:
+    """A missing hint falls back to the spec default, which is not our claim."""
+    tools = await _full_surface()
+    for name in _WRITE_TOOLS | _DELETE_TOOLS:
+        annotations = tools[name].annotations
+        assert annotations.read_only_hint is False, name
+        assert annotations.destructive_hint is not None, name
+        assert annotations.idempotent_hint is not None, name
+
+
+@pytest.mark.asyncio
+async def test_deletes_are_destructive_and_idempotent() -> None:
+    tools = await _full_surface()
+    for name in _DELETE_TOOLS:
+        annotations = tools[name].annotations
+        assert annotations.destructive_hint is True, name
+        assert annotations.idempotent_hint is True, name
+
+
+@pytest.mark.asyncio
+async def test_additive_writes_are_not_flagged_destructive() -> None:
+    """Uploading or creating something never overwrites what was already there."""
+    tools = await _full_surface()
+    additive = {
+        "upload_document",
+        "add_document_note",
+        "restore_documents",
+        "acknowledge_tasks",
+        "create_share_link",
+        *(name for name in _WRITE_TOOLS if name.startswith("create_")),
+    }
+    for name in additive:
+        assert tools[name].annotations.destructive_hint is False, name
+
+
+@pytest.mark.asyncio
+async def test_repeatable_writes_are_flagged_non_idempotent() -> None:
+    """These accumulate: a retry is not free, and a client must not assume it is."""
+    tools = await _full_surface()
+    # Rotating twice by 90 degrees lands at 180; merging mints another document;
+    # reprocessing queues another task; creating adds another row.
+    accumulating = {
+        "bulk_rotate_documents",
+        "bulk_merge_documents",
+        "bulk_reprocess_documents",
+        "upload_document",
+        "add_document_note",
+        *(name for name in _WRITE_TOOLS if name.startswith("create_")),
+    }
+    for name in accumulating:
+        assert tools[name].annotations.idempotent_hint is False, name
+
+
+@pytest.mark.asyncio
+async def test_no_tool_claims_an_open_world() -> None:
+    """The archive is one known server, not an unbounded set of external entities."""
+    tools = await _full_surface()
+    for name, tool in tools.items():
+        assert tool.annotations.open_world_hint is False, name
+
+
+@pytest.mark.asyncio
+async def test_annotations_go_out_under_their_camel_case_aliases() -> None:
+    """The wire format is camelCase; a snake_case payload would be ignored."""
+    tools = await _full_surface()
+    dumped = tools["search_documents"].model_dump(by_alias=True, exclude_none=True)
+    assert dumped["annotations"] == {"readOnlyHint": True, "openWorldHint": False}
 
 
 def test_every_tool_receives_the_lifespan_context() -> None:

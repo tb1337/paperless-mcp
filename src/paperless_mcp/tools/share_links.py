@@ -12,11 +12,14 @@ from ..config import Settings
 from ..formatting import format_share_link
 from ._helpers import (
     ToolInputError,
+    delete_tool,
     page_result,
     paginate,
     parse_datetime,
+    read_tool,
     safe_tool,
     window,
+    write_tool,
 )
 
 _FILE_VERSIONS = ("archive", "original")
@@ -25,7 +28,7 @@ _FILE_VERSIONS = ("archive", "original")
 def register(mcp: MCPServer, settings: Settings) -> None:
     """Register share-link tools."""
 
-    @mcp.tool()
+    @read_tool(mcp)
     @safe_tool
     async def list_share_links(
         ctx: ToolContext,
@@ -56,7 +59,7 @@ def register(mcp: MCPServer, settings: Settings) -> None:
 
     if settings.expose_writes:
 
-        @mcp.tool()
+        @write_tool(mcp, destructive=False, idempotent=False)
         @safe_tool
         async def create_share_link(
             ctx: ToolContext,
@@ -91,7 +94,7 @@ def register(mcp: MCPServer, settings: Settings) -> None:
 
     if settings.expose_deletes:
 
-        @mcp.tool()
+        @delete_tool(mcp)
         @safe_tool
         async def delete_share_link(ctx: ToolContext, share_link_id: int) -> dict[str, Any]:
             """Delete a share link, revoking public access to that document."""

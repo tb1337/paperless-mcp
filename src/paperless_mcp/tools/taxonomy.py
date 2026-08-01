@@ -20,7 +20,15 @@ from ..formatting import (
     format_storage_path,
     format_tag,
 )
-from ._helpers import ToolInputError, page_result, paginate, safe_tool
+from ._helpers import (
+    ToolInputError,
+    delete_tool,
+    page_result,
+    paginate,
+    read_tool,
+    safe_tool,
+    write_tool,
+)
 
 #: Paperless requires the full matching triple on create; these are the
 #: "no automatic matching" defaults, which is the safe choice for objects an
@@ -94,7 +102,7 @@ def register(mcp: MCPServer, settings: Settings) -> None:
 
 # --------------------------------------------------------------------------- tags
 def _register_tags(mcp: MCPServer, settings: Settings) -> None:
-    @mcp.tool()
+    @read_tool(mcp)
     @safe_tool
     async def list_tags(
         ctx: ToolContext,
@@ -113,7 +121,7 @@ def _register_tags(mcp: MCPServer, settings: Settings) -> None:
 
     if settings.expose_writes:
 
-        @mcp.tool()
+        @write_tool(mcp, destructive=False, idempotent=False)
         @safe_tool
         async def create_tag(
             ctx: ToolContext,
@@ -143,7 +151,7 @@ def _register_tags(mcp: MCPServer, settings: Settings) -> None:
             new_id = await paperless.tags.save(draft)
             return {"tag": {"id": new_id, "name": name}}
 
-        @mcp.tool()
+        @write_tool(mcp, destructive=True, idempotent=True)
         @safe_tool
         async def update_tag(
             ctx: ToolContext,
@@ -174,7 +182,7 @@ def _register_tags(mcp: MCPServer, settings: Settings) -> None:
 
     if settings.expose_deletes:
 
-        @mcp.tool()
+        @delete_tool(mcp)
         @safe_tool
         async def delete_tag(ctx: ToolContext, tag_id: int) -> dict[str, Any]:
             """Delete a tag. It is removed from every document that carries it."""
@@ -186,7 +194,7 @@ def _register_tags(mcp: MCPServer, settings: Settings) -> None:
 
 # --------------------------------------------------------------------- correspondents
 def _register_correspondents(mcp: MCPServer, settings: Settings) -> None:
-    @mcp.tool()
+    @read_tool(mcp)
     @safe_tool
     async def list_correspondents(
         ctx: ToolContext,
@@ -210,7 +218,7 @@ def _register_correspondents(mcp: MCPServer, settings: Settings) -> None:
 
     if settings.expose_writes:
 
-        @mcp.tool()
+        @write_tool(mcp, destructive=False, idempotent=False)
         @safe_tool
         async def create_correspondent(
             ctx: ToolContext,
@@ -228,7 +236,7 @@ def _register_correspondents(mcp: MCPServer, settings: Settings) -> None:
             new_id = await paperless.correspondents.save(draft)
             return {"correspondent": {"id": new_id, "name": name}}
 
-        @mcp.tool()
+        @write_tool(mcp, destructive=True, idempotent=True)
         @safe_tool
         async def update_correspondent(
             ctx: ToolContext,
@@ -253,7 +261,7 @@ def _register_correspondents(mcp: MCPServer, settings: Settings) -> None:
 
     if settings.expose_deletes:
 
-        @mcp.tool()
+        @delete_tool(mcp)
         @safe_tool
         async def delete_correspondent(ctx: ToolContext, correspondent_id: int) -> dict[str, Any]:
             """Delete a correspondent."""
@@ -265,7 +273,7 @@ def _register_correspondents(mcp: MCPServer, settings: Settings) -> None:
 
 # -------------------------------------------------------------------- document_types
 def _register_document_types(mcp: MCPServer, settings: Settings) -> None:
-    @mcp.tool()
+    @read_tool(mcp)
     @safe_tool
     async def list_document_types(
         ctx: ToolContext,
@@ -289,7 +297,7 @@ def _register_document_types(mcp: MCPServer, settings: Settings) -> None:
 
     if settings.expose_writes:
 
-        @mcp.tool()
+        @write_tool(mcp, destructive=False, idempotent=False)
         @safe_tool
         async def create_document_type(
             ctx: ToolContext,
@@ -307,7 +315,7 @@ def _register_document_types(mcp: MCPServer, settings: Settings) -> None:
             new_id = await paperless.document_types.save(draft)
             return {"document_type": {"id": new_id, "name": name}}
 
-        @mcp.tool()
+        @write_tool(mcp, destructive=True, idempotent=True)
         @safe_tool
         async def update_document_type(
             ctx: ToolContext,
@@ -332,7 +340,7 @@ def _register_document_types(mcp: MCPServer, settings: Settings) -> None:
 
     if settings.expose_deletes:
 
-        @mcp.tool()
+        @delete_tool(mcp)
         @safe_tool
         async def delete_document_type(ctx: ToolContext, document_type_id: int) -> dict[str, Any]:
             """Delete a document type."""
@@ -344,7 +352,7 @@ def _register_document_types(mcp: MCPServer, settings: Settings) -> None:
 
 # ---------------------------------------------------------------------- storage_paths
 def _register_storage_paths(mcp: MCPServer, settings: Settings) -> None:
-    @mcp.tool()
+    @read_tool(mcp)
     @safe_tool
     async def list_storage_paths(
         ctx: ToolContext,
@@ -368,7 +376,7 @@ def _register_storage_paths(mcp: MCPServer, settings: Settings) -> None:
 
     if settings.expose_writes:
 
-        @mcp.tool()
+        @write_tool(mcp, destructive=False, idempotent=False)
         @safe_tool
         async def create_storage_path(
             ctx: ToolContext,
@@ -392,7 +400,7 @@ def _register_storage_paths(mcp: MCPServer, settings: Settings) -> None:
             new_id = await paperless.storage_paths.save(draft)
             return {"storage_path": {"id": new_id, "name": name, "path": path}}
 
-        @mcp.tool()
+        @write_tool(mcp, destructive=True, idempotent=True)
         @safe_tool
         async def update_storage_path(
             ctx: ToolContext,
@@ -419,7 +427,7 @@ def _register_storage_paths(mcp: MCPServer, settings: Settings) -> None:
 
     if settings.expose_deletes:
 
-        @mcp.tool()
+        @delete_tool(mcp)
         @safe_tool
         async def delete_storage_path(ctx: ToolContext, storage_path_id: int) -> dict[str, Any]:
             """Delete a storage path."""
@@ -431,7 +439,7 @@ def _register_storage_paths(mcp: MCPServer, settings: Settings) -> None:
 
 # ---------------------------------------------------------------------- custom_fields
 def _register_custom_fields(mcp: MCPServer, settings: Settings) -> None:
-    @mcp.tool()
+    @read_tool(mcp)
     @safe_tool
     async def list_custom_fields(
         ctx: ToolContext,
@@ -455,7 +463,7 @@ def _register_custom_fields(mcp: MCPServer, settings: Settings) -> None:
 
     if settings.expose_writes:
 
-        @mcp.tool()
+        @write_tool(mcp, destructive=False, idempotent=False)
         @safe_tool
         async def create_custom_field(
             ctx: ToolContext,
@@ -484,7 +492,7 @@ def _register_custom_fields(mcp: MCPServer, settings: Settings) -> None:
             new_id = await paperless.custom_fields.save(draft)
             return {"custom_field": {"id": new_id, "name": name, "data_type": field_type.value}}
 
-        @mcp.tool()
+        @write_tool(mcp, destructive=True, idempotent=True)
         @safe_tool
         async def update_custom_field(
             ctx: ToolContext,
@@ -501,7 +509,7 @@ def _register_custom_fields(mcp: MCPServer, settings: Settings) -> None:
 
     if settings.expose_deletes:
 
-        @mcp.tool()
+        @delete_tool(mcp)
         @safe_tool
         async def delete_custom_field(ctx: ToolContext, custom_field_id: int) -> dict[str, Any]:
             """Delete a custom field definition and all of its stored values."""

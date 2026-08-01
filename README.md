@@ -62,6 +62,10 @@ the caller, not a human clicking through a UI:
 - **Structured errors**: pypaperless exceptions become results like
   `{"error": "not_found", "detail": "...", "cause": "..."}` instead of
   protocol-level failures, so the model can recover rather than give up.
+- **Behaviour hints on every tool**: each of the 54 tools ships MCP tool
+  annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`,
+  `openWorldHint`) plus a display title, so a client can wave a search through
+  and stop to ask before a rotate, a merge or an `empty_trash`.
 - **Survives an unreachable Paperless**: the connection is established lazily
   and retried per call, so the MCP handshake never fails just because the
   server was briefly down.
@@ -322,6 +326,29 @@ Notes on semantics:
   same field in one call is rejected. Use `bulk_edit_documents` to add or
   remove individual tags.
 - `upload_document` returns a task UUID; poll it with `get_task`.
+
+### Tool annotations
+
+Every tool carries MCP annotations, so a client can decide how much ceremony a
+call deserves without parsing the description:
+
+- `readOnlyHint` is true for all 25 read tools, and only for those.
+  `destructiveHint` / `idempotentHint` are left unset there — the spec only
+  gives them meaning once a tool can write.
+- `destructiveHint` is true where a call overwrites what was already stored:
+  every `update_*`, every `delete_*`, and the bulk operations. It is false for
+  additive tools (`upload_document`, `create_*`, `add_document_note`,
+  `restore_documents`, `acknowledge_tasks`).
+- `idempotentHint` is true only where repeating the identical call converges on
+  the same state. Notably false for `bulk_rotate_documents` (twice by 90° is
+  180°), `bulk_merge_documents` and `upload_document` (each call mints another
+  document) and `bulk_reprocess_documents` (each call queues another task).
+- `openWorldHint` is false everywhere: the tools reach exactly one configured
+  Paperless instance, not an open-ended set of external entities.
+
+They are hints, not a permission system — the actual gate is
+`PAPERLESS_MCP_READONLY` / `PAPERLESS_MCP_ENABLE_DELETE`, which decide whether a
+tool is advertised at all.
 
 ## Running over HTTP / in Docker
 

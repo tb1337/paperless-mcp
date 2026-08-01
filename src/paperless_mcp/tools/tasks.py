@@ -9,13 +9,21 @@ from mcp.server.mcpserver import MCPServer
 from ..client import ToolContext, get_client
 from ..config import Settings
 from ..formatting import format_task
-from ._helpers import ToolInputError, page_result, paginate, safe_tool, window
+from ._helpers import (
+    ToolInputError,
+    page_result,
+    paginate,
+    read_tool,
+    safe_tool,
+    window,
+    write_tool,
+)
 
 
 def register(mcp: MCPServer, settings: Settings) -> None:
     """Register task tools."""
 
-    @mcp.tool()
+    @read_tool(mcp)
     @safe_tool
     async def list_active_tasks(
         ctx: ToolContext, offset: int = 0, limit: int = 50
@@ -32,7 +40,7 @@ def register(mcp: MCPServer, settings: Settings) -> None:
             "tasks", items, offset=offset, limit=limit, total=total, formatter=format_task
         )
 
-    @mcp.tool()
+    @read_tool(mcp)
     @safe_tool
     async def list_tasks(
         ctx: ToolContext,
@@ -68,7 +76,7 @@ def register(mcp: MCPServer, settings: Settings) -> None:
             "tasks", items, offset=offset, limit=limit, total=total, formatter=format_task
         )
 
-    @mcp.tool()
+    @read_tool(mcp)
     @safe_tool
     async def get_task(ctx: ToolContext, task_id: str) -> dict[str, Any]:
         """Fetch a single task by primary key (numeric string) or Celery UUID.
@@ -87,7 +95,7 @@ def register(mcp: MCPServer, settings: Settings) -> None:
 
     if settings.expose_writes:
 
-        @mcp.tool()
+        @write_tool(mcp, destructive=False, idempotent=True)
         @safe_tool
         async def acknowledge_tasks(ctx: ToolContext, task_ids: list[int]) -> dict[str, Any]:
             """Acknowledge tasks by primary key, clearing them from the UI's alert list."""

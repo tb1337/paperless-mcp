@@ -9,13 +9,21 @@ from mcp.server.mcpserver import MCPServer
 from ..client import ToolContext, get_client
 from ..config import Settings
 from ..formatting import format_document
-from ._helpers import ToolInputError, page_result, paginate, safe_tool
+from ._helpers import (
+    ToolInputError,
+    delete_tool,
+    page_result,
+    paginate,
+    read_tool,
+    safe_tool,
+    write_tool,
+)
 
 
 def register(mcp: MCPServer, settings: Settings) -> None:
     """Register trash tools."""
 
-    @mcp.tool()
+    @read_tool(mcp)
     @safe_tool
     async def list_trash(ctx: ToolContext, offset: int = 0, limit: int = 50) -> dict[str, Any]:
         """List documents currently in the trash, newest deletion first."""
@@ -32,7 +40,7 @@ def register(mcp: MCPServer, settings: Settings) -> None:
 
     if settings.expose_writes:
 
-        @mcp.tool()
+        @write_tool(mcp, destructive=False, idempotent=True)
         @safe_tool
         async def restore_documents(ctx: ToolContext, document_ids: list[int]) -> dict[str, Any]:
             """Restore one or more trashed documents."""
@@ -44,7 +52,7 @@ def register(mcp: MCPServer, settings: Settings) -> None:
 
     if settings.expose_deletes:
 
-        @mcp.tool()
+        @delete_tool(mcp)
         @safe_tool
         async def empty_trash(
             ctx: ToolContext, document_ids: list[int] | None = None

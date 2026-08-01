@@ -20,12 +20,15 @@ from ..formatting import (
 )
 from ._helpers import (
     ToolInputError,
+    delete_tool,
     page_result,
     paginate,
     parse_date,
     parse_datetime,
+    read_tool,
     safe_tool,
     window,
+    write_tool,
 )
 
 # Updatable fields that accept a "clear" instruction via the clear_fields list.
@@ -147,7 +150,7 @@ def register(mcp: MCPServer, settings: Settings) -> None:
 
 
 def _register_reads(mcp: MCPServer) -> None:
-    @mcp.tool()
+    @read_tool(mcp)
     @safe_tool
     async def search_documents(
         ctx: ToolContext,
@@ -226,7 +229,7 @@ def _register_reads(mcp: MCPServer) -> None:
             formatter=format_document,
         )
 
-    @mcp.tool()
+    @read_tool(mcp)
     @safe_tool
     async def get_document(ctx: ToolContext, document_id: int) -> dict[str, Any]:
         """Fetch a single document including OCR content, notes and custom fields."""
@@ -234,7 +237,7 @@ def _register_reads(mcp: MCPServer) -> None:
         doc = await paperless.documents(document_id)
         return format_document_detail(doc)
 
-    @mcp.tool()
+    @read_tool(mcp)
     @safe_tool
     async def get_document_content(ctx: ToolContext, document_id: int) -> dict[str, Any]:
         """Return only the OCR'd text content of a document."""
@@ -248,7 +251,7 @@ def _register_reads(mcp: MCPServer) -> None:
             "content": content,
         }
 
-    @mcp.tool()
+    @read_tool(mcp)
     @safe_tool
     async def get_document_metadata(ctx: ToolContext, document_id: int) -> dict[str, Any]:
         """Return file-level metadata (checksums, sizes, original filename, ...)."""
@@ -257,7 +260,7 @@ def _register_reads(mcp: MCPServer) -> None:
         dumped = safe_dump(meta)
         return dumped if isinstance(dumped, dict) else {"metadata": dumped}
 
-    @mcp.tool()
+    @read_tool(mcp)
     @safe_tool
     async def get_document_notes(ctx: ToolContext, document_id: int) -> dict[str, Any]:
         """List all notes attached to a document."""
@@ -265,7 +268,7 @@ def _register_reads(mcp: MCPServer) -> None:
         notes = await paperless.documents.notes(document_id)
         return {"document_id": document_id, "notes": [format_note(n) for n in notes]}
 
-    @mcp.tool()
+    @read_tool(mcp)
     @safe_tool
     async def get_document_history(
         ctx: ToolContext, document_id: int, offset: int = 0, limit: int = 50
@@ -284,7 +287,7 @@ def _register_reads(mcp: MCPServer) -> None:
             document_id=document_id,
         )
 
-    @mcp.tool()
+    @read_tool(mcp)
     @safe_tool
     async def find_similar_documents(
         ctx: ToolContext, document_id: int, offset: int = 0, limit: int = 10
@@ -311,7 +314,7 @@ def _register_reads(mcp: MCPServer) -> None:
             reference=document_id,
         )
 
-    @mcp.tool()
+    @read_tool(mcp)
     @safe_tool
     async def download_document(
         ctx: ToolContext, document_id: int, original: bool = False
@@ -345,7 +348,7 @@ def _register_reads(mcp: MCPServer) -> None:
             "content_base64": base64.b64encode(content).decode("ascii"),
         }
 
-    @mcp.tool()
+    @read_tool(mcp)
     @safe_tool
     async def get_document_thumbnail(ctx: ToolContext, document_id: int) -> Image:
         """Return the document's thumbnail as a viewable image.
@@ -378,7 +381,7 @@ def _register_reads(mcp: MCPServer) -> None:
 
 
 def _register_writes(mcp: MCPServer) -> None:
-    @mcp.tool()
+    @write_tool(mcp, destructive=False, idempotent=False)
     @safe_tool
     async def upload_document(
         ctx: ToolContext,
@@ -421,7 +424,7 @@ def _register_writes(mcp: MCPServer) -> None:
         task_uuid = await paperless.documents.save(draft)
         return {"task_uuid": task_uuid, "filename": filename, "size_bytes": len(content)}
 
-    @mcp.tool()
+    @write_tool(mcp, destructive=True, idempotent=True)
     @safe_tool
     async def update_document(
         ctx: ToolContext,
@@ -486,7 +489,7 @@ def _register_writes(mcp: MCPServer) -> None:
         changed = await paperless.documents.update(doc)
         return {"changed": changed, **format_document(doc)}
 
-    @mcp.tool()
+    @write_tool(mcp, destructive=False, idempotent=False)
     @safe_tool
     async def add_document_note(ctx: ToolContext, document_id: int, note: str) -> dict[str, Any]:
         """Add a free-text note to a document."""
@@ -497,7 +500,7 @@ def _register_writes(mcp: MCPServer) -> None:
 
 
 def _register_deletes(mcp: MCPServer) -> None:
-    @mcp.tool()
+    @delete_tool(mcp)
     @safe_tool
     async def delete_document(ctx: ToolContext, document_id: int) -> dict[str, Any]:
         """Move a document to the trash (recoverable with ``restore_documents``)."""
@@ -506,7 +509,7 @@ def _register_deletes(mcp: MCPServer) -> None:
         await paperless.documents.delete(doc)
         return {"document_id": document_id, "deleted": True}
 
-    @mcp.tool()
+    @delete_tool(mcp)
     @safe_tool
     async def delete_document_note(
         ctx: ToolContext, document_id: int, note_id: int
