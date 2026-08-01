@@ -9,6 +9,22 @@ can serve a whole network.
 [pngx]: https://github.com/paperless-ngx/paperless-ngx
 [pyp]: https://github.com/tb1337/pypaperless
 
+> [!WARNING]
+>
+> **Highly experimental — use at your own risk.**
+>
+> This project is young and moving fast. Tool names, parameters and return
+> shapes still change; such changes are labelled `breaking-change` in the
+> release notes, but they do happen, and there is no deprecation window yet.
+> It also rides on a pypaperless **release candidate** and needs a
+> Paperless-ngx 3.0 that is itself fresh.
+>
+> Nothing here has been proven against your instance, and the caller is an LLM
+> deciding on its own which tools to invoke. If the documents matter to you:
+> have backups, start with
+> [`PAPERLESS_MCP_READONLY=true`](#configuration), and leave the delete tools
+> switched off (that is the default) until you trust the setup.
+
 ## By an LLM, for LLMs
 
 The thing on the other end of this protocol is a language model — and so is the
