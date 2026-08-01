@@ -116,8 +116,9 @@ async def test_get_document_returns_detail(make_paperless: Any) -> None:
     result = await call_tool(mcp, "get_document", document_id=42)
     assert result["id"] == 42
     assert result["title"] == "Bill"
-    assert result["content"] == "ocr text"
     assert result["notes"] == []
+    # The OCR text belongs to ``get_document_content`` alone.
+    assert "content" not in result
 
 
 @pytest.mark.asyncio

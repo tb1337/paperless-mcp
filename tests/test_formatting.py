@@ -47,8 +47,8 @@ def test_format_document_detail_reads_embedded_notes(runtime: PaperlessRuntime) 
 
     assert result["id"] == 42
     assert result["created"] == "2026-01-02"
-    assert result["content"] == "ocr text"
     assert result["tags"] == [1, 2]
+    assert "content" not in result
     assert result["notes"] == [
         {
             "id": 7,

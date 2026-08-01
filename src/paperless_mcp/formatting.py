@@ -97,9 +97,13 @@ def format_custom_field_value(value: Any) -> dict[str, Any]:
 
 
 def format_document_detail(doc: Any) -> dict[str, Any]:
-    """Project a Document model including OCR content, notes and custom fields."""
+    """Project a Document model including notes and custom fields.
+
+    The OCR text is deliberately left out: it dwarfs every other field and has
+    its own tool (``get_document_content``), so callers that only need the
+    document's fields do not pay for a whole scan.
+    """
     base = format_document(doc)
-    base["content"] = _safe(doc, "content")
     base["custom_fields"] = [
         format_custom_field_value(cf) for cf in (_safe(doc, "custom_fields") or [])
     ]
