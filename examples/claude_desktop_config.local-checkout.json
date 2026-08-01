@@ -1,8 +1,12 @@
 {
-  "//": "Variant for running paperless-mcp from a git checkout instead of PyPI. Replace /absolute/path/to/paperless-mcp with your clone. `uv run` creates and syncs the venv on first launch, so no manual install step is needed.",
+  "//when": "Use this variant for hacking on the server or to run something newer than the last release. For the published package, see claude_desktop_config.json — it needs no resolver flags here because uv.lock already pins the pypaperless pre-release.",
+  "//": "Copy the paperless entry into your claude_desktop_config.json. Locations: macOS ~/Library/Application Support/Claude/claude_desktop_config.json, Windows %APPDATA%\\Claude\\claude_desktop_config.json, Linux ~/.config/Claude/claude_desktop_config.json. Quit Claude Desktop completely and reopen it afterwards.",
+  "//command": "Absolute path to the uv binary — Claude Desktop does not inherit your shell PATH, so a bare 'uv' usually fails to resolve. Find it with `which uv` (macOS/Linux) or `where uv` (Windows).",
+  "//directory": "Absolute path to your clone of paperless-mcp (the directory containing pyproject.toml). Run `uv sync` in it once, then `uv run` launches the server from that project's environment.",
+  "//switches": "PAPERLESS_MCP_READONLY=true hides every write and delete tool; PAPERLESS_MCP_ENABLE_DELETE=true adds the delete tools on top of the default read+write set. READONLY always wins.",
   "mcpServers": {
     "paperless": {
-      "command": "uv",
+      "command": "/absolute/path/to/uv",
       "args": [
         "run",
         "--directory",
@@ -11,7 +15,9 @@
       ],
       "env": {
         "PAPERLESS_URL": "https://paperless.example.com",
-        "PAPERLESS_TOKEN": "your-paperless-api-token"
+        "PAPERLESS_TOKEN": "your-paperless-api-token",
+        "PAPERLESS_MCP_READONLY": "false",
+        "PAPERLESS_MCP_ENABLE_DELETE": "false"
       }
     }
   }

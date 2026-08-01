@@ -600,7 +600,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "httpx", specifier = ">=0.28.1" },
+    { name = "httpx", specifier = ">=0.28.1,<1" },
     { name = "mcp", specifier = ">=2.0.0,<3" },
     { name = "pypaperless", specifier = "==6.0.0rc2" },
     { name = "python-dotenv", specifier = ">=1.2.2" },

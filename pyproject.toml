@@ -10,7 +10,9 @@ license = { text = "MIT" }
 authors = [{ name = "Tobias Schulz" }]
 keywords = ["paperless", "paperless-ngx", "mcp", "model-context-protocol", "llm"]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    # Matches the warning at the top of the README: the tool surface still
+    # shifts and the pypaperless dependency is a release candidate.
+    "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
@@ -26,8 +28,14 @@ dependencies = [
     "mcp>=2.0.0,<3",
     "pypaperless==6.0.0rc2",
     # Kept in step with pypaperless: the AsyncClient built here is handed to
-    # PaperlessClient, so both halves must agree on the httpx version.
-    "httpx>=0.28.1",
+    # PaperlessClient, so both halves must agree on the httpx version. The major
+    # is capped because httpx 1.x drops `httpx.AsyncClient` (1.0.dev3 exposes
+    # only `Client`), which both halves annotate against. pypaperless itself
+    # requires an unbounded `httpx>=0.28.1`, so nothing upstream stops a
+    # resolver from reaching 1.x — and one does: `--prerelease=allow`, which
+    # users need for the pypaperless rc, picks 1.0.dev3 and the server then dies
+    # on import with "module 'httpx' has no attribute 'AsyncClient'".
+    "httpx>=0.28.1,<1",
     "python-dotenv>=1.2.2",
     "uvicorn>=0.52.0",
     "starlette>=1.3.1,<2",
