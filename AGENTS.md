@@ -18,6 +18,9 @@ in-process it is `build_mcp(settings)` / `serve(settings)` in `server.py`.
   - `tools/_helpers.py` — registration decorators (`read_tool`, `write_tool`, `delete_tool`),
     `safe_tool` (exception → structured error), `paginate` / `page_result` (offset/limit →
     Paperless pages), `ToolInputError`
+  - `prompts/` — one module per workflow (`triage`, `review`, `duplicates`), same
+    `register(mcp, settings)` / `register_all()` shape as `tools/`;
+    `prompts/_helpers.py` holds `sections()` and `capability_note()`
   - top-level: `server.py` (MCPServer wiring, lifespans, stdio + Streamable HTTP transports),
     `client.py` (`PaperlessConnection`, lazy connect, `get_client` / `get_names` /
     `invalidate_names` / `get_settings` / `ToolContext`), `config.py` (env-driven `Settings`
@@ -33,7 +36,8 @@ in-process it is `build_mcp(settings)` / `serve(settings)` in `server.py`.
 Current code surface (trust these over older docs): MCP SDK 2.x — the server class is `MCPServer`
 from `mcp.server.mcpserver`, not `FastMCP` · pypaperless is pinned exactly (`==6.0.0rc2`), so a
 version bump is a deliberate change with a test run, never an automerge · 56 tools (25 read,
-22 write, 9 delete), enumerated in `tests/test_tool_registration.py`.
+22 write, 9 delete), enumerated in `tests/test_tool_registration.py` · 3 workflow prompts,
+enumerated in `tests/test_prompt_registration.py`.
 
 ## Dev Commands
 
@@ -103,6 +107,31 @@ breaking change and gets the `breaking-change` label.
   time, so a read-only deployment simply does not advertise the tool.
 - **A new tool module goes in two places**: `tools/__init__.py` and the expected-tool list in
   `tests/test_tool_registration.py`.
+
+## Prompt contract
+
+A prompt is a *workflow*: the plan for a job that takes a dozen tool calls in a set order, with
+the Paperless-specific judgement written into it. The tools stay the API; prompts are the recipes.
+Like the tool names, a prompt name is public — renaming one breaks the slash command a user
+already has.
+
+- **Prompts never touch Paperless.** They render from their arguments and `settings` alone. A
+  slash command that can fail because the archive was briefly unreachable defeats the point of
+  `PaperlessConnection` being lazy, and a rendered-in document list only competes with the search
+  the model is about to run. Anything that needs live data is a tool, not a prompt.
+- **Never give a prompt a `Context` parameter.** The SDK wraps every prompt function in pydantic's
+  `validate_call`, which re-validates the parameterized `ToolContext` into a fresh instance and
+  drops the private attributes carrying the request; the injected context then raises at render
+  time, in the client. `tests/test_prompt_registration.py` pins `context_kwarg is None`.
+- **Every argument is optional**, because a client renders the slash command as a form and the
+  useful default is "just run it". MCP sends arguments as strings, so an `int` annotation is
+  relying on pydantic to coerce `"3"` — fine, but keep the failure message readable.
+- **The text adapts to the visibility flags**, it is not withheld: `capability_note(settings)` up
+  front, and `sections(...)` drops the step this deployment cannot perform (`None` for the write
+  branch under `readonly`). Describing a tool that was never registered is the one failure mode
+  that matters here.
+- **A new prompt module goes in two places**: `prompts/__init__.py` and the expected-prompt set in
+  `tests/test_prompt_registration.py`.
 
 ## PR instructions
 
