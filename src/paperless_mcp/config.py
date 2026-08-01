@@ -83,6 +83,7 @@ class Settings:
     max_file_bytes: int = 25_000_000
     verify_ssl: bool = True
     request_timeout: float = 30.0
+    name_cache_ttl: float = 300.0
     log_level: str = "INFO"
 
     @property
@@ -165,6 +166,13 @@ def load_settings(overrides: Mapping[str, Any] | None = None) -> Settings:
         request_timeout=float(
             _pick(over, "request_timeout", _float_env("PAPERLESS_MCP_TIMEOUT", default=30.0))
         ),
+        name_cache_ttl=float(
+            _pick(
+                over,
+                "name_cache_ttl",
+                _float_env("PAPERLESS_MCP_NAME_CACHE_TTL", default=300.0),
+            )
+        ),
         log_level=log_level,
     )
 
@@ -174,5 +182,7 @@ def load_settings(overrides: Mapping[str, Any] | None = None) -> Settings:
         raise ConfigError("PAPERLESS_MCP_MAX_FILE_BYTES must be positive")
     if settings.request_timeout <= 0:
         raise ConfigError("PAPERLESS_MCP_TIMEOUT must be positive")
+    if settings.name_cache_ttl < 0:
+        raise ConfigError("PAPERLESS_MCP_NAME_CACHE_TTL must not be negative")
 
     return settings

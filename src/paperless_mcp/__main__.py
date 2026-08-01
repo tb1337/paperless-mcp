@@ -22,8 +22,8 @@ Every flag has an environment-variable equivalent (PAPERLESS_URL,
 PAPERLESS_TOKEN, PAPERLESS_MCP_TRANSPORT, PAPERLESS_MCP_HOST,
 PAPERLESS_MCP_PORT, PAPERLESS_MCP_AUTH_TOKEN, PAPERLESS_MCP_READONLY,
 PAPERLESS_MCP_ENABLE_DELETE, PAPERLESS_MCP_MAX_FILE_BYTES,
-PAPERLESS_MCP_VERIFY_SSL, PAPERLESS_MCP_TIMEOUT, PAPERLESS_MCP_LOG_LEVEL);
-flags win over the environment.
+PAPERLESS_MCP_VERIFY_SSL, PAPERLESS_MCP_TIMEOUT, PAPERLESS_MCP_NAME_CACHE_TTL,
+PAPERLESS_MCP_LOG_LEVEL); flags win over the environment.
 """
 
 
@@ -89,6 +89,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Skip TLS certificate verification (self-signed Paperless instances).",
     )
     parser.add_argument("--timeout", dest="request_timeout", type=float, help="HTTP timeout (s).")
+    parser.add_argument(
+        "--name-cache-ttl",
+        type=float,
+        help="Seconds the resolved tag/correspondent names stay cached (0: forever).",
+    )
     parser.add_argument(
         "--log-level",
         choices=("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"),

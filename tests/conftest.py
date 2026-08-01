@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import math
-from collections.abc import AsyncIterator, Iterable
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from typing import Any
@@ -17,10 +17,12 @@ from typing import Any
 import httpx
 import pytest
 from mcp.server.mcpserver import MCPServer
+from pypaperless.cache import PaperlessCache
 from pypaperless.exceptions import NotFoundError
 
 from paperless_mcp.client import CLIENT_KEY, SETTINGS_KEY
 from paperless_mcp.config import Settings
+from paperless_mcp.names import NameCache, NameMap
 from paperless_mcp.tools import register_all
 
 
@@ -123,6 +125,18 @@ class FakeService:
             return self.get_result(pk)
         return self.get_result
 
+    async def __aiter__(self) -> AsyncIterator[Any]:
+        # Mirrors ``IterableService.__aiter__``: page through and flatten.
+        pages = self.pages()
+        try:
+            async for page in pages:
+                for item in page:
+                    yield item
+                if page.is_last_page:
+                    break
+        finally:
+            await pages.aclose()
+
     @asynccontextmanager
     async def filter(self, **kwargs: Any) -> AsyncIterator[FakeService]:
         self.filter_calls.append(kwargs)
@@ -161,16 +175,30 @@ class FakePaperless:
         self.host_version = "3.0.0"
         self.host_api_version = 10
         self.base_url = "http://test"
+        # ``load_names`` writes the custom-field cache here, exactly as it does
+        # on the real client's runtime.
+        self.runtime = SimpleNamespace(cache=PaperlessCache())
 
 
 class FakeConnection:
-    """Stand-in for PaperlessConnection that hands back a fixed fake client."""
+    """Stand-in for PaperlessConnection that hands back a fixed fake client.
+
+    Carries a real :class:`NameCache`, so the tools exercise the same warm-up
+    and invalidation path they do in production.
+    """
 
     def __init__(self, paperless: Any) -> None:
         self._paperless = paperless
+        self._names = NameCache(ttl=0)
 
     async def client(self) -> Any:
         return self._paperless
+
+    async def names(self) -> NameMap:
+        return await self._names.get(self._paperless)
+
+    def invalidate_names(self) -> None:
+        self._names.invalidate()
 
 
 def build_mcp(settings: Settings, paperless: Any) -> MCPServer:
@@ -195,6 +223,26 @@ class _FakeContext:
         self.request_context = _FakeRequestContext(lifespan_context)
 
 
+type ToolCaller = Callable[..., Awaitable[Any]]
+
+
+@asynccontextmanager
+async def tool_session(mcp: MCPServer) -> AsyncIterator[ToolCaller]:
+    """Keep one lifespan open across several tool calls.
+
+    ``call_tool`` enters and leaves the lifespan per call, which hands each call
+    a fresh connection - and with it a cold name cache. Use this whenever a test
+    is about state that outlives a single call.
+    """
+    async with mcp._lowlevel_server.lifespan(mcp._lowlevel_server) as lifespan_ctx:
+        ctx = _FakeContext(lifespan_ctx)
+
+        async def call(tool_name: str, /, **kwargs: Any) -> Any:
+            return await mcp._tool_manager._tools[tool_name].fn(ctx=ctx, **kwargs)
+
+        yield call
+
+
 async def call_tool(mcp: MCPServer, tool_name: str, /, **kwargs: Any) -> Any:
     """Invoke a registered tool's underlying function with a fake Context.
 
@@ -202,10 +250,8 @@ async def call_tool(mcp: MCPServer, tool_name: str, /, **kwargs: Any) -> Any:
     session) so tool bodies can be unit-tested directly. ``tool_name`` is
     positional-only so kwargs like ``name=...`` reach the tool.
     """
-    tool = mcp._tool_manager._tools[tool_name]
-    async with mcp._lowlevel_server.lifespan(mcp._lowlevel_server) as lifespan_ctx:
-        ctx = _FakeContext(lifespan_ctx)
-        return await tool.fn(ctx=ctx, **kwargs)
+    async with tool_session(mcp) as call:
+        return await call(tool_name, **kwargs)
 
 
 def parse_tool_result(result: Any) -> Any:
@@ -250,6 +296,7 @@ def make_paperless():
             "document_types",
             "storage_paths",
             "custom_fields",
+            "users",
             "share_links",
             "saved_views",
             "tasks",

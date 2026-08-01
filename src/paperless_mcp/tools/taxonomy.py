@@ -6,12 +6,13 @@ signatures, so the MCP JSON schemas stay tight and LLM-friendly.
 
 from __future__ import annotations
 
+from functools import partial
 from typing import Any
 
 from mcp.server.mcpserver import MCPServer
 from pypaperless.models.types import CustomFieldType, MatchingAlgorithm
 
-from ..client import ToolContext, get_client
+from ..client import ToolContext, get_client, get_names, invalidate_names
 from ..config import Settings
 from ..formatting import (
     format_correspondent,
@@ -111,11 +112,17 @@ def _register_tags(mcp: MCPServer, settings: Settings) -> None:
     ) -> dict[str, Any]:
         """List tags, optionally filtered by a case-insensitive name substring."""
         paperless = await get_client(ctx)
+        names = await get_names(ctx)
         items, total = await paginate(
             paperless.tags, _name_filters(name_contains), offset=offset, limit=limit
         )
         return page_result(
-            "tags", items, offset=offset, limit=limit, total=total, formatter=format_tag
+            "tags",
+            items,
+            offset=offset,
+            limit=limit,
+            total=total,
+            formatter=partial(format_tag, names=names),
         )
 
     if settings.expose_writes:
@@ -148,6 +155,7 @@ def _register_tags(mcp: MCPServer, settings: Settings) -> None:
                 **_matching_kwargs(match, matching_algorithm, is_insensitive, for_create=True),
             )
             new_id = await paperless.tags.save(draft)
+            invalidate_names(ctx)
             return {"tag": {"id": new_id, "name": name}}
 
         @write_tool(mcp, destructive=True, idempotent=True)
@@ -165,6 +173,7 @@ def _register_tags(mcp: MCPServer, settings: Settings) -> None:
         ) -> dict[str, Any]:
             """Update an existing tag. Pass only the fields you want to change."""
             paperless = await get_client(ctx)
+            names = await get_names(ctx)
             obj = await paperless.tags(tag_id)
             _apply(
                 obj,
@@ -177,7 +186,8 @@ def _register_tags(mcp: MCPServer, settings: Settings) -> None:
                 },
             )
             changed = await paperless.tags.update(obj)
-            return {"changed": changed, **format_tag(obj)}
+            invalidate_names(ctx)
+            return {"changed": changed, **format_tag(obj, names)}
 
     if settings.expose_deletes:
 
@@ -188,6 +198,7 @@ def _register_tags(mcp: MCPServer, settings: Settings) -> None:
             paperless = await get_client(ctx)
             obj = await paperless.tags(tag_id, lazy=True)
             await paperless.tags.delete(obj)
+            invalidate_names(ctx)
             return {"tag_id": tag_id, "deleted": True}
 
 
@@ -202,6 +213,7 @@ def _register_correspondents(mcp: MCPServer, settings: Settings) -> None:
     ) -> dict[str, Any]:
         """List correspondents, optionally filtered by a name substring."""
         paperless = await get_client(ctx)
+        names = await get_names(ctx)
         items, total = await paginate(
             paperless.correspondents, _name_filters(name_contains), offset=offset, limit=limit
         )
@@ -211,7 +223,7 @@ def _register_correspondents(mcp: MCPServer, settings: Settings) -> None:
             offset=offset,
             limit=limit,
             total=total,
-            formatter=format_correspondent,
+            formatter=partial(format_correspondent, names=names),
         )
 
     if settings.expose_writes:
@@ -232,6 +244,7 @@ def _register_correspondents(mcp: MCPServer, settings: Settings) -> None:
                 **_matching_kwargs(match, matching_algorithm, is_insensitive, for_create=True),
             )
             new_id = await paperless.correspondents.save(draft)
+            invalidate_names(ctx)
             return {"correspondent": {"id": new_id, "name": name}}
 
         @write_tool(mcp, destructive=True, idempotent=True)
@@ -246,6 +259,7 @@ def _register_correspondents(mcp: MCPServer, settings: Settings) -> None:
         ) -> dict[str, Any]:
             """Update an existing correspondent."""
             paperless = await get_client(ctx)
+            names = await get_names(ctx)
             obj = await paperless.correspondents(correspondent_id)
             _apply(
                 obj,
@@ -255,7 +269,8 @@ def _register_correspondents(mcp: MCPServer, settings: Settings) -> None:
                 },
             )
             changed = await paperless.correspondents.update(obj)
-            return {"changed": changed, **format_correspondent(obj)}
+            invalidate_names(ctx)
+            return {"changed": changed, **format_correspondent(obj, names)}
 
     if settings.expose_deletes:
 
@@ -266,6 +281,7 @@ def _register_correspondents(mcp: MCPServer, settings: Settings) -> None:
             paperless = await get_client(ctx)
             obj = await paperless.correspondents(correspondent_id, lazy=True)
             await paperless.correspondents.delete(obj)
+            invalidate_names(ctx)
             return {"correspondent_id": correspondent_id, "deleted": True}
 
 
@@ -280,6 +296,7 @@ def _register_document_types(mcp: MCPServer, settings: Settings) -> None:
     ) -> dict[str, Any]:
         """List document types, optionally filtered by a name substring."""
         paperless = await get_client(ctx)
+        names = await get_names(ctx)
         items, total = await paginate(
             paperless.document_types, _name_filters(name_contains), offset=offset, limit=limit
         )
@@ -289,7 +306,7 @@ def _register_document_types(mcp: MCPServer, settings: Settings) -> None:
             offset=offset,
             limit=limit,
             total=total,
-            formatter=format_document_type,
+            formatter=partial(format_document_type, names=names),
         )
 
     if settings.expose_writes:
@@ -310,6 +327,7 @@ def _register_document_types(mcp: MCPServer, settings: Settings) -> None:
                 **_matching_kwargs(match, matching_algorithm, is_insensitive, for_create=True),
             )
             new_id = await paperless.document_types.save(draft)
+            invalidate_names(ctx)
             return {"document_type": {"id": new_id, "name": name}}
 
         @write_tool(mcp, destructive=True, idempotent=True)
@@ -324,6 +342,7 @@ def _register_document_types(mcp: MCPServer, settings: Settings) -> None:
         ) -> dict[str, Any]:
             """Update an existing document type."""
             paperless = await get_client(ctx)
+            names = await get_names(ctx)
             obj = await paperless.document_types(document_type_id)
             _apply(
                 obj,
@@ -333,7 +352,8 @@ def _register_document_types(mcp: MCPServer, settings: Settings) -> None:
                 },
             )
             changed = await paperless.document_types.update(obj)
-            return {"changed": changed, **format_document_type(obj)}
+            invalidate_names(ctx)
+            return {"changed": changed, **format_document_type(obj, names)}
 
     if settings.expose_deletes:
 
@@ -344,6 +364,7 @@ def _register_document_types(mcp: MCPServer, settings: Settings) -> None:
             paperless = await get_client(ctx)
             obj = await paperless.document_types(document_type_id, lazy=True)
             await paperless.document_types.delete(obj)
+            invalidate_names(ctx)
             return {"document_type_id": document_type_id, "deleted": True}
 
 
@@ -358,6 +379,7 @@ def _register_storage_paths(mcp: MCPServer, settings: Settings) -> None:
     ) -> dict[str, Any]:
         """List storage paths, optionally filtered by a name substring."""
         paperless = await get_client(ctx)
+        names = await get_names(ctx)
         items, total = await paginate(
             paperless.storage_paths, _name_filters(name_contains), offset=offset, limit=limit
         )
@@ -367,7 +389,7 @@ def _register_storage_paths(mcp: MCPServer, settings: Settings) -> None:
             offset=offset,
             limit=limit,
             total=total,
-            formatter=format_storage_path,
+            formatter=partial(format_storage_path, names=names),
         )
 
     if settings.expose_writes:
@@ -394,6 +416,7 @@ def _register_storage_paths(mcp: MCPServer, settings: Settings) -> None:
                 **_matching_kwargs(match, matching_algorithm, is_insensitive, for_create=True),
             )
             new_id = await paperless.storage_paths.save(draft)
+            invalidate_names(ctx)
             return {"storage_path": {"id": new_id, "name": name, "path": path}}
 
         @write_tool(mcp, destructive=True, idempotent=True)
@@ -409,6 +432,7 @@ def _register_storage_paths(mcp: MCPServer, settings: Settings) -> None:
         ) -> dict[str, Any]:
             """Update an existing storage path."""
             paperless = await get_client(ctx)
+            names = await get_names(ctx)
             obj = await paperless.storage_paths(storage_path_id)
             _apply(
                 obj,
@@ -419,7 +443,8 @@ def _register_storage_paths(mcp: MCPServer, settings: Settings) -> None:
                 },
             )
             changed = await paperless.storage_paths.update(obj)
-            return {"changed": changed, **format_storage_path(obj)}
+            invalidate_names(ctx)
+            return {"changed": changed, **format_storage_path(obj, names)}
 
     if settings.expose_deletes:
 
@@ -430,6 +455,7 @@ def _register_storage_paths(mcp: MCPServer, settings: Settings) -> None:
             paperless = await get_client(ctx)
             obj = await paperless.storage_paths(storage_path_id, lazy=True)
             await paperless.storage_paths.delete(obj)
+            invalidate_names(ctx)
             return {"storage_path_id": storage_path_id, "deleted": True}
 
 
@@ -485,6 +511,7 @@ def _register_custom_fields(mcp: MCPServer, settings: Settings) -> None:
                 extra_data=extra_data,
             )
             new_id = await paperless.custom_fields.save(draft)
+            invalidate_names(ctx)
             return {"custom_field": {"id": new_id, "name": name, "data_type": field_type.value}}
 
         @write_tool(mcp, destructive=True, idempotent=True)
@@ -500,6 +527,7 @@ def _register_custom_fields(mcp: MCPServer, settings: Settings) -> None:
             obj = await paperless.custom_fields(custom_field_id)
             _apply(obj, {"name": name, "extra_data": extra_data})
             changed = await paperless.custom_fields.update(obj)
+            invalidate_names(ctx)
             return {"changed": changed, **format_custom_field(obj)}
 
     if settings.expose_deletes:
@@ -511,4 +539,5 @@ def _register_custom_fields(mcp: MCPServer, settings: Settings) -> None:
             paperless = await get_client(ctx)
             obj = await paperless.custom_fields(custom_field_id, lazy=True)
             await paperless.custom_fields.delete(obj)
+            invalidate_names(ctx)
             return {"custom_field_id": custom_field_id, "deleted": True}

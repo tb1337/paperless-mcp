@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+from functools import partial
 from typing import Any
 
 from mcp.server.mcpserver import MCPServer
 
 from .. import __version__
-from ..client import ToolContext, get_client, get_settings
+from ..client import ToolContext, get_client, get_names, get_settings
 from ..config import Settings
 from ..formatting import format_saved_view, safe_dump
 from ._helpers import page_result, paginate, read_tool, safe_tool
@@ -47,6 +48,7 @@ def register(mcp: MCPServer, settings: Settings) -> None:
     ) -> dict[str, Any]:
         """List all saved views (the user's stored document filters)."""
         paperless = await get_client(ctx)
+        names = await get_names(ctx)
         items, total = await paginate(paperless.saved_views, offset=offset, limit=limit)
         return page_result(
             "saved_views",
@@ -54,7 +56,7 @@ def register(mcp: MCPServer, settings: Settings) -> None:
             offset=offset,
             limit=limit,
             total=total,
-            formatter=format_saved_view,
+            formatter=partial(format_saved_view, names=names),
         )
 
     @read_tool(mcp)
@@ -67,8 +69,9 @@ def register(mcp: MCPServer, settings: Settings) -> None:
         arguments yourself.
         """
         paperless = await get_client(ctx)
+        names = await get_names(ctx)
         view = await paperless.saved_views(view_id)
-        out = format_saved_view(view)
+        out = format_saved_view(view, names)
         out["filter_rules"] = [
             {"rule_type": rule.rule_type, "value": rule.value} for rule in (view.filter_rules or [])
         ]

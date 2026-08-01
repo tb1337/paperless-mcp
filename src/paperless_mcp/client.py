@@ -20,6 +20,8 @@ from mcp.server.mcpserver import Context
 from pypaperless import PaperlessClient
 from pypaperless.exceptions import PaperlessError
 
+from .names import NameCache, NameMap
+
 if TYPE_CHECKING:
     from .config import Settings
 
@@ -49,6 +51,7 @@ class PaperlessConnection:
         self._http: httpx.AsyncClient | None = None
         self._client: PaperlessClient | None = None
         self._lock = asyncio.Lock()
+        self._names = NameCache(settings.name_cache_ttl)
 
     async def __aenter__(self) -> Self:
         """Open the connection and probe Paperless once, tolerating failure."""
@@ -119,15 +122,46 @@ class PaperlessConnection:
                 )
         return client
 
+    async def names(self) -> NameMap:
+        """Return the ``id -> name`` snapshot, loading the master data on first use.
+
+        Deliberately not warmed in :meth:`open`: a Paperless that is briefly
+        unreachable must not cost the client its tools, which is the whole
+        reason the connection is lazy in the first place.
+        """
+        return await self._names.get(await self.client())
+
+    def invalidate_names(self) -> None:
+        """Discard the name snapshot after a change to the master data."""
+        self._names.invalidate()
+
 
 def _lifespan(ctx: ToolContext) -> dict[str, Any]:
     return ctx.request_context.lifespan_context
 
 
+def _connection(ctx: ToolContext) -> PaperlessConnection:
+    connection: PaperlessConnection = _lifespan(ctx)[CLIENT_KEY]
+    return connection
+
+
 async def get_client(ctx: ToolContext) -> PaperlessClient:
     """Return the shared PaperlessClient, (re)connecting if necessary."""
-    connection: PaperlessConnection = _lifespan(ctx)[CLIENT_KEY]
-    return await connection.client()
+    return await _connection(ctx).client()
+
+
+async def get_names(ctx: ToolContext) -> NameMap:
+    """Return the shared ``id -> name`` snapshot for the formatters.
+
+    Await this *before* fetching documents: it is also what populates the
+    custom-field cache pypaperless enriches a document from while parsing it.
+    """
+    return await _connection(ctx).names()
+
+
+def invalidate_names(ctx: ToolContext) -> None:
+    """Discard the name snapshot; call after creating, renaming or deleting."""
+    _connection(ctx).invalidate_names()
 
 
 def get_settings(ctx: ToolContext) -> Settings:

@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from functools import partial
 from typing import Any
 
 from mcp.server.mcpserver import MCPServer
 
-from ..client import ToolContext, get_client
+from ..client import ToolContext, get_client, get_names
 from ..config import Settings
 from ..formatting import format_document
 from ._helpers import (
@@ -28,6 +29,7 @@ def register(mcp: MCPServer, settings: Settings) -> None:
     async def list_trash(ctx: ToolContext, offset: int = 0, limit: int = 50) -> dict[str, Any]:
         """List documents currently in the trash, newest deletion first."""
         paperless = await get_client(ctx)
+        names = await get_names(ctx)
         items, total = await paginate(paperless.trash, offset=offset, limit=limit)
         return page_result(
             "trashed",
@@ -35,7 +37,7 @@ def register(mcp: MCPServer, settings: Settings) -> None:
             offset=offset,
             limit=limit,
             total=total,
-            formatter=format_document,
+            formatter=partial(format_document, names=names),
         )
 
     if settings.expose_writes:

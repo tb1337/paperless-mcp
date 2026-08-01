@@ -55,6 +55,11 @@ the caller, not a human clicking through a UI:
 - **Tunable surface**: writes can be disabled (`PAPERLESS_MCP_READONLY=true`)
   and deletes require explicit opt-in (`PAPERLESS_MCP_ENABLE_DELETE=true`).
   45 tools by default, 54 with deletes enabled.
+- **Names, not just IDs**: Paperless reports correspondents, tags, document
+  types, storage paths and owners as bare numbers. The master data is read once
+  per connection and cached, so every result carries `correspondent_name`,
+  `tag_names`, `owner_name` and friends next to the IDs — including the label
+  behind a `select` custom field — without a lookup call per document.
 - **Server-side pagination** on every list-shaped tool: `offset`/`limit` are
   translated into Paperless page requests, so paging deep into a result set
   costs at most two HTTP calls and each response reports `total` and
@@ -280,6 +285,7 @@ with `--env-file`) and never overwrites variables the MCP client already set.
 | `PAPERLESS_MCP_MAX_FILE_BYTES` | `--max-file-bytes` | `25000000` | Cap for file/thumbnail payloads |
 | `PAPERLESS_MCP_VERIFY_SSL` | `--no-verify-ssl` | `true` | TLS certificate verification |
 | `PAPERLESS_MCP_TIMEOUT` | `--timeout` | `30` | Per-request HTTP timeout, seconds |
+| `PAPERLESS_MCP_NAME_CACHE_TTL` | `--name-cache-ttl` | `300` | Lifetime of the ID→name snapshot, seconds (`0`: forever) |
 | `PAPERLESS_MCP_LOG_LEVEL` | `--log-level` | `INFO` | Verbosity (always logged to stderr) |
 
 ### Tool visibility matrix

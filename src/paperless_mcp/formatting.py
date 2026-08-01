@@ -3,6 +3,13 @@
 The pypaperless Pydantic models carry a lot of fields, and several of them are
 enums or nested models that would serialize into noise. These helpers project
 just what matters for a language model and normalize the value types.
+
+Relations are reported twice: the raw ID Paperless stores, plus the
+``<field>_name`` resolved through the :class:`~paperless_mcp.names.NameMap` the
+caller passes in. The ID stays authoritative — it is what every filter and
+write argument takes — while the name is what makes a result readable without
+a lookup call. Without a snapshot the name keys are still present and ``None``,
+so the result shape never depends on whether the master data could be read.
 """
 
 from __future__ import annotations
@@ -11,6 +18,8 @@ import datetime as dt
 from collections.abc import Iterable, Mapping
 from enum import Enum
 from typing import Any
+
+from .names import EMPTY_NAMES, NameMap, name_of, names_of
 
 
 def _iso(value: dt.date | dt.datetime | None) -> str | None:
@@ -63,15 +72,24 @@ def _matching(obj: Any) -> dict[str, Any]:
     }
 
 
-def format_document(doc: Any) -> dict[str, Any]:
-    """Project a Document model into a compact dict."""
+def format_document(doc: Any, names: NameMap = EMPTY_NAMES) -> dict[str, Any]:
+    """Project a Document model into a compact dict, resolving its relations."""
+    correspondent = _safe(doc, "correspondent")
+    document_type = _safe(doc, "document_type")
+    storage_path = _safe(doc, "storage_path")
+    tags = list(_safe(doc, "tags") or [])
+    owner = _safe(doc, "owner")
     return {
         "id": _safe(doc, "id"),
         "title": _safe(doc, "title"),
-        "correspondent": _safe(doc, "correspondent"),
-        "document_type": _safe(doc, "document_type"),
-        "storage_path": _safe(doc, "storage_path"),
-        "tags": list(_safe(doc, "tags") or []),
+        "correspondent": correspondent,
+        "correspondent_name": name_of(names.correspondents, correspondent),
+        "document_type": document_type,
+        "document_type_name": name_of(names.document_types, document_type),
+        "storage_path": storage_path,
+        "storage_path_name": name_of(names.storage_paths, storage_path),
+        "tags": tags,
+        "tag_names": names_of(names.tags, tags),
         "created": _iso(_safe(doc, "created")),
         "added": _iso(_safe(doc, "added")),
         "modified": _iso(_safe(doc, "modified")),
@@ -79,7 +97,8 @@ def format_document(doc: Any) -> dict[str, Any]:
         "archive_serial_number": _safe(doc, "archive_serial_number"),
         "original_file_name": _safe(doc, "original_file_name"),
         "archived_file_name": _safe(doc, "archived_file_name"),
-        "owner": _safe(doc, "owner"),
+        "owner": owner,
+        "owner_name": name_of(names.users, owner),
         "page_count": _safe(doc, "page_count"),
         "mime_type": _safe(doc, "mime_type"),
         "is_shared_by_requester": _safe(doc, "is_shared_by_requester"),
@@ -87,11 +106,18 @@ def format_document(doc: Any) -> dict[str, Any]:
 
 
 def format_custom_field_value(value: Any) -> dict[str, Any]:
-    """Project one custom field value attached to a document."""
+    """Project one custom field value attached to a document.
+
+    ``name``, ``data_type`` and ``label`` are not in the API payload —
+    pypaperless merges them in from the custom-field cache
+    :func:`~paperless_mcp.names.load_names` fills. ``label`` is the readable
+    option of a ``select`` field, whose stored ``value`` is an option ID.
+    """
     return {
         "field": _safe(value, "field"),
         "name": _safe(value, "name"),
         "data_type": _plain(_safe(value, "data_type")),
+        "label": _safe(value, "label"),
         "value": safe_dump(_safe(value, "value")),
     }
 
@@ -100,7 +126,7 @@ def format_custom_field_value(value: Any) -> dict[str, Any]:
 CONTENT_PREVIEW_CHARS = 500
 
 
-def format_document_detail(doc: Any) -> dict[str, Any]:
+def format_document_detail(doc: Any, names: NameMap = EMPTY_NAMES) -> dict[str, Any]:
     """Project a Document model including notes and custom fields.
 
     The OCR text is capped at :data:`CONTENT_PREVIEW_CHARS` — enough to tell
@@ -109,7 +135,7 @@ def format_document_detail(doc: Any) -> dict[str, Any]:
     length, so a caller can decide whether fetching the rest through
     ``get_document_content`` is worth the tokens.
     """
-    base = format_document(doc)
+    base = format_document(doc, names)
     content = _safe(doc, "content") or ""
     base["content_preview"] = content[:CONTENT_PREVIEW_CHARS]
     base["content_characters"] = len(content)
@@ -118,7 +144,7 @@ def format_document_detail(doc: Any) -> dict[str, Any]:
     ]
     # ``Document.notes`` is the notes *service* in pypaperless v6; the embedded
     # payload lives on the aliased ``notes_`` field.
-    base["notes"] = [format_note(n) for n in (_safe(doc, "notes_") or [])]
+    base["notes"] = [format_note(n, names) for n in (_safe(doc, "notes_") or [])]
     base["root_document"] = _safe(doc, "root_document")
     search_hit = _safe(doc, "search_hit_")
     if search_hit is not None:
@@ -126,8 +152,15 @@ def format_document_detail(doc: Any) -> dict[str, Any]:
     return base
 
 
-def format_tag(tag: Any) -> dict[str, Any]:
+def _owner(obj: Any, names: NameMap) -> dict[str, Any]:
+    """Project the owner ID shared by every user-ownable resource, plus its name."""
+    owner = _safe(obj, "owner")
+    return {"owner": owner, "owner_name": name_of(names.users, owner)}
+
+
+def format_tag(tag: Any, names: NameMap = EMPTY_NAMES) -> dict[str, Any]:
     """Project a Tag model into a compact dict."""
+    parent = _safe(tag, "parent")
     return {
         "id": _safe(tag, "id"),
         "name": _safe(tag, "name"),
@@ -135,14 +168,15 @@ def format_tag(tag: Any) -> dict[str, Any]:
         "color": _safe(tag, "color"),
         "text_color": _safe(tag, "text_color"),
         "is_inbox_tag": _safe(tag, "is_inbox_tag"),
-        "parent": _safe(tag, "parent"),
+        "parent": parent,
+        "parent_name": name_of(names.tags, parent),
         "document_count": _safe(tag, "document_count"),
-        "owner": _safe(tag, "owner"),
+        **_owner(tag, names),
         **_matching(tag),
     }
 
 
-def format_correspondent(c: Any) -> dict[str, Any]:
+def format_correspondent(c: Any, names: NameMap = EMPTY_NAMES) -> dict[str, Any]:
     """Project a Correspondent model into a compact dict."""
     return {
         "id": _safe(c, "id"),
@@ -150,24 +184,24 @@ def format_correspondent(c: Any) -> dict[str, Any]:
         "slug": _safe(c, "slug"),
         "document_count": _safe(c, "document_count"),
         "last_correspondence": _iso(_safe(c, "last_correspondence")),
-        "owner": _safe(c, "owner"),
+        **_owner(c, names),
         **_matching(c),
     }
 
 
-def format_document_type(d: Any) -> dict[str, Any]:
+def format_document_type(d: Any, names: NameMap = EMPTY_NAMES) -> dict[str, Any]:
     """Project a DocumentType model into a compact dict."""
     return {
         "id": _safe(d, "id"),
         "name": _safe(d, "name"),
         "slug": _safe(d, "slug"),
         "document_count": _safe(d, "document_count"),
-        "owner": _safe(d, "owner"),
+        **_owner(d, names),
         **_matching(d),
     }
 
 
-def format_storage_path(s: Any) -> dict[str, Any]:
+def format_storage_path(s: Any, names: NameMap = EMPTY_NAMES) -> dict[str, Any]:
     """Project a StoragePath model into a compact dict."""
     return {
         "id": _safe(s, "id"),
@@ -175,7 +209,7 @@ def format_storage_path(s: Any) -> dict[str, Any]:
         "slug": _safe(s, "slug"),
         "path": _safe(s, "path"),
         "document_count": _safe(s, "document_count"),
-        "owner": _safe(s, "owner"),
+        **_owner(s, names),
         **_matching(s),
     }
 
@@ -191,7 +225,7 @@ def format_custom_field(cf: Any) -> dict[str, Any]:
     }
 
 
-def format_saved_view(v: Any) -> dict[str, Any]:
+def format_saved_view(v: Any, names: NameMap = EMPTY_NAMES) -> dict[str, Any]:
     """Project a SavedView model into a compact dict."""
     return {
         "id": _safe(v, "id"),
@@ -201,7 +235,7 @@ def format_saved_view(v: Any) -> dict[str, Any]:
         "page_size": _safe(v, "page_size"),
         "display_mode": _plain(_safe(v, "display_mode")),
         "display_fields": [_plain(f) for f in (_safe(v, "display_fields") or [])],
-        "owner": _safe(v, "owner"),
+        **_owner(v, names),
     }
 
 
@@ -217,7 +251,7 @@ def format_share_link(sl: Any) -> dict[str, Any]:
     }
 
 
-def format_task(t: Any) -> dict[str, Any]:
+def format_task(t: Any, names: NameMap = EMPTY_NAMES) -> dict[str, Any]:
     """Project a Task model into a compact dict.
 
     pypaperless v6 follows Paperless-ngx 3.0's task API: ``type`` became
@@ -240,19 +274,53 @@ def format_task(t: Any) -> dict[str, Any]:
         "input_data": safe_dump(_safe(t, "input_data")),
         "result_data": safe_dump(_safe(t, "result_data")),
         "related_document_ids": list(_safe(t, "related_document_ids") or []),
-        "owner": _safe(t, "owner"),
+        **_owner(t, names),
     }
 
 
-def format_note(n: Any) -> dict[str, Any]:
+def format_note(n: Any, names: NameMap = EMPTY_NAMES) -> dict[str, Any]:
     """Project a DocumentNote model into a compact dict."""
+    user = _safe(n, "user")
     return {
         "id": _safe(n, "id"),
         "note": _safe(n, "note"),
         "document": _safe(n, "document"),
         "created": _iso(_safe(n, "created")),
-        "user": _safe(n, "user"),
+        "user": user,
+        "user_name": name_of(names.users, user),
     }
+
+
+#: Suggestion payloads name their ID lists after the resource; each maps to the
+#: key holding the resolved names and to the lookup that resolves them.
+_SUGGESTION_KEYS: tuple[tuple[str, str], ...] = (
+    ("correspondents", "correspondent_names"),
+    ("document_types", "document_type_names"),
+    ("storage_paths", "storage_path_names"),
+    ("tags", "tag_names"),
+)
+
+
+def enrich_suggestions(suggestions: dict[str, Any], names: NameMap) -> dict[str, Any]:
+    """Add resolved ``*_names`` lists to an already-dumped suggestions payload.
+
+    Both suggestion endpoints answer with ID lists under the same keys. The
+    payload is passed through untouched apart from the added names, because it
+    is a plain ``safe_dump`` of a model whose fields differ per Paperless
+    version.
+    """
+    lookups = {
+        "correspondents": names.correspondents,
+        "document_types": names.document_types,
+        "storage_paths": names.storage_paths,
+        "tags": names.tags,
+    }
+    resolved = {
+        target: names_of(lookups[source], suggestions[source])
+        for source, target in _SUGGESTION_KEYS
+        if source in suggestions
+    }
+    return {**suggestions, **resolved}
 
 
 def format_history_entry(h: Any) -> dict[str, Any]:

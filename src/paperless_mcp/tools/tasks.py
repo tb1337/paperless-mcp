@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from functools import partial
 from typing import Any
 
 from mcp.server.mcpserver import MCPServer
 
-from ..client import ToolContext, get_client
+from ..client import ToolContext, get_client, get_names
 from ..config import Settings
 from ..formatting import format_task
 from ._helpers import (
@@ -34,10 +35,16 @@ def register(mcp: MCPServer, settings: Settings) -> None:
         for the full, filterable history.
         """
         paperless = await get_client(ctx)
+        names = await get_names(ctx)
         tasks = [task async for task in paperless.tasks.active()]
         items, total = window(tasks, offset=offset, limit=limit)
         return page_result(
-            "tasks", items, offset=offset, limit=limit, total=total, formatter=format_task
+            "tasks",
+            items,
+            offset=offset,
+            limit=limit,
+            total=total,
+            formatter=partial(format_task, names=names),
         )
 
     @read_tool(mcp)
@@ -60,6 +67,7 @@ def register(mcp: MCPServer, settings: Settings) -> None:
         rather than relying on position.
         """
         paperless = await get_client(ctx)
+        names = await get_names(ctx)
         # `ordering` is a DRF OrderingFilter parameter rather than a FilterSet
         # field — pypaperless 6.0.0rc2 dropped it from TaskFilters for that
         # reason. Whether /api/tasks/ honours it is version-dependent; Paperless
@@ -73,7 +81,12 @@ def register(mcp: MCPServer, settings: Settings) -> None:
             filters["acknowledged"] = acknowledged
         items, total = await paginate(paperless.tasks, filters, offset=offset, limit=limit)
         return page_result(
-            "tasks", items, offset=offset, limit=limit, total=total, formatter=format_task
+            "tasks",
+            items,
+            offset=offset,
+            limit=limit,
+            total=total,
+            formatter=partial(format_task, names=names),
         )
 
     @read_tool(mcp)
@@ -85,13 +98,14 @@ def register(mcp: MCPServer, settings: Settings) -> None:
         consumption succeeded.
         """
         paperless = await get_client(ctx)
+        names = await get_names(ctx)
         pk: int | str
         try:
             pk = int(task_id)
         except ValueError:
             pk = task_id
         task = await paperless.tasks(pk)
-        return format_task(task)
+        return format_task(task, names)
 
     if settings.expose_writes:
 
