@@ -55,6 +55,11 @@ the caller, not a human clicking through a UI:
 - **Tunable surface**: writes can be disabled (`PAPERLESS_MCP_READONLY=true`)
   and deletes require explicit opt-in (`PAPERLESS_MCP_ENABLE_DELETE=true`).
   47 tools by default, 56 with deletes enabled.
+- **Workflow prompts**: three slash commands — `triage_inbox`,
+  `monthly_review`, `find_duplicates` — that chain the tools into the jobs an
+  archive actually needs, with the Paperless-specific judgement calls written
+  into them. They adapt to the visibility flags, so a read-only server hands
+  back a proposal instead of walking the model into a write that is not there.
 - **Names, not just IDs**: Paperless reports correspondents, tags, document
   types, storage paths and owners as bare numbers. The master data is read once
   per connection and cached, so every result carries `correspondent_name`,
@@ -372,6 +377,36 @@ call deserves without parsing the description:
 They are hints, not a permission system — the actual gate is
 `PAPERLESS_MCP_READONLY` / `PAPERLESS_MCP_ENABLE_DELETE`, which decide whether a
 tool is advertised at all.
+
+## Prompts
+
+Tools are verbs; a job is a sequence of them plus the judgement about what to do
+when they disagree. That sequence is what the prompts hold. In Claude Desktop
+they show up as slash commands, and they are the user's to start — the model
+cannot invoke one on its own.
+
+| Prompt | Arguments | What it does |
+|---|---|---|
+| `triage_inbox` | `limit` (default 10) | Works through the inbox document by document: reads it, then cross-checks `get_document_suggestions` (the trained classifier) against `get_document_ai_suggestions` (the LLM, when the instance has AI enabled) against `find_similar_documents` (how the archive already files this sender), and settles on correspondent, type, storage path, tags, title and date. |
+| `monthly_review` | `month` (`YYYY-MM`, defaults to last month) | Closes out a month: what was *dated* in the window versus what *arrived* in it, then the things that slipped — still in the inbox, untagged, no correspondent, consumption failed — and the recurring senders that went silent compared with the month before. |
+| `find_duplicates` | `query`, `limit` (default 25) | Hunts the duplicates that survive a Paperless import: not byte-identical re-uploads (those are refused at the door) but the same paper scanned twice. Runs candidates through the similarity index, confirms each pair against `get_document_metadata` checksums and sizes, and rules out the look-alikes — last month's statement, last year's form. |
+
+Two things they do that a hand-written prompt would not:
+
+- **The date arithmetic is done before the model sees it.** `monthly_review`
+  renders with the window already resolved — `2024-02-01` to `2024-02-29`,
+  plus the preceding month to compare against — so leap days and year
+  boundaries are settled facts rather than something to reason about.
+- **They respect the visibility flags.** With `PAPERLESS_MCP_READONLY=true`,
+  `triage_inbox` asks for a filing proposal instead of describing
+  `bulk_edit_documents`; with deletes off, `find_duplicates` tags the losing
+  copy for a human rather than reaching for `delete_document`. A plan that ends
+  in a tool the server never advertised is a plan that gets followed until it
+  fails.
+
+Rendering a prompt never touches Paperless: it is a plan, built from its
+arguments and the server's configuration, so a slash command cannot fail
+because the archive was briefly unreachable.
 
 ## Running over HTTP / in Docker
 

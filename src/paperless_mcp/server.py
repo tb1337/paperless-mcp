@@ -31,7 +31,8 @@ from . import __version__
 from .auth import BearerAuthMiddleware
 from .client import CLIENT_KEY, SETTINGS_KEY, PaperlessConnection
 from .config import Settings
-from .tools import register_all
+from .prompts import register_all as register_prompts
+from .tools import register_all as register_tools
 
 log = logging.getLogger("paperless_mcp")
 
@@ -54,6 +55,11 @@ is what `list_tags`, `list_correspondents`, `list_document_types` and
 List-shaped tools page with `offset`/`limit` and report `total` plus `has_more`.
 Failures come back as `{"error": ..., "detail": ..., "cause": ...}` rather than
 as exceptions, so read the result before retrying.
+
+The server also ships workflow prompts — `triage_inbox`, `monthly_review` and
+`find_duplicates` — which chain these tools into the jobs they exist for. They
+are the user's to start, so point at one by name when a request matches it
+instead of improvising the same sequence.
 """
 
 
@@ -95,7 +101,8 @@ def build_mcp(settings: Settings, connection: PaperlessConnection | None = None)
         version=__version__,
         lifespan=session_lifespan,
     )
-    register_all(mcp, settings)
+    register_tools(mcp, settings)
+    register_prompts(mcp, settings)
     return mcp
 
 

@@ -1,0 +1,155 @@
+"""Tests for what the workflow prompts actually render."""
+
+from __future__ import annotations
+
+import datetime as dt
+from dataclasses import replace
+from typing import Any
+
+import pytest
+
+from paperless_mcp.config import Settings
+from paperless_mcp.prompts._helpers import sections
+from paperless_mcp.prompts.review import month_window
+from paperless_mcp.server import build_mcp
+from tests.conftest import make_settings
+
+
+def _settings(*, readonly: bool = False, enable_delete: bool = True) -> Settings:
+    return replace(make_settings(), readonly=readonly, enable_delete=enable_delete)
+
+
+async def render(settings: Settings, name: str, /, **arguments: Any) -> str:
+    """Render a prompt the way a client would and return its text.
+
+    No context is passed: ``get_prompt`` then builds one that raises on every
+    access, which is what pins these prompts to being pure templates. A prompt
+    that reached for Paperless would fail this call rather than quietly work in
+    tests and break in a client.
+    """
+    result = await build_mcp(settings).get_prompt(name, arguments or None)
+    return "\n\n".join(message.content.text for message in result.messages)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("name", ["triage_inbox", "monthly_review", "find_duplicates"])
+async def test_every_prompt_renders_without_a_paperless_connection(name: str) -> None:
+    assert len(await render(_settings(), name)) > 500
+
+
+@pytest.mark.asyncio
+async def test_triage_names_the_three_evidence_sources_and_the_inbox_tag() -> None:
+    """Chaining these three is the whole point of the prompt."""
+    text = await render(_settings(), "triage_inbox")
+    for tool in (
+        "get_document_suggestions",
+        "get_document_ai_suggestions",
+        "find_similar_documents",
+    ):
+        assert tool in text
+    assert "is_inbox_tag" in text
+
+
+@pytest.mark.asyncio
+async def test_triage_limit_reaches_both_the_intro_and_the_search_call() -> None:
+    text = await render(_settings(), "triage_inbox", limit=3)
+    assert "3 documents in this pass" in text
+    assert "limit=3)" in text
+
+
+@pytest.mark.asyncio
+async def test_triage_argument_arrives_as_a_string_from_the_wire() -> None:
+    """MCP sends prompt arguments as strings; the int annotation has to coerce."""
+    assert "limit=3)" in await render(_settings(), "triage_inbox", limit="3")
+
+
+@pytest.mark.asyncio
+async def test_readonly_triage_proposes_instead_of_writing() -> None:
+    text = await render(_settings(readonly=True), "triage_inbox")
+    assert "read-only" in text
+    assert "bulk_edit_documents" not in text
+    assert "proposal" in text
+
+
+@pytest.mark.asyncio
+async def test_monthly_review_anchors_every_search_to_a_computed_window() -> None:
+    text = await render(_settings(), "monthly_review", month="2024-02")
+    assert "2024-02 (February 2024)" in text
+    assert 'created_after="2024-02-01"' in text
+    # The leap day is exactly what a model gets wrong when left to work it out.
+    assert 'created_before="2024-02-29"' in text
+    assert "(2024-01-01 to 2024-01-31)" in text
+
+
+@pytest.mark.asyncio
+async def test_monthly_review_rejects_a_month_it_cannot_parse() -> None:
+    with pytest.raises(ValueError, match="YYYY-MM"):
+        await render(_settings(), "monthly_review", month="February")
+
+
+@pytest.mark.asyncio
+async def test_monthly_review_offers_to_fix_only_when_writes_exist() -> None:
+    assert "bulk_edit_documents" in await render(_settings(), "monthly_review")
+    assert "bulk_edit_documents" not in await render(_settings(readonly=True), "monthly_review")
+
+
+@pytest.mark.asyncio
+async def test_duplicates_hunts_recent_arrivals_without_a_query() -> None:
+    text = await render(_settings(), "find_duplicates", limit=5)
+    assert 'order_by="added", descending=true, limit=5' in text
+    assert "query=" not in text
+
+
+@pytest.mark.asyncio
+async def test_duplicates_searches_the_query_it_was_given() -> None:
+    text = await render(_settings(), "find_duplicates", query="Stromrechnung")
+    assert 'query="Stromrechnung", limit=25' in text
+
+
+@pytest.mark.asyncio
+async def test_duplicates_only_reaches_for_the_trash_when_deletes_are_on() -> None:
+    with_deletes = await render(_settings(enable_delete=True), "find_duplicates")
+    assert "delete_document(id)" in with_deletes
+
+    without_deletes = await render(_settings(enable_delete=False), "find_duplicates")
+    assert "delete_document" not in without_deletes
+    # Tagging keeps the finding alive past the conversation instead.
+    assert 'create_tag(name="duplicate")' in without_deletes
+
+    readonly = await render(_settings(readonly=True), "find_duplicates")
+    assert "delete_document" not in readonly
+    assert "create_tag" not in readonly
+
+
+@pytest.mark.parametrize(
+    ("month", "expected"),
+    [
+        ("2026-03", (dt.date(2026, 3, 1), dt.date(2026, 3, 31))),
+        ("2026-1", (dt.date(2026, 1, 1), dt.date(2026, 1, 31))),
+        (" 2026-04 ", (dt.date(2026, 4, 1), dt.date(2026, 4, 30))),
+    ],
+)
+def test_month_window_bounds(month: str, expected: tuple[dt.date, dt.date]) -> None:
+    window = month_window(month, dt.date(2026, 8, 1))
+    assert (window.start, window.end) == expected
+
+
+@pytest.mark.parametrize("month", [None, "", "   "])
+def test_month_window_defaults_to_the_month_before_today(month: str | None) -> None:
+    """On the 1st, "this month" is empty — last month is the one to close out."""
+    window = month_window(month, dt.date(2026, 1, 1))
+    assert (window.start, window.end) == (dt.date(2025, 12, 1), dt.date(2025, 12, 31))
+
+
+def test_month_window_steps_back_across_a_year_boundary() -> None:
+    window = month_window("2026-01", dt.date(2026, 8, 1))
+    assert (window.prev_start, window.prev_end) == (dt.date(2025, 12, 1), dt.date(2025, 12, 31))
+
+
+def test_month_window_previous_month_keeps_its_own_length() -> None:
+    window = month_window("2024-03", dt.date(2026, 8, 1))
+    assert (window.prev_start, window.prev_end) == (dt.date(2024, 2, 1), dt.date(2024, 2, 29))
+
+
+def test_sections_drops_the_parts_a_deployment_cannot_perform() -> None:
+    assert sections("first", None, "   ", "second") == "first\n\nsecond"
