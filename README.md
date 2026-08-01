@@ -3,11 +3,32 @@
 A [Model Context Protocol][mcp] server for [Paperless-ngx][pngx], powered by
 [pypaperless][pyp] 6.0. It speaks **stdio** — so Claude Desktop (or any other
 MCP client) can launch it directly — and **Streamable HTTP**, so one instance
-can serve a whole network from Docker.
+can serve a whole network.
 
 [mcp]: https://modelcontextprotocol.io/
 [pngx]: https://github.com/paperless-ngx/paperless-ngx
 [pyp]: https://github.com/tb1337/pypaperless
+
+## By an LLM, for LLMs
+
+The thing on the other end of this protocol is a language model — and so is the
+thing that wrote most of the code behind it. [@tb1337](https://github.com/tb1337)
+builds this project deliberately together with **Claude**: he sets the
+direction, writes the specs and reviews every diff; Claude does the typing.
+That is a stated design choice, not an embarrassing detail buried in the commit
+log.
+
+It also shapes the server itself. Every decision here optimises for a model as
+the caller, not a human clicking through a UI:
+
+- errors come back as structured results the model can read and recover from,
+  never as protocol-level failures that just end the conversation,
+- list tools page server-side, so a model can walk deep into a result set
+  without burning its context on 500 documents it did not ask for,
+- the tool surface can be narrowed (read-only, deletes off by default), because
+  an autonomous caller should not be handed a destructive verb by accident,
+- and things like thumbnails come back as real images the model can actually
+  look at.
 
 ## Features
 
@@ -32,24 +53,71 @@ can serve a whole network from Docker.
 - Built on **pypaperless 6.0.0rc2** and the **MCP Python SDK 2.0** — requires
   **Paperless-ngx 3.0+**.
 
-## Quick start — Claude Desktop
+## Requirements
 
-Add this to your `claude_desktop_config.json` and restart the app:
+- **[uv](https://docs.astral.sh/uv/)** on the machine that runs the MCP client.
+  It manages the virtualenv *and* the Python toolchain — no system Python 3.13
+  needed, `uv` fetches one if it has to.
+- **Paperless-ngx 3.0+** with an API token
+  (**Settings → API tokens**, or `/api/token/`).
+
+## Installation — uv
+
+The package is not on PyPI yet, so install it from a clone. Pick a permanent
+location: the MCP client will launch the server straight out of this directory.
+
+```bash
+git clone https://github.com/tb1337/paperless-mcp.git
+cd paperless-mcp
+uv sync
+```
+
+`uv sync` is optional — `uv run` would create the environment on first launch —
+but doing it once up front means the first tool call is not racing a dependency
+install behind the client's startup timeout.
+
+Verify the entry point resolves before wiring anything up:
+
+```bash
+uv run paperless-mcp --help
+```
+
+### Connect Claude Desktop
+
+Add the `paperless` entry to your `claude_desktop_config.json` and restart the
+app completely (quit it, don't just close the window — the config is read once
+at startup):
 
 ```json
 {
   "mcpServers": {
     "paperless": {
-      "command": "uvx",
-      "args": ["--from", "paperless-mcp", "paperless-mcp"],
+      "command": "/absolute/path/to/uv",
+      "args": ["run", "--directory", "/absolute/path/to/paperless-mcp", "paperless-mcp"],
       "env": {
         "PAPERLESS_URL": "https://paperless.example.com",
-        "PAPERLESS_TOKEN": "your-paperless-api-token"
+        "PAPERLESS_TOKEN": "your-paperless-api-token",
+        "PAPERLESS_MCP_READONLY": "false",
+        "PAPERLESS_MCP_ENABLE_DELETE": "false"
       }
     }
   }
 }
 ```
+
+Both paths must be **absolute**:
+
+- `command` — Claude Desktop does not inherit your shell `PATH`, so a bare `uv`
+  usually fails to resolve. Run `which uv` (macOS/Linux) or `where uv`
+  (Windows) and paste the result.
+- `--directory` — the clone from the step above. `uv run` switches into it and
+  uses that project's environment, whatever the client's working directory
+  happens to be.
+
+The last two `env` entries are the safety switches, spelled out here so they are
+easy to find: `PAPERLESS_MCP_READONLY=true` hides every write and delete tool,
+`PAPERLESS_MCP_ENABLE_DELETE=true` adds the delete tools on top of the default
+read+write set. See [Configuration](#configuration) for the rest.
 
 Config file locations:
 
@@ -59,112 +127,27 @@ Config file locations:
 | Windows | `%APPDATA%\Claude\claude_desktop_config.json` |
 | Linux | `~/.config/Claude/claude_desktop_config.json` |
 
-Ready-made files live in [`examples/`](examples/): the published package, a git
-checkout via `uv run`, and a networked Docker container (see
-[below](#connecting-claude-desktop-to-the-container)).
+A ready-made file lives in
+[`examples/claude_desktop_config.local-checkout.json`](examples/claude_desktop_config.local-checkout.json).
 
-Get the API token from Paperless-ngx under **Settings → API tokens** (or
-`/api/token/`). The server runs read+write by default; add
-`"PAPERLESS_MCP_READONLY": "true"` to the `env` block if you want Claude to
-look but not touch, or `"PAPERLESS_MCP_ENABLE_DELETE": "true"` to also allow
-deletions.
+Any other MCP client that spawns stdio servers takes the same
+command/args/env triple.
 
 ### Troubleshooting
 
-- **"Server disconnected" right after startup** — almost always a bad
-  `command`. Claude Desktop does not inherit your shell `PATH`, so use an
-  absolute path (`/opt/homebrew/bin/uvx`, `which uvx` to find it) if the bare
-  name does not resolve.
+- **"Server disconnected" right after startup** — almost always the `command`.
+  Use the absolute path to `uv`; see above.
+- **"No such file or directory" / the server starts but nothing works** — the
+  `--directory` path does not point at the clone (it needs the directory
+  containing `pyproject.toml`).
 - **Tools appear but every call returns `connection_error`** — `PAPERLESS_URL`
-  is wrong or unreachable from the machine running Claude Desktop. The server
+  is wrong or unreachable from the machine running the client. The server
   starts anyway by design; the error text names the cause.
 - **`auth_failed`** — the API token is wrong, or belongs to a deactivated user.
 - **Self-signed certificate** — set `"PAPERLESS_MCP_VERIFY_SSL": "false"`.
 - Logs go to stderr and end up in Claude Desktop's MCP log
   (`~/Library/Logs/Claude/mcp-server-paperless.log` on macOS). Set
   `"PAPERLESS_MCP_LOG_LEVEL": "DEBUG"` for more detail.
-
-## Quick start — Docker (HTTP transport)
-
-```bash
-cp .env.example .env
-# edit .env: PAPERLESS_URL, PAPERLESS_TOKEN, PAPERLESS_MCP_AUTH_TOKEN
-docker compose up -d --build
-```
-
-The server listens on `http://<host>:8000/mcp`. Point a network-capable MCP
-client at it:
-
-```json
-{
-  "mcpServers": {
-    "paperless": {
-      "url": "http://paperless-mcp.lan:8000/mcp",
-      "headers": { "Authorization": "Bearer <PAPERLESS_MCP_AUTH_TOKEN>" }
-    }
-  }
-}
-```
-
-Running it without Docker:
-
-```bash
-uvx --from paperless-mcp paperless-mcp --http --host 0.0.0.0 --port 8000
-```
-
-### Connecting Claude Desktop to the container
-
-Claude Desktop cannot point at a LAN address directly. Its **custom connector**
-UI hands the URL to Anthropic's cloud, which then calls it — so the endpoint
-would have to be reachable from the public internet, and that path currently
-offers only OAuth credentials, no bearer header. Everything Claude Desktop
-launches itself speaks stdio.
-
-The bridge for this is [`mcp-remote`][mcpremote]: Claude Desktop starts it over
-stdio, and it forwards to the container's HTTP endpoint. It needs Node.js on
-the machine running Claude Desktop.
-
-```json
-{
-  "mcpServers": {
-    "paperless": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "mcp-remote@latest",
-        "http://paperless-mcp.lan:8000/mcp",
-        "--allow-http",
-        "--transport", "http-only",
-        "--header", "Authorization:${AUTH_HEADER}"
-      ],
-      "env": { "AUTH_HEADER": "Bearer your-paperless-mcp-auth-token" }
-    }
-  }
-}
-```
-
-Also in [`examples/claude_desktop_config.docker-http.json`](examples/claude_desktop_config.docker-http.json).
-
-Four details that are easy to get wrong:
-
-- The token goes in `env`, not inline in `args`. Claude Desktop on Windows does
-  not escape spaces inside `args`, which would split `Bearer <token>` in two —
-  hence `Authorization:${AUTH_HEADER}` with no space after the colon.
-- `--allow-http` is required for a plain `http://` URL; drop it once you put
-  the endpoint behind TLS.
-- `--transport http-only` skips a pointless SSE fallback — this server only
-  implements Streamable HTTP.
-- Claude Desktop reads the config once at startup. Quit it completely (not just
-  close the window) and reopen.
-
-If the token is missing or wrong, `mcp-remote` treats the 401 as an
-authentication challenge, tries to discover an OAuth server, and exits with a
-bare `Fatal error: ServerError` that never mentions the token. Check that
-`AUTH_HEADER` matches the container's `PAPERLESS_MCP_AUTH_TOKEN` and starts
-with `Bearer `. `curl http://<host>:8000/healthz` (no auth needed) tells you
-whether the container itself is reachable.
-
-[mcpremote]: https://github.com/geelen/mcp-remote
 
 ## Configuration
 
@@ -177,7 +160,7 @@ with `--env-file`) and never overwrites variables the MCP client already set.
 | `PAPERLESS_URL` | `--url` | — (required) | Base URL of your Paperless-ngx instance |
 | `PAPERLESS_TOKEN` | `--token` | — (required) | Paperless-ngx API token |
 | `PAPERLESS_MCP_TRANSPORT` | `--transport` / `--stdio` / `--http` | `stdio` | `stdio` or `http` |
-| `PAPERLESS_MCP_HOST` | `--host` | `127.0.0.1` | Bind address (http only; the image uses `0.0.0.0`) |
+| `PAPERLESS_MCP_HOST` | `--host` | `127.0.0.1` | Bind address (http only) |
 | `PAPERLESS_MCP_PORT` | `--port` | `8000` | Bind port (http only) |
 | `PAPERLESS_MCP_AUTH_TOKEN` | `--auth-token` | _empty_ | Bearer token required on `/mcp` |
 | `PAPERLESS_MCP_READONLY` | `--readonly` | `false` | If true: hide every write/delete tool |
@@ -232,6 +215,13 @@ Notes on semantics:
   remove individual tags.
 - `upload_document` returns a task UUID; poll it with `get_task`.
 
+## Running over HTTP / in Docker
+
+The server also speaks Streamable HTTP at `/mcp`, guarded by a bearer token,
+and the repo ships a `Dockerfile` and a `docker-compose.yml` for exactly that.
+Documentation for this path is coming — start with the uv setup above; it is
+the supported route for now.
+
 ## Out of scope (for now)
 
 - **Workflows, mail accounts/rules, users, groups, config**: admin-tier
@@ -261,11 +251,12 @@ Notes on semantics:
 - Taxonomy objects report `matching_algorithm` as a number plus a readable
   `matching_algorithm_name`.
 - The default transport is now `stdio`, not HTTP. Pass `--http` (or set
-  `PAPERLESS_MCP_TRANSPORT=http`) for the old behaviour; the Docker image does
-  this for you.
-- The default bind address is `127.0.0.1` instead of `0.0.0.0`. The Docker
-  image sets `0.0.0.0`.
+  `PAPERLESS_MCP_TRANSPORT=http`) for the old behaviour.
+- The default bind address is `127.0.0.1` instead of `0.0.0.0`.
 - `chat_with_documents` was removed (see above).
+
+After pulling a new revision into your clone, run `uv sync` again so the
+environment matches the lockfile, then restart your MCP client.
 
 ## Development
 
