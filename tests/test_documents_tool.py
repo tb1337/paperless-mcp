@@ -41,7 +41,6 @@ def _doc(doc_id: int = 1, title: str = "Test") -> SimpleNamespace:
     )
 
 
-# ---------------------------------------------------------------- search_documents
 @pytest.mark.asyncio
 async def test_search_documents_paginates(make_paperless: Any) -> None:
     paperless = make_paperless()
@@ -106,7 +105,6 @@ async def test_search_documents_rejects_bad_dates(make_paperless: Any) -> None:
     assert "created_after" in result["cause"]
 
 
-# ---------------------------------------------------------------- get_document
 @pytest.mark.asyncio
 async def test_get_document_returns_detail(make_paperless: Any) -> None:
     paperless = make_paperless()
@@ -138,7 +136,6 @@ async def test_get_document_content_reports_length(make_paperless: Any) -> None:
     }
 
 
-# ---------------------------------------------------------------- error translation
 @pytest.mark.asyncio
 async def test_get_document_translates_not_found(make_paperless: Any) -> None:
     paperless = make_paperless()
@@ -150,7 +147,6 @@ async def test_get_document_translates_not_found(make_paperless: Any) -> None:
     assert "does not exist" in result["detail"]
 
 
-# ---------------------------------------------------------------- update_document
 @pytest.mark.asyncio
 async def test_update_document_clear_fields(make_paperless: Any) -> None:
     doc = _doc(5, "old")
@@ -207,7 +203,6 @@ async def test_update_document_rejects_conflicting_set_and_clear(make_paperless:
     assert paperless.documents.update_calls == []
 
 
-# ---------------------------------------------------------------- upload_document
 @pytest.mark.asyncio
 async def test_upload_document_passes_content_and_metadata(make_paperless: Any) -> None:
     paperless = make_paperless()
@@ -263,7 +258,6 @@ async def test_upload_document_rejects_empty_payload(make_paperless: Any) -> Non
     assert paperless.documents.save_calls == []
 
 
-# ---------------------------------------------------------------- notes
 @pytest.mark.asyncio
 async def test_add_document_note_creates_a_scoped_draft(make_paperless: Any) -> None:
     paperless = make_paperless()
@@ -287,7 +281,6 @@ async def test_delete_document_note_passes_the_document_pk(make_paperless: Any) 
     assert paperless.documents.notes.delete_calls == [{"obj": 11, "args": (), "pk": 4}]
 
 
-# ---------------------------------------------------------------- delete gating
 @pytest.mark.asyncio
 async def test_delete_document_hidden_without_enable_delete(make_paperless: Any) -> None:
     mcp = build_mcp(make_settings(enable_delete=False), make_paperless())
@@ -307,7 +300,6 @@ async def test_delete_document_fetches_lazily(make_paperless: Any) -> None:
     assert paperless.documents.delete_calls == [{"obj": doc, "args": ()}]
 
 
-# ---------------------------------------------------------------- binary payloads
 @pytest.mark.asyncio
 async def test_download_document_returns_base64(make_paperless: Any) -> None:
     paperless = make_paperless()
@@ -364,6 +356,24 @@ async def test_get_document_thumbnail_reports_non_image_types(make_paperless: An
 
     result = await call_tool(mcp, "get_document_thumbnail", document_id=1)
     assert result["error"] == "unsupported_media_type"
+    assert result["document_id"] == 1
+
+
+@pytest.mark.asyncio
+async def test_get_document_thumbnail_rejects_oversized(make_paperless: Any) -> None:
+    # The tool is declared as returning Image, so the error travels out as a
+    # ToolResultError; the model must still see the same dict a JSON tool sends.
+    big = b"x" * (2 * 1024 * 1024)  # 2 MiB > the 1 MiB test cap
+    paperless = make_paperless()
+    paperless.documents.thumbnail = _returns(
+        SimpleNamespace(content=big, content_type="image/webp")
+    )
+    mcp = build_mcp(make_settings(), paperless)
+
+    result = await call_tool(mcp, "get_document_thumbnail", document_id=1)
+    assert result["error"] == "file_too_large"
+    assert result["size_bytes"] == len(big)
+    assert result["max_bytes"] == 1024 * 1024
 
 
 def _returns(value: Any) -> Any:

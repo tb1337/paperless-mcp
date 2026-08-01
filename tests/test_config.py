@@ -134,7 +134,6 @@ def test_visibility_flags(
     assert s.expose_deletes is expect_deletes
 
 
-# ----------------------------------------------------------------------- CLI
 def test_cli_flags_win_over_the_environment(
     monkeypatch: pytest.MonkeyPatch, clean_env: None
 ) -> None:

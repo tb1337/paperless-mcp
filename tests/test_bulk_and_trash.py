@@ -10,7 +10,6 @@ import pytest
 from tests.conftest import FakeService, build_mcp, call_tool, make_settings
 
 
-# ----------------------------------------------------------------------- bulk
 class _BulkRecorder:
     """Records every bulk-edit call so tests can assert exact ordering."""
 
@@ -111,7 +110,6 @@ async def test_bulk_rotate_rejects_odd_angles(make_paperless: Any) -> None:
     assert recorder.calls == []
 
 
-# ----------------------------------------------------------------------- trash
 def _trashed(doc_id: int) -> SimpleNamespace:
     return SimpleNamespace(
         id=doc_id,

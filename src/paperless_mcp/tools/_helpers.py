@@ -47,6 +47,26 @@ class ToolInputError(ValueError):
     """
 
 
+class ToolResultError(Exception):
+    """Raised to report a structured error a tool cannot express as a return value.
+
+    A tool that returns MCP content — ``Image`` — has no dict in its return
+    type to put an error into, and widening the annotation is not an option:
+    the SDK skips output-schema generation for a bare content type but fails
+    outright on a union containing one. Raising carries the payload out
+    instead, so the model still sees the usual error shape.
+
+    Args:
+        error: The machine-readable code, e.g. ``"file_too_large"``.
+        detail: One sentence the model can act on.
+        context: Extra fields merged into the result verbatim.
+    """
+
+    def __init__(self, error: str, detail: str, **context: Any) -> None:
+        super().__init__(detail)
+        self.payload: dict[str, Any] = {"error": error, "detail": detail, **context}
+
+
 #: Ordered most-specific-first: the first matching entry wins, so subclasses
 #: must precede their bases (``PaperlessTimeoutError`` before
 #: ``PaperlessConnectionError`` before ``InitializationError``).
@@ -89,6 +109,10 @@ _ERROR_MAP: tuple[tuple[type[BaseException], str, str], ...] = (
 
 def translate_error(exc: BaseException) -> dict[str, Any] | None:
     """Return an LLM-friendly error dict for *exc*, or ``None`` when unmapped."""
+    # Not an _ERROR_MAP entry: the code and detail travel with the exception
+    # rather than being fixed per type.
+    if isinstance(exc, ToolResultError):
+        return exc.payload
     for exc_type, code, message in _ERROR_MAP:
         if isinstance(exc, exc_type):
             return {
@@ -121,8 +145,6 @@ def safe_tool[F: Callable[..., Awaitable[Any]]](func: F) -> F:
 
     return cast("F", wrapper)
 
-
-# --------------------------------------------------------------------- registration
 
 type ToolFunc = Callable[..., Awaitable[Any]]
 

@@ -60,7 +60,6 @@ def fake_client_class() -> Any:
         yield _FakePaperlessClient
 
 
-# ----------------------------------------------------------------- connection object
 @pytest.mark.asyncio
 async def test_connection_opens_and_closes_both_halves(fake_client_class: Any) -> None:
     async with PaperlessConnection(make_settings()) as connection:
@@ -111,11 +110,10 @@ async def test_connection_reuses_an_initialized_client(fake_client_class: Any) -
     assert first.initialize_calls == 1
 
 
-# ----------------------------------------------------------------- stdio transport
 @pytest.mark.asyncio
 async def test_stdio_session_lifespan_owns_its_connection(fake_client_class: Any) -> None:
     mcp = server_mod.build_mcp(make_settings())
-    async with mcp._lowlevel_server.lifespan(mcp._lowlevel_server) as ctx:  # type: ignore[arg-type]
+    async with mcp._lowlevel_server.lifespan(mcp._lowlevel_server) as ctx:
         connection = ctx["paperless"]
         assert isinstance(connection, PaperlessConnection)
         await connection.client()
@@ -142,7 +140,6 @@ async def _always_fail(_self: Any) -> None:
     raise PaperlessConnectionError("paperless is down")
 
 
-# ----------------------------------------------------------------- http transport
 def test_http_app_opens_the_connection_once(fake_client_class: Any) -> None:
     app = server_mod.build_app(make_settings())
     with TestClient(app) as client:

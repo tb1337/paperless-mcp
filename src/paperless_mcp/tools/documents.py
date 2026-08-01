@@ -20,6 +20,7 @@ from ..formatting import (
 )
 from ._helpers import (
     ToolInputError,
+    ToolResultError,
     delete_tool,
     page_result,
     paginate,
@@ -368,21 +369,19 @@ def _register_reads(mcp: MCPServer) -> None:
         content: bytes = thumb.content or b""
         size = len(content)
         if size > cfg.max_file_bytes:
-            # The declared return type is Image, but MCPServer serializes any
-            # other value as text content, which is how error results surface.
-            return {  # type: ignore[return-value]
-                "error": "file_too_large",
-                "detail": f"The thumbnail is {size} bytes; the cap is {cfg.max_file_bytes}.",
-                "size_bytes": size,
-                "max_bytes": cfg.max_file_bytes,
-            }
+            raise ToolResultError(
+                "file_too_large",
+                f"The thumbnail is {size} bytes; the cap is {cfg.max_file_bytes}.",
+                size_bytes=size,
+                max_bytes=cfg.max_file_bytes,
+            )
         image = _as_image(content, thumb.content_type)
         if image is None:
-            return {  # type: ignore[return-value]
-                "error": "unsupported_media_type",
-                "detail": f"Paperless returned {thumb.content_type!r}, which is not an image.",
-                "document_id": document_id,
-            }
+            raise ToolResultError(
+                "unsupported_media_type",
+                f"Paperless returned {thumb.content_type!r}, which is not an image.",
+                document_id=document_id,
+            )
         return image
 
 

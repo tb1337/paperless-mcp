@@ -24,7 +24,6 @@ from paperless_mcp.config import Settings
 from paperless_mcp.tools import register_all
 
 
-# ----------------------------------------------------------------------- settings
 def make_settings(*, readonly: bool = False, enable_delete: bool = True) -> Settings:
     """Build a Settings instance for tests."""
     return Settings(
@@ -40,7 +39,6 @@ def make_settings(*, readonly: bool = False, enable_delete: bool = True) -> Sett
     )
 
 
-# ----------------------------------------------------------------------- fake paging
 class FakePage:
     """Stand-in for ``pypaperless.pagination.Page``."""
 
@@ -84,7 +82,6 @@ class FakePageGenerator:
         self.closed = True
 
 
-# ----------------------------------------------------------------------- mock client
 class FakeService:
     """pypaperless-v6-style resource service stub.
 
@@ -176,7 +173,6 @@ class FakeConnection:
         return self._paperless
 
 
-# ----------------------------------------------------------------------- harness
 def build_mcp(settings: Settings, paperless: Any) -> MCPServer:
     """Build an MCPServer whose lifespan yields the supplied fake client."""
 
@@ -207,7 +203,7 @@ async def call_tool(mcp: MCPServer, tool_name: str, /, **kwargs: Any) -> Any:
     positional-only so kwargs like ``name=...`` reach the tool.
     """
     tool = mcp._tool_manager._tools[tool_name]
-    async with mcp._lowlevel_server.lifespan(mcp._lowlevel_server) as lifespan_ctx:  # type: ignore[arg-type]
+    async with mcp._lowlevel_server.lifespan(mcp._lowlevel_server) as lifespan_ctx:
         ctx = _FakeContext(lifespan_ctx)
         return await tool.fn(ctx=ctx, **kwargs)
 
@@ -235,7 +231,6 @@ def parse_tool_result(result: Any) -> Any:
     return result
 
 
-# ----------------------------------------------------------------------- pytest plumbing
 @pytest.fixture
 def settings() -> Settings:
     return make_settings()
