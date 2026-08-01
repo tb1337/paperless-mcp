@@ -62,6 +62,8 @@ _WRITE_TOOLS = frozenset(
         "update_storage_path",
         "create_custom_field",
         "update_custom_field",
+        "set_document_custom_field",
+        "remove_document_custom_field",
         "create_share_link",
         "restore_documents",
     }

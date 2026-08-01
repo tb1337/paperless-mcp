@@ -21,6 +21,7 @@ from pypaperless.exceptions import PaperlessError
 
 if TYPE_CHECKING:
     from pypaperless import PaperlessClient
+    from pypaperless.models import CustomField
 
 log = logging.getLogger(__name__)
 
@@ -113,6 +114,17 @@ async def load_names(paperless: PaperlessClient) -> NameMap:
         tags=_index(tags, "name"),
         users=_index(users, "username"),
     )
+
+
+def cached_custom_field(paperless: PaperlessClient, pk: int) -> CustomField | None:
+    """Return the custom field definition behind *pk*, or ``None`` when unknown.
+
+    Reads the cache :func:`load_names` fills, so a caller that needs a
+    definition — its data type, its select options — pays for it once per
+    snapshot instead of once per call. Await the snapshot first.
+    """
+    cache = paperless.runtime.cache.custom_fields
+    return cache.get(pk) if cache else None
 
 
 class NameCache:

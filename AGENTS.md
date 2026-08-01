@@ -11,8 +11,9 @@ Public entry point: the `paperless-mcp` console script → `paperless_mcp.__main
 in-process it is `build_mcp(settings)` / `serve(settings)` in `server.py`.
 
 - `src/paperless_mcp/` — server source
-  - `tools/` — one module per resource area (`documents`, `taxonomy`, `bulk`, `trash`, `tasks`,
-    `system`, `ai`, `share_links`), each exposing a `register(mcp, settings)` function;
+  - `tools/` — one module per resource area (`documents`, `taxonomy`, `custom_field_values`,
+    `bulk`, `trash`, `tasks`, `system`, `ai`, `share_links`), each exposing a
+    `register(mcp, settings)` function;
     `tools/__init__.py` calls them all from `register_all()`
   - `tools/_helpers.py` — registration decorators (`read_tool`, `write_tool`, `delete_tool`),
     `safe_tool` (exception → structured error), `paginate` / `page_result` (offset/limit →
@@ -31,8 +32,8 @@ in-process it is `build_mcp(settings)` / `serve(settings)` in `server.py`.
 
 Current code surface (trust these over older docs): MCP SDK 2.x — the server class is `MCPServer`
 from `mcp.server.mcpserver`, not `FastMCP` · pypaperless is pinned exactly (`==6.0.0rc2`), so a
-version bump is a deliberate change with a test run, never an automerge · 54 tools (25 read,
-20 write, 9 delete), enumerated in `tests/test_tool_registration.py`.
+version bump is a deliberate change with a test run, never an automerge · 56 tools (25 read,
+22 write, 9 delete), enumerated in `tests/test_tool_registration.py`.
 
 ## Dev Commands
 
@@ -85,7 +86,7 @@ breaking change and gets the `breaking-change` label.
   with a type, and describe the non-obvious ones in the docstring body.
 - **Register through `read_tool` / `write_tool` / `delete_tool`**, never a bare `@mcp.tool()`.
   Those helpers attach the MCP annotations and derive the display title from the function name, so
-  the hints stay consistent across 54 tools instead of being retyped per call site. The two
+  the hints stay consistent across 56 tools instead of being retyped per call site. The two
   `write_tool` flags are a judgement call worth making deliberately: `destructive` means the call
   can overwrite data that was already stored, `idempotent` means repeating the identical call
   converges on the same state — false for anything that adds a row, queues a task or accumulates

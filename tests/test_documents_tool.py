@@ -10,6 +10,9 @@ from typing import Any
 import pytest
 from mcp.server.mcpserver.utilities.types import Image
 from pypaperless.exceptions import ItemNotFoundError
+from pypaperless.models import CustomField
+from pypaperless.models.documents.document import Document
+from pypaperless.runtime import PaperlessRuntime
 
 from tests.conftest import FakeService, build_mcp, call_tool, make_settings
 
@@ -414,3 +417,61 @@ async def test_get_document_warms_the_cache_before_fetching(make_paperless: Any)
     await call_tool(mcp, "get_document", document_id=1)
 
     assert paperless.runtime.cache.custom_fields == {7: paperless.custom_fields.filter_results[0]}
+
+
+@pytest.mark.asyncio
+async def test_get_document_carries_the_custom_field_names(make_paperless: Any) -> None:
+    """A bare ``{"field": 1, "value": "EUR6372.00"}`` tells a model nothing.
+
+    The document is built at call time, exactly as pypaperless parses the API
+    response: whether the values come back enriched depends on the cache
+    already standing when that happens.
+    """
+    paperless = make_paperless()
+    runtime = PaperlessRuntime(SimpleNamespace(), paperless.runtime.cache)
+    definitions = [
+        CustomField.from_data(
+            runtime,
+            {
+                "id": 1,
+                "name": "Gross",
+                "data_type": "monetary",
+                "extra_data": {"default_currency": "EUR"},
+            },
+        ),
+        CustomField.from_data(
+            runtime,
+            {
+                "id": 2,
+                "name": "Phase",
+                "data_type": "select",
+                "extra_data": {"select_options": [{"id": "opt-1", "label": "Open"}]},
+            },
+        ),
+    ]
+    paperless.custom_fields.filter_results = definitions
+    paperless.documents.get_result = lambda pk: Document.from_data(
+        runtime,
+        {
+            "id": pk,
+            "title": "Bill",
+            "custom_fields": [
+                {"field": 1, "value": "EUR6372.00"},
+                {"field": 2, "value": "opt-1"},
+            ],
+        },
+    )
+    mcp = build_mcp(make_settings(), paperless)
+
+    result = await call_tool(mcp, "get_document", document_id=1)
+
+    assert result["custom_fields"] == [
+        {
+            "field": 1,
+            "name": "Gross",
+            "data_type": "monetary",
+            "label": None,
+            "value": "EUR6372.00",
+        },
+        {"field": 2, "name": "Phase", "data_type": "select", "label": "Open", "value": "opt-1"},
+    ]
