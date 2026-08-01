@@ -246,27 +246,6 @@ Notes on semantics:
   query, so no answer ever reaches the caller. A tool for it would fail every
   time; it will come back if the library starts returning the response body.
 
-## Upgrading from 0.1.x
-
-0.2.0 pins `pypaperless==6.0.0rc2` from PyPI (0.1.x tracked the library's git
-`main`) and follows its API changes. What that means for callers:
-
-- Task fields follow Paperless-ngx 3.0: `type` → `task_type`, `result` →
-  `result_data`, `related_document` → `related_document_ids`. `task_file_name`
-  is gone.
-- Saved views no longer report `show_on_dashboard` / `show_in_sidebar`; they
-  report `page_size`, `display_mode` and `display_fields` instead.
-- List responses gained a `total` field, and `has_more` is now derived from
-  the server-reported match count rather than from over-fetching.
-- Taxonomy objects report `matching_algorithm` as a number plus a readable
-  `matching_algorithm_name`.
-- The default transport is now `stdio`, not HTTP. Pass `--http` (or set
-  `PAPERLESS_MCP_TRANSPORT=http`) for the old behaviour; the Docker image does
-  this for you.
-- The default bind address is `127.0.0.1` instead of `0.0.0.0`. The Docker
-  image sets `0.0.0.0`.
-- `chat_with_documents` was removed (see above).
-
 ## Development
 
 This repo ships a VS Code devcontainer based on
