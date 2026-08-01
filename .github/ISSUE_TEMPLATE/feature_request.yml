@@ -1,0 +1,50 @@
+---
+name: Feature Request
+description: Suggest an idea or enhancement for paperless-mcp
+title: "[FEATURE] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## ⚠️ Note on Response Times
+
+        paperless-mcp is a private side project. I'm a family father with a full-time job, so replies can sometimes take a while - but I will always reply. Thanks for your patience! 🙏
+
+        If you're able to implement this feature and submit a pull request, that would be greatly appreciated and will help get it added much faster.
+
+  - type: textarea
+    id: feature-description
+    attributes:
+      label: Feature Description
+      description: A clear and concise description of the feature you'd like to see.
+      placeholder: Describe the feature...
+    validations:
+      required: true
+
+  - type: textarea
+    id: use-case
+    attributes:
+      label: Use Case
+      description: Describe the problem or use case this feature would solve.
+      placeholder: What problem does this solve?
+    validations:
+      required: true
+
+  - type: textarea
+    id: api-surface
+    attributes:
+      label: Paperless-ngx API
+      description: >
+        If this needs a Paperless-ngx endpoint that isn't exposed yet, name it.
+        Note that paperless-mcp talks to Paperless through pypaperless, so
+        missing library support may have to land there first.
+
+  - type: checkboxes
+    id: implementation-offer
+    attributes:
+      label: Implementation Offer
+      description: How can you help with this feature?
+      options:
+        - label: I'm willing to implement this feature and submit a PR
+        - label: I can help with testing
+        - label: I can help with documentation

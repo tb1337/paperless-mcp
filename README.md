@@ -133,6 +133,16 @@ A ready-made file lives in
 Any other MCP client that spawns stdio servers takes the same
 command/args/env triple.
 
+### Staying up to date
+
+```bash
+git pull
+uv sync
+```
+
+`uv sync` again after every pull, so the environment matches the committed
+lockfile — then restart the MCP client to pick up the new server.
+
 ### Troubleshooting
 
 - **"Server disconnected" right after startup** — almost always the `command`.
@@ -236,28 +246,6 @@ the supported route for now.
   query, so no answer ever reaches the caller. A tool for it would fail every
   time; it will come back if the library starts returning the response body.
 
-## Upgrading from 0.1.x
-
-0.2.0 pins `pypaperless==6.0.0rc2` from PyPI (0.1.x tracked the library's git
-`main`) and follows its API changes. What that means for callers:
-
-- Task fields follow Paperless-ngx 3.0: `type` → `task_type`, `result` →
-  `result_data`, `related_document` → `related_document_ids`. `task_file_name`
-  is gone.
-- Saved views no longer report `show_on_dashboard` / `show_in_sidebar`; they
-  report `page_size`, `display_mode` and `display_fields` instead.
-- List responses gained a `total` field, and `has_more` is now derived from
-  the server-reported match count rather than from over-fetching.
-- Taxonomy objects report `matching_algorithm` as a number plus a readable
-  `matching_algorithm_name`.
-- The default transport is now `stdio`, not HTTP. Pass `--http` (or set
-  `PAPERLESS_MCP_TRANSPORT=http`) for the old behaviour.
-- The default bind address is `127.0.0.1` instead of `0.0.0.0`.
-- `chat_with_documents` was removed (see above).
-
-After pulling a new revision into your clone, run `uv sync` again so the
-environment matches the lockfile, then restart your MCP client.
-
 ## Development
 
 This repo ships a VS Code devcontainer based on
@@ -268,14 +256,20 @@ the docker CLI preinstalled. Open the project in VS Code and select
 container start.
 
 ```bash
-# Manual setup (without the devcontainer):
-uv sync --group dev
-uv run pytest
-uv run ruff check . && uv run ruff format --check .
-uv run mypy
+script/bootstrap             # uv sync --group dev
+uv run pytest                # suite + coverage (gate: 80 %)
+uv run ruff check --fix .    # lint
+uv run ruff format .         # format
+uv run mypy                  # strict, on the paperless_mcp package
+prek run --all-files         # everything CI lints, in one go
 uv run paperless-mcp --help
 ```
 
+[AGENTS.md](AGENTS.md) documents the module layout and the conventions that
+hold this together — the tool surface as public API, why tools never raise, why
+list tools must paginate. Worth reading before adding a tool, whether you are
+human or not.
+
 ## License
 
-MIT.
+[MIT](LICENSE.md).

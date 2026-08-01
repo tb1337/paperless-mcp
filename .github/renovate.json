@@ -1,0 +1,121 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "schedule": [
+    "before 6am"
+  ],
+  "rebaseWhen": "behind-base-branch",
+  "dependencyDashboard": true,
+  "labels": [
+    "auto",
+    "no-stale"
+  ],
+  "lockFileMaintenance": {
+    "enabled": true,
+    "automerge": true
+  },
+  "commitMessagePrefix": "⬆️",
+  "packageRules": [
+    {
+      "matchManagers": [
+        "pip_requirements"
+      ],
+      "enabled": false
+    },
+    {
+      "matchDepNames": [
+        "python"
+      ],
+      "enabled": false
+    },
+    {
+      "matchUpdateTypes": [
+        "lockFileMaintenance"
+      ],
+      "addLabels": [
+        "dependencies",
+        "skip-changelog"
+      ]
+    },
+    {
+      "matchManagers": [
+        "pep621"
+      ],
+      "matchDepTypes": [
+        "!dev"
+      ],
+      "addLabels": [
+        "dependencies",
+        "python"
+      ],
+      "rangeStrategy": "bump"
+    },
+    {
+      "matchManagers": [
+        "pep621"
+      ],
+      "matchDepTypes": [
+        "dev"
+      ],
+      "addLabels": [
+        "dependencies",
+        "dev-deps",
+        "python"
+      ],
+      "rangeStrategy": "bump"
+    },
+    {
+      "matchManagers": [
+        "pep621"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "automerge": true
+    },
+    {
+      "matchManagers": [
+        "github-actions"
+      ],
+      "addLabels": [
+        "ci",
+        "github_actions",
+        "skip-changelog"
+      ],
+      "rangeStrategy": "pin"
+    },
+    {
+      "matchManagers": [
+        "github-actions"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "automerge": true
+    },
+    {
+      "matchManagers": [
+        "dockerfile",
+        "docker-compose"
+      ],
+      "addLabels": [
+        "dependencies",
+        "docker",
+        "skip-changelog"
+      ],
+      "rangeStrategy": "pin"
+    },
+    {
+      "description": "pypaperless is pinned to an exact version on purpose: the MCP layer is built against one library surface, so a bump needs a look, not an automerge.",
+      "matchDepNames": [
+        "pypaperless"
+      ],
+      "automerge": false,
+      "addLabels": [
+        "dependencies",
+        "python"
+      ]
+    }
+  ]
+}

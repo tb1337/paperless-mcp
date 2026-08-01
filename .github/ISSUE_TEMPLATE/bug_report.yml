@@ -1,0 +1,107 @@
+---
+name: Bug Report
+description: Report a bug or issue with paperless-mcp
+title: "[BUG] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## ⚠️ Note on Response Times
+
+        paperless-mcp is a private side project. I'm a family father with a full-time job, so replies can sometimes take a while - but I will always reply. Thanks for your patience! 🙏
+
+        If you're able to investigate and submit a pull request with a fix, that would be greatly appreciated and will significantly speed up the resolution.
+
+  - type: textarea
+    id: bug-description
+    attributes:
+      label: Describe the Bug
+      description: A clear and concise description of what the bug is.
+      placeholder: Tell us what you see!
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: To Reproduce
+      description: Steps to reproduce the behavior. If a specific MCP tool misbehaves, name it and the arguments you passed.
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: A clear and concise description of what you expected to happen.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Server Output
+      description: >
+        Relevant output from the server. Please redact your Paperless URL and
+        token - this is a public tracker.
+      render: shell
+
+  - type: input
+    id: paperless-mcp-version
+    attributes:
+      label: paperless-mcp Version
+      placeholder: e.g., 0.2.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: transport
+    attributes:
+      label: Transport
+      description: How is the server running?
+      options:
+        - stdio (client spawns the server)
+        - http (Streamable HTTP)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install-method
+    attributes:
+      label: Installation Method
+      options:
+        - uvx
+        - pip / uv pip
+        - Docker
+        - Local checkout
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: mcp-client
+    attributes:
+      label: MCP Client
+      placeholder: e.g., Claude Desktop 1.2.3, Claude Code, custom client
+    validations:
+      required: true
+
+  - type: input
+    id: python-version
+    attributes:
+      label: Python Version
+      placeholder: e.g., 3.13.2
+    validations:
+      required: true
+
+  - type: input
+    id: paperless-version
+    attributes:
+      label: Paperless-ngx Version
+      placeholder: e.g., 3.0.1
+    validations:
+      required: true
