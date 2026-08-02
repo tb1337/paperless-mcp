@@ -356,7 +356,18 @@ Notes on semantics:
   `archive_serial_number`) to unset foreign keys. Setting and clearing the
   same field in one call is rejected. Use `bulk_edit_documents` to add or
   remove individual tags.
-- `upload_document` returns a task UUID; poll it with `get_task`.
+- `upload_document` queues a file for consumption and returns a task UUID to
+  poll with `get_task`. Pass `poll=true` to have the server do the waiting
+  instead: the call then blocks until the consumer is done and answers with the
+  new `document_id`, the terminal `status` and the full `task` record — one
+  call instead of an upload plus a polling loop the model has to drive itself.
+  The wait ends after `poll_timeout_seconds` (default 30, maximum 300; raise it
+  for OCR-heavy scans) and running out is not an error: the result carries
+  `timed_out: true` alongside the `task_uuid` to keep polling with. A `failure`
+  status most often means Paperless rejected the file as a duplicate, and
+  `task.result_data` says so. Keep the timeout under the MCP client's own
+  request timeout — a call the client gives up on still consumes the file, it
+  just leaves nobody to read the result.
 - `set_document_custom_field` **upserts** one field value on one document: a
   field the document does not carry yet is added, an existing one is replaced.
   The value is checked against the field's `data_type` first, so `1` is not

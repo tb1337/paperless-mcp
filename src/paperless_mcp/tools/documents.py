@@ -9,6 +9,7 @@ from typing import Any
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.utilities.types import Image
+from pypaperless.exceptions import PaperlessError
 
 from ..client import ToolContext, get_client, get_names, get_settings
 from ..config import Settings
@@ -17,6 +18,7 @@ from ..formatting import (
     format_document_detail,
     format_history_entry,
     format_note,
+    format_task,
     safe_dump,
 )
 from ..names import cached_custom_fields
@@ -31,8 +33,15 @@ from ._helpers import (
     parse_datetime,
     read_tool,
     safe_tool,
+    translate_error,
     window,
     write_tool,
+)
+from ._task_polling import (
+    MAX_POLL_TIMEOUT_SECONDS,
+    task_document_id,
+    task_status,
+    wait_for_task,
 )
 
 # Updatable fields that accept a "clear" instruction via the clear_fields list.
@@ -442,14 +451,36 @@ def _register_writes(mcp: MCPServer) -> None:
         tag_ids: list[int] | None = None,
         archive_serial_number: int | None = None,
         created: str | None = None,
+        poll: bool = False,
+        poll_timeout_seconds: int = 30,
     ) -> dict[str, Any]:
         """Upload a new document into the Paperless consume queue.
 
         ``content_base64`` is the raw file, base64-encoded. ``created`` is an
         optional ISO date/datetime; Paperless falls back to the consumption
-        time. Consumption is asynchronous — the returned ``task_uuid`` can be
-        polled with ``get_task``.
+        time.
+
+        Consumption is asynchronous, so by default the call returns as soon as
+        the file is queued and the ``task_uuid`` is yours to poll with
+        ``get_task``. Pass ``poll=True`` to wait for the consumer instead and
+        get the new ``document_id`` back from this same call — the useful
+        choice whenever the next step is tagging, linking or reading the
+        document.
+
+        While polling, the wait ends after ``poll_timeout_seconds`` (default
+        30, maximum 300 — raise it for OCR-heavy scans). Running out is not an
+        error: the result then carries ``timed_out: true`` and the
+        ``task_uuid`` to keep polling with. ``status`` is ``success``,
+        ``failure`` or ``revoked`` once consumption finished, and ``task``
+        holds the full task record — read its ``result_data`` when the status
+        is ``failure``, which most often means Paperless rejected the file as a
+        duplicate of a document it already has.
         """
+        if poll and not 1 <= poll_timeout_seconds <= MAX_POLL_TIMEOUT_SECONDS:
+            raise ToolInputError(
+                "poll_timeout_seconds must be between 1 and "
+                f"{MAX_POLL_TIMEOUT_SECONDS}, got {poll_timeout_seconds}"
+            )
         paperless = await get_client(ctx)
         try:
             content = base64.b64decode(content_base64, validate=True)
@@ -470,7 +501,26 @@ def _register_writes(mcp: MCPServer) -> None:
             created=parse_datetime(created, field="created") if created else None,
         )
         task_uuid = await paperless.documents.save(draft)
-        return {"task_uuid": task_uuid, "filename": filename, "size_bytes": len(content)}
+        queued = {"task_uuid": task_uuid, "filename": filename, "size_bytes": len(content)}
+        if not poll:
+            return queued
+
+        try:
+            task, timed_out = await wait_for_task(
+                paperless, str(task_uuid), timeout=poll_timeout_seconds
+            )
+        except PaperlessError as exc:
+            # The file is queued either way. Answering with the bare error would
+            # drop the UUID that is the only way back to what it became.
+            return {**queued, **(translate_error(exc) or {})}
+        names = await get_names(ctx)
+        return {
+            **queued,
+            "status": task_status(task),
+            "document_id": task_document_id(task),
+            "timed_out": timed_out,
+            "task": format_task(task, names) if task is not None else None,
+        }
 
     @write_tool(mcp, destructive=True, idempotent=True)
     @safe_tool
