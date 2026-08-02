@@ -323,6 +323,46 @@ def enrich_suggestions(suggestions: dict[str, Any], names: NameMap) -> dict[str,
     return {**suggestions, **resolved}
 
 
+#: The health-bearing subsystems of ``/api/status/``: the name to report, the
+#: Status attribute holding the block, and the status/error fields inside it.
+_STATUS_SUBSYSTEMS: tuple[tuple[str, str, str, str], ...] = (
+    ("database", "database", "status", "error"),
+    ("redis", "tasks", "redis_status", "redis_error"),
+    ("celery", "tasks", "celery_status", "celery_error"),
+    ("index", "tasks", "index_status", "index_error"),
+    ("classifier", "tasks", "classifier_status", "classifier_error"),
+    ("sanity_check", "tasks", "sanity_check_status", "sanity_check_error"),
+)
+
+#: Worst-first, so the first hit in the reported set decides the verdict.
+_HEALTH_ORDER: tuple[tuple[str, str], ...] = (
+    ("ERROR", "error"),
+    ("WARNING", "warning"),
+    ("UNKNOWN", "unknown"),
+)
+
+
+def summarize_status(status: Any) -> dict[str, Any]:
+    """Roll the per-subsystem flags of a Status model up into one verdict.
+
+    Answers "is this archive healthy?" without the caller walking six nested
+    blocks. ``Status.has_errors`` is not enough: it looks at four of the six
+    subsystems and treats WARNING as fine.
+    """
+    problems: list[dict[str, Any]] = []
+    reported: set[str] = set()
+    for name, block_attr, status_attr, error_attr in _STATUS_SUBSYSTEMS:
+        block = _safe(status, block_attr)
+        state = _plain(_safe(block, status_attr)) if block is not None else None
+        if state is None:
+            continue
+        reported.add(state)
+        if state != "OK":
+            problems.append({"subsystem": name, "status": state, "error": _safe(block, error_attr)})
+    health = next((verdict for flag, verdict in _HEALTH_ORDER if flag in reported), "ok")
+    return {"health": health if reported else "unknown", "problems": problems}
+
+
 def format_history_entry(h: Any) -> dict[str, Any]:
     """Project a DocumentHistory audit-log entry into a compact dict."""
     actor = _safe(h, "actor")

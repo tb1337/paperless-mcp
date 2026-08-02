@@ -5,8 +5,10 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
 
+import httpx
 import pytest
-from pypaperless.exceptions import ItemNotFoundError
+from pypaperless.exceptions import ForbiddenError, ItemNotFoundError
+from pypaperless.models.status import Status
 
 from paperless_mcp import __version__
 from tests.conftest import FakeService, build_mcp, call_tool, make_settings
@@ -336,3 +338,80 @@ def _returns(value: Any) -> Any:
         return value
 
     return _call
+
+
+def _status(**tasks: Any) -> Status:
+    return Status.model_validate(
+        {
+            "pngx_version": "3.0.1",
+            "storage": {"total": 100, "available": 40},
+            "database": {"type": "postgres", "status": tasks.pop("database_status", "OK")},
+            "tasks": {"celery_status": "OK", **tasks},
+        }
+    )
+
+
+@pytest.mark.asyncio
+async def test_get_system_status_reports_a_healthy_archive(make_paperless: Any) -> None:
+    paperless = make_paperless()
+    paperless.status = _returns(_status(redis_status="OK"))
+    mcp = build_mcp(make_settings(), paperless)
+
+    result = await call_tool(mcp, "get_system_status")
+
+    assert result["health"] == "ok"
+    assert result["problems"] == []
+    # The untouched payload travels alongside the verdict.
+    assert result["pngx_version"] == "3.0.1"
+    assert result["storage"]["available"] == 40
+
+
+@pytest.mark.asyncio
+async def test_get_system_status_names_the_failing_subsystems(make_paperless: Any) -> None:
+    paperless = make_paperless()
+    paperless.status = _returns(
+        _status(
+            redis_status="ERROR",
+            redis_error="connection refused",
+            index_status="WARNING",
+            index_error="stale",
+        )
+    )
+    mcp = build_mcp(make_settings(), paperless)
+
+    result = await call_tool(mcp, "get_system_status")
+
+    assert result["health"] == "error"
+    assert result["problems"] == [
+        {"subsystem": "redis", "status": "ERROR", "error": "connection refused"},
+        {"subsystem": "index", "status": "WARNING", "error": "stale"},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_get_system_status_reports_a_warning_without_an_error(make_paperless: Any) -> None:
+    paperless = make_paperless()
+    # sanity_check is one of the two subsystems Status.has_errors ignores.
+    paperless.status = _returns(_status(sanity_check_status="WARNING"))
+    mcp = build_mcp(make_settings(), paperless)
+
+    result = await call_tool(mcp, "get_system_status")
+
+    assert result["health"] == "warning"
+    assert [p["subsystem"] for p in result["problems"]] == ["sanity_check"]
+
+
+@pytest.mark.asyncio
+async def test_get_system_status_turns_a_missing_permission_into_an_error(
+    make_paperless: Any,
+) -> None:
+    paperless = make_paperless()
+
+    async def _forbidden() -> Any:
+        raise ForbiddenError(httpx.Response(403, request=httpx.Request("GET", "http://test/")))
+
+    paperless.status = _forbidden
+    mcp = build_mcp(make_settings(), paperless)
+
+    result = await call_tool(mcp, "get_system_status")
+    assert result["error"] == "forbidden"
