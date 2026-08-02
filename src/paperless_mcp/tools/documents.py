@@ -436,6 +436,23 @@ def _register_reads(mcp: MCPServer) -> None:
             )
         return image
 
+    @read_tool(mcp)
+    @safe_tool
+    async def get_next_asn(ctx: ToolContext) -> dict[str, Any]:
+        """Return the next free archive serial number.
+
+        The ASN is the number written on the paper original before it is filed,
+        so a physical archive can be walked back to its scan. Paperless derives
+        it from the highest one currently stored.
+
+        The value is only free until something claims it: fetch it immediately
+        before the ``upload_document`` or ``update_document`` call that uses it,
+        and never hand the same number to two documents. Asking twice in a row
+        returns the same number, not two.
+        """
+        paperless = await get_client(ctx)
+        return {"next_asn": await paperless.documents.get_next_asn()}
+
 
 def _register_writes(mcp: MCPServer) -> None:
     @write_tool(mcp, destructive=False, idempotent=False)

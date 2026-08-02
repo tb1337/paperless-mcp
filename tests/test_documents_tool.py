@@ -11,6 +11,7 @@ import pytest
 from mcp.server.mcpserver.utilities.types import Image
 from pypaperless.cache import PaperlessCache
 from pypaperless.exceptions import (
+    AsnRequestError,
     AuthError,
     ItemNotFoundError,
     PaperlessConnectionError,
@@ -774,3 +775,30 @@ async def test_search_documents_reports_a_negative_offset_as_a_result(make_paper
 
     assert result["error"] == "invalid_argument"
     assert "non-negative" in result["cause"]
+
+
+@pytest.mark.asyncio
+async def test_get_next_asn_reports_the_number(make_paperless: Any) -> None:
+    paperless = make_paperless()
+
+    async def _next_asn() -> int:
+        return 43
+
+    paperless.documents.get_next_asn = _next_asn
+    mcp = build_mcp(make_settings(), paperless)
+
+    assert await call_tool(mcp, "get_next_asn") == {"next_asn": 43}
+
+
+@pytest.mark.asyncio
+async def test_get_next_asn_reports_a_refusal_as_a_structured_error(make_paperless: Any) -> None:
+    paperless = make_paperless()
+
+    async def _next_asn() -> int:
+        raise AsnRequestError("no asn for you")
+
+    paperless.documents.get_next_asn = _next_asn
+    mcp = build_mcp(make_settings(), paperless)
+
+    result = await call_tool(mcp, "get_next_asn")
+    assert result["error"] == "asn_failed"
