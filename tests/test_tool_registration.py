@@ -39,6 +39,7 @@ _READ_TOOLS = frozenset(
         "get_statistics",
         "get_paperless_info",
         "get_next_asn",
+        "search_everywhere",
         "get_document_suggestions",
         "get_document_ai_suggestions",
     }
