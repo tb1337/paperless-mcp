@@ -321,10 +321,10 @@ async def paginate(
         Paperless or ``None`` when it did not report one.
 
     Raises:
-        ValueError: When ``offset`` or ``limit`` is negative.
+        ToolInputError: When ``offset`` or ``limit`` is negative.
     """
     if offset < 0 or limit < 0:
-        raise ValueError("offset and limit must be non-negative")
+        raise ToolInputError("offset and limit must be non-negative")
 
     params = normalize_csv_filters(filters or {})
     page_size, first_page, skip = _slice_plan(offset, limit)
@@ -370,10 +370,10 @@ def window[ItemT](items: list[ItemT], *, offset: int, limit: int) -> tuple[list[
     paginated envelope (document notes, a document's share links, active tasks).
 
     Raises:
-        ValueError: When ``offset`` or ``limit`` is negative.
+        ToolInputError: When ``offset`` or ``limit`` is negative.
     """
     if offset < 0 or limit < 0:
-        raise ValueError("offset and limit must be non-negative")
+        raise ToolInputError("offset and limit must be non-negative")
     return items[offset : offset + limit], len(items)
 
 

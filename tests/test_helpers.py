@@ -122,7 +122,9 @@ async def test_paginate_forwards_filters_to_the_service() -> None:
 
 @pytest.mark.asyncio
 async def test_paginate_rejects_negative() -> None:
-    with pytest.raises(ValueError, match="non-negative"):
+    # ToolInputError, not a bare ValueError: only the mapped type reaches the
+    # model as a structured result instead of a protocol-level failure.
+    with pytest.raises(ToolInputError, match="non-negative"):
         await paginate(FakeService(), offset=-1, limit=5)
 
 
@@ -150,7 +152,7 @@ def test_window_slices_and_reports_total() -> None:
 
 
 def test_window_rejects_negative() -> None:
-    with pytest.raises(ValueError, match="non-negative"):
+    with pytest.raises(ToolInputError, match="non-negative"):
         window([1], offset=0, limit=-1)
 
 

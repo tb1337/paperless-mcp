@@ -762,3 +762,15 @@ async def test_get_document_carries_the_custom_field_names(make_paperless: Any) 
         },
         {"field": 2, "name": "Phase", "data_type": "select", "label": "Open", "value": "opt-1"},
     ]
+
+
+@pytest.mark.asyncio
+async def test_search_documents_reports_a_negative_offset_as_a_result(make_paperless: Any) -> None:
+    """A bad window must be answerable, not a protocol failure the model cannot see."""
+    paperless = make_paperless()
+    mcp = build_mcp(make_settings(), paperless)
+
+    result = await call_tool(mcp, "search_documents", offset=-1)
+
+    assert result["error"] == "invalid_argument"
+    assert "non-negative" in result["cause"]
