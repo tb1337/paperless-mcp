@@ -31,6 +31,7 @@ _READ_TOOLS = frozenset(
         "list_share_links",
         "list_saved_views",
         "get_saved_view",
+        "run_saved_view",
         "list_trash",
         "list_active_tasks",
         "list_tasks",
