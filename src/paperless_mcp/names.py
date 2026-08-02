@@ -116,15 +116,20 @@ async def load_names(paperless: PaperlessClient) -> NameMap:
     )
 
 
-def cached_custom_field(paperless: PaperlessClient, pk: int) -> CustomField | None:
-    """Return the custom field definition behind *pk*, or ``None`` when unknown.
+def cached_custom_fields(paperless: PaperlessClient) -> Mapping[int, CustomField]:
+    """Return every known custom field definition, keyed by ID.
 
-    Reads the cache :func:`load_names` fills, so a caller that needs a
-    definition — its data type, its select options — pays for it once per
-    snapshot instead of once per call. Await the snapshot first.
+    Reads the cache :func:`load_names` fills, so a caller that needs the
+    definitions — their data types, their select options — pays for them once
+    per snapshot instead of once per call. Await the snapshot first; until then,
+    and whenever ``/api/custom_fields/`` could not be read, this is empty.
     """
-    cache = paperless.runtime.cache.custom_fields
-    return cache.get(pk) if cache else None
+    return paperless.runtime.cache.custom_fields or {}
+
+
+def cached_custom_field(paperless: PaperlessClient, pk: int) -> CustomField | None:
+    """Return the custom field definition behind *pk*, or ``None`` when unknown."""
+    return cached_custom_fields(paperless).get(pk)
 
 
 class NameCache:
