@@ -54,7 +54,7 @@ the caller, not a human clicking through a UI:
   `/healthz` for container probes.
 - **Tunable surface**: writes can be disabled (`PAPERLESS_MCP_READONLY=true`)
   and deletes require explicit opt-in (`PAPERLESS_MCP_ENABLE_DELETE=true`).
-  49 tools by default, 58 with deletes enabled.
+  50 tools by default, 59 with deletes enabled.
 - **Workflow prompts**: three slash commands — `triage_inbox`,
   `monthly_review`, `find_duplicates` — that chain the tools into the jobs an
   archive actually needs, with the Paperless-specific judgement calls written
@@ -78,7 +78,7 @@ the caller, not a human clicking through a UI:
 - **Structured errors**: pypaperless exceptions become results like
   `{"error": "not_found", "detail": "...", "cause": "..."}` instead of
   protocol-level failures, so the model can recover rather than give up.
-- **Behaviour hints on every tool**: each of the 58 tools ships MCP tool
+- **Behaviour hints on every tool**: each of the 59 tools ships MCP tool
   annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`,
   `openWorldHint`) plus a display title, so a client can wave a search through
   and stop to ask before a rotate, a merge or an `empty_trash`.
@@ -311,7 +311,7 @@ with `--env-file`) and never overwrites variables the MCP client already set.
 
 ## Tools
 
-**Read**: `search_documents`, `get_document`, `get_document_content`,
+**Read**: `search_documents`, `search_everywhere`, `get_document`, `get_document_content`,
 `get_document_metadata`, `get_document_notes`, `get_document_history`,
 `find_similar_documents`, `download_document`, `get_document_thumbnail`,
 `get_next_asn`,
@@ -340,6 +340,13 @@ Notes on semantics:
 
 - `search_documents` combines a Whoosh full-text `query` with Django-style
   filters, and takes `order_by` / `descending`.
+- `search_everywhere` is the other half: one global-search call that answers
+  "what is this called in Paperless?" across documents, tags, correspondents,
+  document types, storage paths, custom fields and saved views, so a name
+  becomes an ID without paging three `list_*` tools. It cannot filter, sort or
+  page — `limit` caps each category separately and `truncated` says whether it
+  bit. Users, groups, mail rules and workflows are left out on purpose; they
+  are admin-tier resources this server does not carry.
 - `get_next_asn` reports the next free archive serial number, the one written
   on the paper original before filing. It is only free until something claims
   it: fetch it immediately before the upload or update that uses it. Two calls
@@ -402,7 +409,7 @@ Notes on semantics:
 Every tool carries MCP annotations, so a client can decide how much ceremony a
 call deserves without parsing the description:
 
-- `readOnlyHint` is true for all 27 read tools, and only for those.
+- `readOnlyHint` is true for all 28 read tools, and only for those.
   `destructiveHint` / `idempotentHint` are left unset there — the spec only
   gives them meaning once a tool can write.
 - `destructiveHint` is true for 21 tools — every `update_*`, all nine delete

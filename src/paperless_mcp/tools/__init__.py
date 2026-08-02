@@ -10,6 +10,7 @@ from . import (
     bulk,
     custom_field_values,
     documents,
+    search,
     share_links,
     system,
     tasks,
@@ -21,6 +22,7 @@ from . import (
 def register_all(mcp: MCPServer, settings: Settings) -> None:
     """Register every enabled tool module on the MCPServer instance."""
     documents.register(mcp, settings)
+    search.register(mcp, settings)
     taxonomy.register(mcp, settings)
     custom_field_values.register(mcp, settings)
     bulk.register(mcp, settings)
