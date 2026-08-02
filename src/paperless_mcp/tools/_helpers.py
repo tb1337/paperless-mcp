@@ -172,8 +172,8 @@ def humanize(name: str) -> str:
     """Derive a display title from a tool's function name.
 
     ``Tool.title`` is what a client puts in front of the user, so deriving it
-    keeps it from drifting away from the name the model sees. Every tool name
-    starts with a verb, which is the only word that gets capitalized.
+    keeps it from drifting away from the name the model sees. Only the first
+    word is capitalized — usually the verb, but ``bulk_*`` leads with its scope.
     """
     verb, *rest = name.split("_")
     return " ".join([verb.capitalize(), *(_TITLE_WORDS.get(word, word) for word in rest)])

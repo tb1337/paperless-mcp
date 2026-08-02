@@ -400,16 +400,27 @@ call deserves without parsing the description:
 - `readOnlyHint` is true for all 26 read tools, and only for those.
   `destructiveHint` / `idempotentHint` are left unset there — the spec only
   gives them meaning once a tool can write.
-- `destructiveHint` is true where a call overwrites what was already stored:
-  every `update_*`, every `delete_*`, and the bulk operations. It is false for
-  additive tools (`upload_document`, `create_*`, `add_document_note`,
-  `restore_documents`, `acknowledge_tasks`).
+- `destructiveHint` is true for 21 tools — every `update_*`, all nine delete
+  tools (`delete_*` plus `empty_trash`), the four bulk operations, and the two
+  custom field value tools (`set_document_custom_field` replaces a value,
+  `remove_document_custom_field` clears one). It is false for the additive ones
+  (`upload_document`, `create_*`, `add_document_note`, `restore_documents`,
+  `acknowledge_tasks`).
 - `idempotentHint` is true only where repeating the identical call converges on
-  the same state. Notably false for `bulk_rotate_documents` (twice by 90° is
-  180°), `bulk_merge_documents` and `upload_document` (each call mints another
-  document) and `bulk_reprocess_documents` (each call queues another task).
+  the same state. It is false wherever a call accumulates:
+  `bulk_rotate_documents` (twice by 90° is 180°), `bulk_merge_documents` and
+  `upload_document` (each call mints another document),
+  `bulk_reprocess_documents` (each call queues another task), and every
+  `create_*` plus `add_document_note` (each call adds another row).
 - `openWorldHint` is false everywhere: the tools reach exactly one configured
   Paperless instance, not an open-ended set of external entities.
+
+The vocabulary has no axis for *reversible* versus *final*, so two tools that
+differ a lot end up with identical hints: `delete_document` moves a document to
+the trash and `restore_documents` brings it back, while `empty_trash` cannot be
+undone and purges the entire trash when called without arguments. A client that
+wants to hold the second one back harder has to go by the name or the
+description.
 
 They are hints, not a permission system — the actual gate is
 `PAPERLESS_MCP_READONLY` / `PAPERLESS_MCP_ENABLE_DELETE`, which decide whether a
