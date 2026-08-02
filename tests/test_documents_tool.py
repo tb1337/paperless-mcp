@@ -9,12 +9,19 @@ from typing import Any
 
 import pytest
 from mcp.server.mcpserver.utilities.types import Image
-from pypaperless.exceptions import ItemNotFoundError
-from pypaperless.models import CustomField
+from pypaperless.cache import PaperlessCache
+from pypaperless.exceptions import (
+    AuthError,
+    ItemNotFoundError,
+    PaperlessConnectionError,
+    TaskNotFoundError,
+)
+from pypaperless.models import CustomField, Task
 from pypaperless.models.documents.document import Document
 from pypaperless.models.types import CustomFieldType
 from pypaperless.runtime import PaperlessRuntime
 
+from paperless_mcp.tools import _task_polling
 from tests.conftest import FakeService, build_mcp, call_tool, make_settings
 
 
@@ -43,6 +50,67 @@ def _doc(doc_id: int = 1, title: str = "Test") -> SimpleNamespace:
         root_document=None,
         search_hit_=None,
     )
+
+
+def _task(
+    status: str,
+    *,
+    document_ids: tuple[int, ...] = (),
+    result_data: Any = None,
+) -> Task:
+    """Build a real consume task, so a pypaperless field rename breaks here."""
+    return Task.from_data(
+        PaperlessRuntime(SimpleNamespace(), PaperlessCache()),
+        {
+            "id": 5,
+            "task_id": "abc-task-uuid",
+            "task_type": "consume_file",
+            "status": status,
+            "related_document_ids": list(document_ids),
+            "result_data": result_data,
+        },
+    )
+
+
+class _TaskStates:
+    """Hand out one task state per poll; the last one repeats forever.
+
+    An exception in the list is raised instead of returned, which is how
+    Paperless answers for a task the worker has not registered yet.
+    """
+
+    def __init__(self, states: list[Any]) -> None:
+        self._states = list(states)
+
+    def __call__(self, _pk: Any) -> Any:
+        state = self._states.pop(0) if len(self._states) > 1 else self._states[0]
+        if isinstance(state, BaseException):
+            raise state
+        return state
+
+
+class _Clock:
+    """Virtual monotonic clock: time moves only when the poll loop sleeps."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+        self.slept: list[float] = []
+
+    def monotonic(self) -> float:
+        return self.now
+
+    async def sleep(self, seconds: float) -> None:
+        self.slept.append(seconds)
+        self.now += seconds
+
+
+@pytest.fixture
+def clock(monkeypatch: pytest.MonkeyPatch) -> _Clock:
+    """Drive the poll loop without real waiting, recording the delays it asks for."""
+    fake = _Clock()
+    monkeypatch.setattr(_task_polling, "time", SimpleNamespace(monotonic=fake.monotonic))
+    monkeypatch.setattr(_task_polling, "asyncio", SimpleNamespace(sleep=fake.sleep))
+    return fake
 
 
 @pytest.mark.asyncio
@@ -278,6 +346,181 @@ async def test_upload_document_passes_content_and_metadata(make_paperless: Any) 
     assert draft.title == "Invoice"
     assert draft.tags == [1, 2]
     assert draft.created == dt.datetime(2026, 2, 3, 0, 0)
+    # Without poll=True the call ends at the queue, and costs no task request.
+    assert paperless.tasks.get_calls == []
+
+
+@pytest.mark.asyncio
+async def test_upload_document_poll_returns_the_new_document_id(
+    make_paperless: Any, clock: _Clock
+) -> None:
+    paperless = make_paperless()
+    paperless.documents.save_returns = "abc-task-uuid"
+    paperless.tasks.get_result = _TaskStates(
+        [_task("pending"), _task("started"), _task("success", document_ids=(42,))]
+    )
+    mcp = build_mcp(make_settings(), paperless)
+
+    result = await call_tool(
+        mcp,
+        "upload_document",
+        filename="invoice.pdf",
+        content_base64=base64.b64encode(b"%PDF-1.4").decode("ascii"),
+        poll=True,
+    )
+
+    assert result["task_uuid"] == "abc-task-uuid"
+    assert result["document_id"] == 42
+    assert result["status"] == "success"
+    assert result["timed_out"] is False
+    assert result["task"]["task_type"] == "consume_file"
+    # Polled by UUID, backing off between attempts, and stopped at the first
+    # terminal state instead of waiting the timeout out.
+    assert [pk for pk, _ in paperless.tasks.get_calls] == ["abc-task-uuid"] * 3
+    assert clock.slept == [1.0, 1.5]
+
+
+@pytest.mark.asyncio
+async def test_upload_document_poll_reports_a_timeout(make_paperless: Any, clock: _Clock) -> None:
+    """A wait that runs out is not an error: the UUID is still pollable."""
+    paperless = make_paperless()
+    paperless.documents.save_returns = "abc-task-uuid"
+    paperless.tasks.get_result = _TaskStates([_task("started")])
+    mcp = build_mcp(make_settings(), paperless)
+
+    result = await call_tool(
+        mcp,
+        "upload_document",
+        filename="scan.pdf",
+        content_base64=base64.b64encode(b"%PDF-1.4").decode("ascii"),
+        poll=True,
+        poll_timeout_seconds=10,
+    )
+
+    assert result["timed_out"] is True
+    assert result["status"] == "started"
+    assert result["document_id"] is None
+    assert result["task_uuid"] == "abc-task-uuid"
+    assert clock.now == 10
+
+
+@pytest.mark.asyncio
+async def test_upload_document_poll_waits_out_an_unregistered_task(
+    make_paperless: Any, clock: _Clock
+) -> None:
+    """/api/tasks/ only knows the task once a worker picked it up."""
+    paperless = make_paperless()
+    paperless.documents.save_returns = "abc-task-uuid"
+    paperless.tasks.get_result = _TaskStates(
+        [TaskNotFoundError("abc-task-uuid"), _task("success", document_ids=(7,))]
+    )
+    mcp = build_mcp(make_settings(), paperless)
+
+    result = await call_tool(
+        mcp,
+        "upload_document",
+        filename="scan.pdf",
+        content_base64=base64.b64encode(b"%PDF-1.4").decode("ascii"),
+        poll=True,
+    )
+
+    assert result["document_id"] == 7
+    assert result["timed_out"] is False
+
+
+@pytest.mark.asyncio
+async def test_upload_document_poll_rides_out_a_broken_connection(
+    make_paperless: Any, clock: _Clock
+) -> None:
+    """A poll spanning a Paperless restart must not abandon a queued file."""
+    paperless = make_paperless()
+    paperless.documents.save_returns = "abc-task-uuid"
+    paperless.tasks.get_result = _TaskStates(
+        [PaperlessConnectionError("connection refused"), _task("success", document_ids=(8,))]
+    )
+    mcp = build_mcp(make_settings(), paperless)
+
+    result = await call_tool(
+        mcp,
+        "upload_document",
+        filename="scan.pdf",
+        content_base64=base64.b64encode(b"%PDF-1.4").decode("ascii"),
+        poll=True,
+    )
+
+    assert result["document_id"] == 8
+    assert result["timed_out"] is False
+
+
+@pytest.mark.asyncio
+async def test_upload_document_poll_keeps_the_uuid_when_polling_fails(
+    make_paperless: Any, clock: _Clock
+) -> None:
+    """The file is queued either way; the UUID is the only way back to it."""
+    paperless = make_paperless()
+    paperless.documents.save_returns = "abc-task-uuid"
+    paperless.tasks.get_raises = AuthError("token revoked")
+    mcp = build_mcp(make_settings(), paperless)
+
+    result = await call_tool(
+        mcp,
+        "upload_document",
+        filename="scan.pdf",
+        content_base64=base64.b64encode(b"%PDF-1.4").decode("ascii"),
+        poll=True,
+    )
+
+    assert result["error"] == "auth_failed"
+    assert result["task_uuid"] == "abc-task-uuid"
+    assert result["size_bytes"] == len(b"%PDF-1.4")
+
+
+@pytest.mark.asyncio
+async def test_upload_document_poll_surfaces_a_rejected_file(
+    make_paperless: Any, clock: _Clock
+) -> None:
+    """A duplicate is the common failure, and only the task says so."""
+    paperless = make_paperless()
+    paperless.documents.save_returns = "abc-task-uuid"
+    paperless.tasks.get_result = _TaskStates(
+        [_task("failure", result_data={"message": "It is a duplicate of Invoice (#3)"})]
+    )
+    mcp = build_mcp(make_settings(), paperless)
+
+    result = await call_tool(
+        mcp,
+        "upload_document",
+        filename="invoice.pdf",
+        content_base64=base64.b64encode(b"%PDF-1.4").decode("ascii"),
+        poll=True,
+    )
+
+    assert result["status"] == "failure"
+    assert result["document_id"] is None
+    assert result["timed_out"] is False
+    assert result["task"]["result_data"] == {"message": "It is a duplicate of Invoice (#3)"}
+    assert clock.slept == []
+
+
+@pytest.mark.asyncio
+async def test_upload_document_rejects_an_out_of_range_poll_timeout(
+    make_paperless: Any,
+) -> None:
+    paperless = make_paperless()
+    mcp = build_mcp(make_settings(), paperless)
+
+    result = await call_tool(
+        mcp,
+        "upload_document",
+        filename="invoice.pdf",
+        content_base64=base64.b64encode(b"%PDF-1.4").decode("ascii"),
+        poll=True,
+        poll_timeout_seconds=301,
+    )
+
+    assert result["error"] == "invalid_argument"
+    # Rejected before the upload, so there is no orphaned task to clean up.
+    assert paperless.documents.save_calls == []
 
 
 @pytest.mark.asyncio
