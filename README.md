@@ -54,12 +54,18 @@ the caller, not a human clicking through a UI:
   `/healthz` for container probes.
 - **Tunable surface**: writes can be disabled (`PAPERLESS_MCP_READONLY=true`)
   and deletes require explicit opt-in (`PAPERLESS_MCP_ENABLE_DELETE=true`).
-  47 tools by default, 56 with deletes enabled.
+  48 tools by default, 57 with deletes enabled.
 - **Workflow prompts**: three slash commands — `triage_inbox`,
   `monthly_review`, `find_duplicates` — that chain the tools into the jobs an
   archive actually needs, with the Paperless-specific judgement calls written
   into them. They adapt to the visibility flags, so a read-only server hands
   back a proposal instead of walking the model into a write that is not there.
+- **Saved views run, not just read**: `run_saved_view` executes the queries the
+  user curated in the web UI — "Unpaid invoices", "Tax 2024" — by translating
+  their stored filter rules into one document query server-side, in the view's
+  own sort order. A rule the translation table does not know is refused rather
+  than dropped, because a view answered with too many documents is worse than
+  one left unanswered.
 - **Names, not just IDs**: Paperless reports correspondents, tags, document
   types, storage paths and owners as bare numbers. The master data is read once
   per connection and cached, so every result carries `correspondent_name`,
@@ -72,7 +78,7 @@ the caller, not a human clicking through a UI:
 - **Structured errors**: pypaperless exceptions become results like
   `{"error": "not_found", "detail": "...", "cause": "..."}` instead of
   protocol-level failures, so the model can recover rather than give up.
-- **Behaviour hints on every tool**: each of the 56 tools ships MCP tool
+- **Behaviour hints on every tool**: each of the 57 tools ships MCP tool
   annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`,
   `openWorldHint`) plus a display title, so a client can wave a search through
   and stop to ask before a rotate, a merge or an `empty_trash`.
@@ -310,9 +316,10 @@ with `--env-file`) and never overwrites variables the MCP client already set.
 `find_similar_documents`, `download_document`, `get_document_thumbnail`,
 `list_tags`, `list_correspondents`, `list_document_types`,
 `list_storage_paths`, `list_custom_fields`, `list_share_links`,
-`list_saved_views`, `get_saved_view`, `list_trash`, `list_active_tasks`,
-`list_tasks`, `get_task`, `get_statistics`, `get_paperless_info`,
-`get_document_suggestions`, `get_document_ai_suggestions`.
+`list_saved_views`, `get_saved_view`, `run_saved_view`, `list_trash`,
+`list_active_tasks`, `list_tasks`, `get_task`, `get_statistics`,
+`get_paperless_info`, `get_document_suggestions`,
+`get_document_ai_suggestions`.
 
 **Write** (default-on, suppressed by `READONLY`): `upload_document`,
 `update_document`, `add_document_note`, `bulk_edit_documents`,
@@ -390,7 +397,7 @@ Notes on semantics:
 Every tool carries MCP annotations, so a client can decide how much ceremony a
 call deserves without parsing the description:
 
-- `readOnlyHint` is true for all 25 read tools, and only for those.
+- `readOnlyHint` is true for all 26 read tools, and only for those.
   `destructiveHint` / `idempotentHint` are left unset there — the spec only
   gives them meaning once a tool can write.
 - `destructiveHint` is true for 21 tools — every `update_*`, all nine delete
@@ -461,10 +468,6 @@ the supported route for now.
 - **Workflows, mail accounts/rules, users, groups, config**: admin-tier
   concerns where letting an LLM make autonomous changes is rarely the right
   answer.
-- **Executing saved views**: `get_saved_view` returns the filter rules so the
-  model can translate them into a `search_documents` call, but there is no
-  auto-execution — Paperless' filter-rule numbering is internal and mapping it
-  to Django-style lookups is brittle.
 - **The document chat endpoint** (`/api/documents/chat/`): it streams plain
   text, and pypaperless 6.0's `DocumentChat` model carries only the echoed
   query, so no answer ever reaches the caller. A tool for it would fail every
