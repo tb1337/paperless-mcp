@@ -54,7 +54,7 @@ the caller, not a human clicking through a UI:
   `/healthz` for container probes.
 - **Tunable surface**: writes can be disabled (`PAPERLESS_MCP_READONLY=true`)
   and deletes require explicit opt-in (`PAPERLESS_MCP_ENABLE_DELETE=true`).
-  50 tools by default, 59 with deletes enabled.
+  51 tools by default, 60 with deletes enabled.
 - **Workflow prompts**: three slash commands — `triage_inbox`,
   `monthly_review`, `find_duplicates` — that chain the tools into the jobs an
   archive actually needs, with the Paperless-specific judgement calls written
@@ -78,7 +78,7 @@ the caller, not a human clicking through a UI:
 - **Structured errors**: pypaperless exceptions become results like
   `{"error": "not_found", "detail": "...", "cause": "..."}` instead of
   protocol-level failures, so the model can recover rather than give up.
-- **Behaviour hints on every tool**: each of the 59 tools ships MCP tool
+- **Behaviour hints on every tool**: each of the 60 tools ships MCP tool
   annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`,
   `openWorldHint`) plus a display title, so a client can wave a search through
   and stop to ask before a rotate, a merge or an `empty_trash`.
@@ -319,7 +319,7 @@ with `--env-file`) and never overwrites variables the MCP client already set.
 `list_storage_paths`, `list_custom_fields`, `list_share_links`,
 `list_saved_views`, `get_saved_view`, `run_saved_view`, `list_trash`,
 `list_active_tasks`, `list_tasks`, `get_task`, `get_statistics`,
-`get_paperless_info`, `get_document_suggestions`,
+`get_system_status`, `get_paperless_info`, `get_document_suggestions`,
 `get_document_ai_suggestions`.
 
 **Write** (default-on, suppressed by `READONLY`): `upload_document`,
@@ -351,6 +351,10 @@ Notes on semantics:
   on the paper original before filing. It is only free until something claims
   it: fetch it immediately before the upload or update that uses it. Two calls
   in a row return the same number, not two.
+- `get_system_status` needs the `view_system_monitoring` permission or a staff
+  account, and answers `{"error": "forbidden"}` without it. `health` rolls the
+  six subsystems (database, Redis, Celery, index, classifier, sanity check) up
+  into one verdict and `problems` lists only those that are not OK.
 - `search_documents` also takes `custom_field_query`, the only filter that
   reaches custom field *values*. It is Paperless' JSON expression — an atom
   `[field, operator, value]` where `field` is a custom field's name or ID, and
@@ -409,7 +413,7 @@ Notes on semantics:
 Every tool carries MCP annotations, so a client can decide how much ceremony a
 call deserves without parsing the description:
 
-- `readOnlyHint` is true for all 28 read tools, and only for those.
+- `readOnlyHint` is true for all 29 read tools, and only for those.
   `destructiveHint` / `idempotentHint` are left unset there — the spec only
   gives them meaning once a tool can write.
 - `destructiveHint` is true for 21 tools — every `update_*`, all nine delete

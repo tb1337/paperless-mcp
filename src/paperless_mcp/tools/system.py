@@ -10,7 +10,7 @@ from mcp.server.mcpserver import MCPServer
 from .. import __version__
 from ..client import ToolContext, get_client, get_names, get_settings
 from ..config import Settings
-from ..formatting import format_document, format_saved_view, safe_dump
+from ..formatting import format_document, format_saved_view, safe_dump, summarize_status
 from ._helpers import page_result, paginate, read_tool, safe_tool
 from ._saved_view_filters import translate_filter_rules, view_ordering
 
@@ -41,6 +41,26 @@ def register(mcp: MCPServer, settings: Settings) -> None:
         stats = await paperless.statistics()
         dumped = safe_dump(stats)
         return dumped if isinstance(dumped, dict) else {"statistics": dumped}
+
+    @read_tool(mcp)
+    @safe_tool
+    async def get_system_status(ctx: ToolContext) -> dict[str, Any]:
+        """Report Paperless-ngx system health: database, Redis, Celery, index, classifier.
+
+        ``health`` is the rolled-up verdict (``ok``, ``warning``, ``error`` or
+        ``unknown``) and ``problems`` lists only the subsystems that are not OK,
+        with the error text Paperless reported. The remaining keys carry the
+        untouched payload: versions, disk space, migration state and the task
+        counts of the last few days.
+
+        Reading this needs the ``view_system_monitoring`` permission or a staff
+        account; a token without it comes back as ``{"error": "forbidden"}``.
+        """
+        paperless = await get_client(ctx)
+        status = await paperless.status()
+        dumped = safe_dump(status)
+        payload = dumped if isinstance(dumped, dict) else {"status": dumped}
+        return {**summarize_status(status), **payload}
 
     @read_tool(mcp)
     @safe_tool

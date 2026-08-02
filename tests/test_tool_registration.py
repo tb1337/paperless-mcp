@@ -37,6 +37,7 @@ _READ_TOOLS = frozenset(
         "list_tasks",
         "get_task",
         "get_statistics",
+        "get_system_status",
         "get_paperless_info",
         "get_next_asn",
         "search_everywhere",

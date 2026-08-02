@@ -12,6 +12,7 @@ from typing import Any
 import pytest
 from pypaperless.cache import PaperlessCache
 from pypaperless.models import Document, SavedView, Tag, Task
+from pypaperless.models.status import Status
 from pypaperless.runtime import PaperlessRuntime
 from pypaperless.transport import PaperlessTransport
 
@@ -24,6 +25,7 @@ from paperless_mcp.formatting import (
     format_tag,
     format_task,
     safe_dump,
+    summarize_status,
 )
 from paperless_mcp.names import NameMap
 
@@ -252,3 +254,43 @@ def test_enrich_suggestions_adds_names_beside_the_id_lists() -> None:
     # Keys the payload does not carry must not be invented.
     assert "storage_path_names" not in result
     assert result["dates"] == ["2026-01-01"]
+
+
+def test_summarize_status_covers_the_subsystems_has_errors_ignores() -> None:
+    """``Status.has_errors`` looks at four subsystems and treats WARNING as fine."""
+    status = Status.model_validate(
+        {
+            "database": {"status": "OK"},
+            "tasks": {
+                "redis_status": "OK",
+                "celery_status": "OK",
+                "classifier_status": "OK",
+                "index_status": "ERROR",
+                "index_error": "index missing",
+                "sanity_check_status": "WARNING",
+            },
+        }
+    )
+
+    assert status.has_errors is False
+    result = summarize_status(status)
+
+    assert result["health"] == "error"
+    assert result["problems"] == [
+        {"subsystem": "index", "status": "ERROR", "error": "index missing"},
+        {"subsystem": "sanity_check", "status": "WARNING", "error": None},
+    ]
+
+
+def test_summarize_status_reads_unknown_as_unknown() -> None:
+    status = Status.model_validate({"database": {"status": "UNKNOWN"}, "tasks": None})
+
+    assert summarize_status(status) == {
+        "health": "unknown",
+        "problems": [{"subsystem": "database", "status": "UNKNOWN", "error": None}],
+    }
+
+
+def test_summarize_status_does_not_claim_health_it_was_not_told() -> None:
+    """An empty payload must not read as OK — nothing reported is not nothing wrong."""
+    assert summarize_status(Status.model_validate({})) == {"health": "unknown", "problems": []}

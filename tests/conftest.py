@@ -303,6 +303,7 @@ def make_paperless():
             "trash",
             "statistics",
             "search",
+            "status",
         ):
             setattr(p, attr, FakeService())
         return p
