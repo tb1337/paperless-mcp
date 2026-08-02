@@ -52,6 +52,11 @@ the other way, from a name you were given to the ID a filter or a write needs,
 is what `list_tags`, `list_correspondents`, `list_document_types` and
 `list_storage_paths` are for.
 
+Saved views are the queries this user already curated and named. When a request
+sounds like one of them — "unpaid invoices", "this year's tax stuff" — check
+`list_saved_views` and run the match with `run_saved_view` rather than guessing
+at the same filters: the view is what they mean by that name.
+
 List-shaped tools page with `offset`/`limit` and report `total` plus `has_more`.
 Failures come back as `{"error": ..., "detail": ..., "cause": ...}` rather than
 as exceptions, so read the result before retrying.

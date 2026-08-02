@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from pypaperless.exceptions import ItemNotFoundError
 
 from paperless_mcp import __version__
 from tests.conftest import FakeService, build_mcp, call_tool, make_settings
@@ -68,10 +69,142 @@ async def test_get_saved_view_returns_rules(make_paperless: Any) -> None:
     assert result["filter_rules"] == [{"rule_type": 3, "value": "42"}]
 
 
+def _view(
+    rules: list[SimpleNamespace] | None = None,
+    *,
+    sort_field: str | None = "created",
+    sort_reverse: bool = True,
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        id=7,
+        name="Unpaid invoices",
+        sort_field=sort_field,
+        sort_reverse=sort_reverse,
+        page_size=25,
+        display_mode=None,
+        display_fields=None,
+        owner=None,
+        filter_rules=rules or [],
+    )
+
+
+def _rule(rule_type: int, value: str | None) -> SimpleNamespace:
+    return SimpleNamespace(rule_type=rule_type, value=value)
+
+
+def _doc(doc_id: int) -> SimpleNamespace:
+    return SimpleNamespace(id=doc_id, title=f"Doc {doc_id}", tags=[])
+
+
+async def _run_view(make_paperless: Any, view: SimpleNamespace, **kwargs: Any) -> Any:
+    paperless = make_paperless()
+    paperless.saved_views.get_result = view
+    paperless.documents.filter_results = [_doc(1), _doc(2)]
+    mcp = build_mcp(make_settings(), paperless)
+    result = await call_tool(mcp, "run_saved_view", view_id=7, **kwargs)
+    return result, paperless
+
+
 @pytest.mark.asyncio
-async def test_run_saved_view_is_not_exposed(make_paperless: Any) -> None:
-    mcp = build_mcp(make_settings(), make_paperless())
-    assert "run_saved_view" not in mcp._tool_manager._tools
+async def test_run_saved_view_executes_the_view(make_paperless: Any) -> None:
+    view = _view([_rule(3, "42"), _rule(5, "true")])
+
+    result, paperless = await _run_view(make_paperless, view)
+
+    assert [d["id"] for d in result["documents"]] == [1, 2]
+    assert result["view_id"] == 7
+    assert result["view_name"] == "Unpaid invoices"
+    assert paperless.documents.filter_calls == [
+        {"correspondent__id": "42", "is_in_inbox": 1, "ordering": "-created"}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_run_saved_view_reports_the_query_it_ran(make_paperless: Any) -> None:
+    """The translation is only trustworthy if the caller can see its result."""
+    result, _ = await _run_view(make_paperless, _view([_rule(19, "invoice")]))
+
+    assert result["filters"] == {"title_content": "invoice", "ordering": "-created"}
+
+
+@pytest.mark.asyncio
+async def test_run_saved_view_joins_repeated_rules_of_one_type(make_paperless: Any) -> None:
+    """Paperless stores ``tags__id__all=1,2,3`` as three separate rules."""
+    view = _view([_rule(6, "1"), _rule(6, "2"), _rule(6, "3")], sort_field=None)
+
+    _, paperless = await _run_view(make_paperless, view)
+
+    assert paperless.documents.filter_calls == [{"tags__id__all": "1,2,3"}]
+
+
+@pytest.mark.asyncio
+async def test_run_saved_view_translates_the_isnull_sentinels(make_paperless: Any) -> None:
+    """A relation encodes "is (not) set" in the value: ``None`` / ``"-1"``."""
+    view = _view([_rule(3, None), _rule(25, "-1")], sort_field=None)
+
+    _, paperless = await _run_view(make_paperless, view)
+
+    assert paperless.documents.filter_calls == [
+        {"correspondent__isnull": 1, "storage_path__isnull": 0}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_run_saved_view_sends_booleans_as_digits(make_paperless: Any) -> None:
+    view = _view([_rule(7, "true"), _rule(41, "false")], sort_field=None)
+
+    _, paperless = await _run_view(make_paperless, view)
+
+    assert paperless.documents.filter_calls == [{"is_tagged": 1, "has_custom_fields": 0}]
+
+
+@pytest.mark.asyncio
+async def test_run_saved_view_honours_ascending_sort(make_paperless: Any) -> None:
+    view = _view(sort_field="title", sort_reverse=False)
+
+    _, paperless = await _run_view(make_paperless, view)
+
+    assert paperless.documents.filter_calls == [{"ordering": "title"}]
+
+
+@pytest.mark.asyncio
+async def test_run_saved_view_without_rules_matches_everything(make_paperless: Any) -> None:
+    """A view can legitimately be nothing but a sort order."""
+    result, paperless = await _run_view(make_paperless, _view(sort_field=None))
+
+    assert paperless.documents.filter_calls == [{}]
+    assert result["total"] == 2
+
+
+@pytest.mark.asyncio
+async def test_run_saved_view_refuses_an_untranslatable_rule(make_paperless: Any) -> None:
+    """Dropping a filter would answer with documents the view excludes."""
+    view = _view([_rule(3, "42"), _rule(999, "x")])
+
+    result, paperless = await _run_view(make_paperless, view)
+
+    assert result["error"] == "unsupported_filter_rule"
+    assert result["unsupported_rule_types"] == [999]
+    assert result["view_name"] == "Unpaid invoices"
+    assert paperless.documents.filter_calls == []
+
+
+@pytest.mark.asyncio
+async def test_run_saved_view_paginates(make_paperless: Any) -> None:
+    result, _ = await _run_view(make_paperless, _view(sort_field=None), limit=1)
+
+    assert [d["id"] for d in result["documents"]] == [1]
+    assert result["has_more"] is True
+
+
+@pytest.mark.asyncio
+async def test_run_saved_view_reports_a_missing_view(make_paperless: Any) -> None:
+    paperless = make_paperless()
+    paperless.saved_views.get_raises = ItemNotFoundError("no such view")
+    mcp = build_mcp(make_settings(), paperless)
+
+    result = await call_tool(mcp, "run_saved_view", view_id=404)
+    assert result["error"] == "not_found"
 
 
 def _task(task_id: int, status: str = "success") -> SimpleNamespace:
