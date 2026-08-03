@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from pypaperless.exceptions import BulkEditPagesError
 
 from tests.conftest import FakeService, build_mcp, call_tool, make_settings
 
@@ -201,3 +202,134 @@ async def test_empty_trash_purges_selected_ids(make_paperless: Any) -> None:
     result = await call_tool(mcp, "empty_trash", document_ids=[3, 4])
     assert result == {"purged": [3, 4]}
     assert paperless.trash.emptied == [[3, 4]]
+
+
+def _with_pages(make_paperless: Any, page_count: int | None) -> tuple[Any, _BulkRecorder]:
+    paperless = make_paperless()
+    recorder = _BulkRecorder()
+    paperless.documents = FakeService(get_result=SimpleNamespace(page_count=page_count))
+    paperless.documents.bulk_edit = recorder
+    return paperless, recorder
+
+
+@pytest.mark.asyncio
+async def test_split_document_partitions_the_pages(make_paperless: Any) -> None:
+    paperless, recorder = _with_pages(make_paperless, 5)
+    mcp = build_mcp(make_settings(), paperless)
+
+    result = await call_tool(mcp, "split_document", document_id=42, page_groups=[[1, 2], [3, 4, 5]])
+
+    assert recorder.calls == [("split", (42, [[1, 2], [3, 4, 5]]), {"delete_originals": False})]
+    assert result["documents_created"] == 2
+    assert result["document_id"] == 42
+
+
+@pytest.mark.asyncio
+async def test_split_document_takes_the_page_count_without_a_lookup(make_paperless: Any) -> None:
+    paperless, recorder = _with_pages(make_paperless, 5)
+    mcp = build_mcp(make_settings(), paperless)
+
+    await call_tool(mcp, "split_document", document_id=42, page_groups=[[1], [2]], page_count=2)
+
+    assert paperless.documents.get_calls == []
+    assert len(recorder.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_split_document_refuses_to_discard_the_pages_left_out(make_paperless: Any) -> None:
+    """Paperless drops unlisted pages silently; a short list must not lose sheets."""
+    paperless, recorder = _with_pages(make_paperless, 5)
+    mcp = build_mcp(make_settings(), paperless)
+
+    result = await call_tool(mcp, "split_document", document_id=42, page_groups=[[1], [2]])
+
+    assert result["error"] == "invalid_argument"
+    assert "[3, 4, 5]" in result["cause"]
+    assert "delete_document_pages" in result["cause"]
+    assert recorder.calls == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("page_groups", "reason"),
+    [
+        ([[1, 2, 3, 4, 5]], "at least two"),
+        ([[1, 2], []], "empty group"),
+        ([[1, 2], [2, 3, 4, 5]], "more than one group"),
+        ([[1, 2], [3, 4, 5, 9]], "out of range"),
+    ],
+)
+async def test_split_document_rejects_a_malformed_partition(
+    make_paperless: Any, page_groups: list[list[int]], reason: str
+) -> None:
+    paperless, recorder = _with_pages(make_paperless, 5)
+    mcp = build_mcp(make_settings(), paperless)
+
+    result = await call_tool(mcp, "split_document", document_id=42, page_groups=page_groups)
+
+    assert result["error"] == "invalid_argument"
+    assert reason in result["cause"]
+    assert recorder.calls == []
+
+
+@pytest.mark.asyncio
+async def test_split_document_reports_a_missing_page_count(make_paperless: Any) -> None:
+    paperless, recorder = _with_pages(make_paperless, None)
+    mcp = build_mcp(make_settings(), paperless)
+
+    result = await call_tool(mcp, "split_document", document_id=42, page_groups=[[1], [2]])
+
+    assert result["error"] == "invalid_argument"
+    assert "no page count" in result["cause"]
+    assert recorder.calls == []
+
+
+@pytest.mark.asyncio
+async def test_delete_document_pages_passes_through(make_paperless: Any) -> None:
+    paperless, recorder = _with_pages(make_paperless, 5)
+    mcp = build_mcp(make_settings(), paperless)
+
+    result = await call_tool(mcp, "delete_document_pages", document_id=42, pages=[4, 2, 2])
+
+    assert recorder.calls == [("delete_pages", (42, [4, 2, 2]), {"page_count": None})]
+    assert result == {"document_id": 42, "pages_removed": [2, 4]}
+
+
+@pytest.mark.asyncio
+async def test_delete_document_pages_forwards_a_known_page_count(make_paperless: Any) -> None:
+    paperless, recorder = _with_pages(make_paperless, 5)
+    mcp = build_mcp(make_settings(), paperless)
+
+    await call_tool(mcp, "delete_document_pages", document_id=42, pages=[2], page_count=5)
+
+    assert recorder.calls == [("delete_pages", (42, [2]), {"page_count": 5})]
+    # The library owns the lookup for this one, so the tool must not add its own.
+    assert paperless.documents.get_calls == []
+
+
+@pytest.mark.asyncio
+async def test_delete_document_pages_rejects_an_empty_selection(make_paperless: Any) -> None:
+    paperless, recorder = _with_pages(make_paperless, 5)
+    mcp = build_mcp(make_settings(), paperless)
+
+    result = await call_tool(mcp, "delete_document_pages", document_id=42, pages=[])
+
+    assert result["error"] == "invalid_argument"
+    assert recorder.calls == []
+
+
+@pytest.mark.asyncio
+async def test_a_rejected_page_selection_is_an_invalid_argument(make_paperless: Any) -> None:
+    """BulkEditPagesError is a DocumentError, so the catch-all would call it a server fault."""
+    paperless, _ = _with_pages(make_paperless, 5)
+
+    async def _boom(*_args: Any, **_kwargs: Any) -> None:
+        raise BulkEditPagesError("delete_pages() must keep at least one page.")
+
+    paperless.documents.bulk_edit = SimpleNamespace(delete_pages=_boom)
+    mcp = build_mcp(make_settings(), paperless)
+
+    result = await call_tool(mcp, "delete_document_pages", document_id=42, pages=[1, 2, 3, 4, 5])
+
+    assert result["error"] == "invalid_argument"
+    assert "keep at least one page" in result["cause"]

@@ -16,6 +16,7 @@ from pypaperless.exceptions import (
     AuthError,
     BadJsonResponseError,
     BulkEditError,
+    BulkEditPagesError,
     DeletionError,
     DispatchError,
     DraftError,
@@ -94,6 +95,9 @@ _ERROR_MAP: tuple[tuple[type[BaseException], str, str], ...] = (
     (DraftError, "draft_invalid", "The new object was rejected by Paperless."),
     (DeletionError, "delete_failed", "Paperless refused the delete."),
     (AsnRequestError, "asn_failed", "Paperless could not assign the next archive serial number."),
+    # A DocumentError, so the PaperlessError catch-all would swallow it as a
+    # server problem. It is the opposite: a page selection the model can fix.
+    (BulkEditPagesError, "invalid_argument", "The page selection cannot produce a valid PDF."),
     (SendEmailError, "email_failed", "Paperless rejected the email request."),
     (JsonResponseWithError, "paperless_error", "Paperless returned an error payload."),
     (BadJsonResponseError, "upstream_error", "Paperless returned invalid JSON."),

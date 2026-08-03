@@ -53,7 +53,7 @@ the caller, not a human clicking through a UI:
   `/healthz` for container probes.
 - **Tunable surface**: writes can be disabled (`PAPERLESS_MCP_READONLY=true`)
   and deletes require explicit opt-in (`PAPERLESS_MCP_ENABLE_DELETE=true`).
-  51 tools by default, 60 with deletes enabled.
+  54 tools by default, 63 with deletes enabled.
 - **Workflow prompts**: three slash commands — `triage_inbox`,
   `monthly_review`, `find_duplicates` — that chain the tools into the jobs an
   archive actually needs, with the Paperless-specific judgement calls written
@@ -77,7 +77,7 @@ the caller, not a human clicking through a UI:
 - **Structured errors**: pypaperless exceptions become results like
   `{"error": "not_found", "detail": "...", "cause": "..."}` instead of
   protocol-level failures, so the model can recover rather than give up.
-- **Behaviour hints on every tool**: each of the 60 tools ships MCP tool
+- **Behaviour hints on every tool**: each of the 63 tools ships MCP tool
   annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`,
   `openWorldHint`) plus a display title, so a client can wave a search through
   and stop to ask before a rotate, a merge or an `empty_trash`.
@@ -296,12 +296,14 @@ with `--env-file`) and never overwrites variables the MCP client already set.
 `list_storage_paths`, `list_custom_fields`, `list_share_links`,
 `list_saved_views`, `get_saved_view`, `run_saved_view`, `list_trash`,
 `list_active_tasks`, `list_tasks`, `get_task`, `get_statistics`,
-`get_system_status`, `get_paperless_info`, `get_document_suggestions`,
+`get_system_status`, `get_paperless_info`, `search_autocomplete`,
+`get_document_suggestions`,
 `get_document_ai_suggestions`.
 
 **Write** (default-on, suppressed by `READONLY`): `upload_document`,
 `update_document`, `add_document_note`, `bulk_edit_documents`,
 `bulk_reprocess_documents`, `bulk_merge_documents`, `bulk_rotate_documents`,
+`split_document`, `delete_document_pages`,
 `acknowledge_tasks`, `create_tag`, `update_tag`, `create_correspondent`,
 `update_correspondent`, `create_document_type`, `update_document_type`,
 `create_storage_path`, `update_storage_path`, `create_custom_field`,
@@ -324,6 +326,21 @@ Notes on semantics:
   page — `limit` caps each category separately and `truncated` says whether it
   bit. Users, groups, mail rules and workflows are left out on purpose; they
   are admin-tier resources this server does not carry.
+- `search_autocomplete` completes a partial word against the full-text index.
+  It answers with vocabulary that actually occurs in the scans — whether an
+  archive spells it "Rechnung" or "Rechnungen" — not with field names or query
+  syntax, which live in the `search_documents` description.
+- `split_document` requires `page_groups` to cover every page exactly once.
+  Paperless keeps only the pages it is handed and discards the rest silently,
+  so a gap is refused rather than acted on; use `delete_document_pages` to drop
+  pages on purpose. The results inherit the source metadata unchanged, without
+  a "(split 1)" title suffix.
+- `delete_document_pages` is neither idempotent nor atomic. The survivors are
+  renumbered, so repeating the same call removes different sheets; and the
+  pages to keep are computed from a page count read in an earlier request, so a
+  document that gains a version in between loses the wrong ones. Both tools
+  take an optional `page_count` that skips that read — `get_document` reports
+  it — though passing it does not close the window.
 - `get_next_asn` reports the next free archive serial number, the one written
   on the paper original before filing. It is only free until something claims
   it: fetch it immediately before the upload or update that uses it. Two calls
@@ -390,7 +407,7 @@ Notes on semantics:
 Every tool carries MCP annotations, so a client can decide how much ceremony a
 call deserves without parsing the description:
 
-- `readOnlyHint` is true for all 29 read tools, and only for those.
+- `readOnlyHint` is true for all 30 read tools, and only for those.
   `destructiveHint` / `idempotentHint` are left unset there — the spec only
   gives them meaning once a tool can write.
 - `destructiveHint` is true for 21 tools — every `update_*`, all nine delete

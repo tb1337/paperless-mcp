@@ -95,3 +95,27 @@ def register(mcp: MCPServer, settings: Settings) -> None:
             payload[key] = [formatter(item, names) for item in items[:limit]]
         payload["truncated"] = truncated
         return payload
+
+    @read_tool(mcp)
+    @safe_tool
+    async def search_autocomplete(ctx: ToolContext, term: str, limit: int = 10) -> dict[str, Any]:
+        """Complete a partial word against the full-text index.
+
+        Returns words that actually occur in the scanned documents, which is
+        the one thing guesswork cannot supply: whether an archive spells it
+        "Rechnung", "Rechnungen" or "RECHNUNG" decides whether a
+        ``search_documents`` query matches anything at all.
+
+        It only knows vocabulary. Field names and query syntax
+        (``correspondent:``, ``tag:``, ``created:[… TO …]``) are not part of
+        the index and never show up here — those are documented on
+        ``search_documents``. For finding which *entity* a name refers to, use
+        ``search_everywhere`` instead; this answers a narrower question.
+        """
+        if not term.strip():
+            raise ToolInputError("term must not be empty")
+        if limit < 1:
+            raise ToolInputError(f"limit must be at least 1, got {limit}")
+        paperless = await get_client(ctx)
+        suggestions = await paperless.search.autocomplete(term, limit)
+        return {"term": term, "suggestions": list(suggestions), "limit": limit}
