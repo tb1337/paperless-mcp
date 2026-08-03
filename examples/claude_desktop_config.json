@@ -1,8 +1,8 @@
 {
   "//": "Copy the paperless entry into your claude_desktop_config.json. Locations: macOS ~/Library/Application Support/Claude/claude_desktop_config.json, Windows %APPDATA%\\Claude\\claude_desktop_config.json, Linux ~/.config/Claude/claude_desktop_config.json. Quit Claude Desktop completely and reopen it afterwards.",
-  "//install": "Install the published package first: uv tool install --prerelease=if-necessary-or-explicit --with 'pypaperless==6.0.0rc2' paperless-mcp. The pre-release flags cover pypaperless 6.0.0rc2 and stop uv from pulling dev builds of anything else; they go away once pypaperless 6.0.0 final ships.",
+  "//install": "Install the published package first: uv tool install paperless-mcp. Every dependency is a stable release, so no resolver flags are needed.",
   "//command": "Absolute path to the installed executable — Claude Desktop does not inherit your shell PATH, so a bare 'paperless-mcp' usually fails to resolve. Find it with `command -v paperless-mcp` (macOS/Linux, typically ~/.local/bin/paperless-mcp) or `where paperless-mcp` (Windows).",
-  "//uvx": "To skip the install and let Claude Desktop run uvx on every launch, use the absolute path to uvx as command and these args instead: [\"--prerelease=if-necessary-or-explicit\", \"--with\", \"pypaperless==6.0.0rc2\", \"--from\", \"paperless-mcp\", \"paperless-mcp\"].",
+  "//uvx": "To skip the install and let Claude Desktop run uvx on every launch, use the absolute path to uvx as command and these args instead: [\"--from\", \"paperless-mcp\", \"paperless-mcp\"].",
   "//switches": "PAPERLESS_MCP_READONLY=true hides every write and delete tool; PAPERLESS_MCP_ENABLE_DELETE=true adds the delete tools on top of the default read+write set. READONLY always wins.",
   "mcpServers": {
     "paperless": {
