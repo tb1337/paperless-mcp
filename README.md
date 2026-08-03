@@ -16,8 +16,7 @@ can serve a whole network.
 > This project is young and moving fast. Tool names, parameters and return
 > shapes still change; such changes are labelled `breaking-change` in the
 > release notes, but they do happen, and there is no deprecation window yet.
-> It also rides on a pypaperless **release candidate** and needs a
-> Paperless-ngx 3.0 that is itself fresh.
+> It also needs a Paperless-ngx 3.0 that is itself fresh.
 >
 > Nothing here has been proven against your instance, and the caller is an LLM
 > deciding on its own which tools to invoke. If the documents matter to you:
@@ -86,7 +85,7 @@ the caller, not a human clicking through a UI:
   and retried per call, so the MCP handshake never fails just because the
   server was briefly down.
 - **Thumbnails as real images**, viewable inline in the client.
-- Built on **pypaperless 6.0.0rc2** and the **MCP Python SDK 2.0** — requires
+- Built on **pypaperless 6.0.0** and the **MCP Python SDK 2.0** — requires
   **Paperless-ngx 3.0+**.
 
 ## Requirements
@@ -100,28 +99,13 @@ the caller, not a human clicking through a UI:
 ## Installation — uv
 
 [`paperless-mcp` is on PyPI](https://pypi.org/project/paperless-mcp/), so `uv`
-can install it without a clone. One wrinkle applies to every command below: this
-release depends on `pypaperless==6.0.0rc2`, a release **candidate**, and uv
-ignores pre-releases unless told otherwise. Two flags handle that:
-
-```
---prerelease=if-necessary-or-explicit --with 'pypaperless==6.0.0rc2'
-```
-
-Naming pypaperless explicitly makes it the *one* package allowed to be a
-pre-release, so everything else stays on stable versions — the result is the
-same dependency set this repo's `uv.lock` pins and CI tests against. A bare
-`--prerelease=allow` is the trap to avoid: it opens the door for every
-dependency at once, so uv installs alpha and dev builds across the stack. On
-0.0.1 that includes `httpx==1.0.dev3`, which has no `AsyncClient`, and the
-server dies on import with `module 'httpx' has no attribute 'AsyncClient'`.
-Both flags become unnecessary once pypaperless 6.0.0 final ships.
+can install it without a clone. Every dependency is a stable release, so no
+resolver flags are needed.
 
 ### Install it as a tool (recommended)
 
 ```bash
-uv tool install --prerelease=if-necessary-or-explicit \
-  --with 'pypaperless==6.0.0rc2' paperless-mcp
+uv tool install paperless-mcp
 ```
 
 That leaves a standalone `paperless-mcp` executable on your `PATH`. Note down
@@ -138,8 +122,7 @@ Later releases: `uv tool upgrade paperless-mcp`, then restart the client.
 ### Or run it straight from PyPI, without installing
 
 ```bash
-uvx --prerelease=if-necessary-or-explicit --with 'pypaperless==6.0.0rc2' \
-  --from paperless-mcp paperless-mcp --help
+uvx --from paperless-mcp paperless-mcp --help
 ```
 
 `uvx` resolves into a cache on first use and reuses it afterwards. Handy for a
@@ -170,19 +153,14 @@ With the tool installed, `command` is the only path involved:
 }
 ```
 
-Or let the client drive `uvx`, with the resolver flags moved into `args`:
+Or let the client drive `uvx`, with the invocation moved into `args`:
 
 ```json
 {
   "mcpServers": {
     "paperless": {
       "command": "/absolute/path/to/uvx",
-      "args": [
-        "--prerelease=if-necessary-or-explicit",
-        "--with", "pypaperless==6.0.0rc2",
-        "--from", "paperless-mcp",
-        "paperless-mcp"
-      ],
+      "args": ["--from", "paperless-mcp", "paperless-mcp"],
       "env": {
         "PAPERLESS_URL": "https://paperless.example.com",
         "PAPERLESS_TOKEN": "your-paperless-api-token",
@@ -258,11 +236,10 @@ lockfile, then restart the client.
 
 ### Troubleshooting
 
-- **`No solution found when resolving tool dependencies` naming
-  `pypaperless==6.0.0rc2`** — the pre-release flags are missing; see above.
-- **`module 'httpx' has no attribute 'AsyncClient'`** — installed 0.0.1 with
-  `--prerelease=allow`, which let uv pick an httpx dev build. Use the targeted
-  flags above; releases after 0.0.1 cap httpx below 1.0 themselves.
+- **`module 'httpx' has no attribute 'AsyncClient'`** — installed with
+  `--prerelease=allow`, which lets uv pick an httpx dev build. No prerelease
+  flag is needed any more; drop it. Releases after 0.0.1 cap httpx below 1.0
+  themselves.
 - **"Server disconnected" right after startup** — almost always the `command`.
   Use an absolute path; see above.
 - **"No such file or directory" / the server starts but nothing works** — for
