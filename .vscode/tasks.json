@@ -1,0 +1,79 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "test: pytest",
+      "type": "shell",
+      "command": "uv run pytest -x -q",
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "lint: ruff check",
+      "type": "shell",
+      "command": "uv run ruff check --fix .",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": false
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "format: ruff format",
+      "type": "shell",
+      "command": "uv run ruff format .",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": false
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "check: mypy",
+      "type": "shell",
+      "command": "uv run mypy",
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": false
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "run: paperless-mcp (http)",
+      "type": "shell",
+      "command": "uv run paperless-mcp --http --host 0.0.0.0 --port 8000 --log-level DEBUG",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "validate: full suite",
+      "dependsOn": ["lint: ruff check", "format: ruff format", "check: mypy", "test: pytest"],
+      "dependsOrder": "sequence",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      },
+      "problemMatcher": []
+    }
+  ]
+}

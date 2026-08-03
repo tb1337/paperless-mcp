@@ -486,11 +486,12 @@ the supported route for now.
 ## Development
 
 This repo ships a VS Code devcontainer based on
-`mcr.microsoft.com/devcontainers/python:3-3.13`, with `uv`, `ruff`, pytest and
-the docker CLI preinstalled. Open the project in VS Code and select
-**"Reopen in Container"** — the dev venv lands at
-`/home/vscode/.local/dev-venv` and dependencies are synced via `uv` on
-container start.
+`mcr.microsoft.com/devcontainers/python:3-3.13`, with `uv`, `ruff` and pytest
+preinstalled. Open the project in VS Code and select **"Reopen in Container"**
+— the dev venv lands at `/home/vscode/.local/dev-venv` and dependencies are
+synced via `uv` on container start. Nothing else runs inside it: no Docker
+daemon, no Paperless. Point `PAPERLESS_URL` in your `.env` at an instance
+running elsewhere — from inside the container the host is `172.17.0.1`.
 
 ```bash
 script/bootstrap             # uv sync --group dev
@@ -501,6 +502,19 @@ uv run mypy                  # strict, on the paperless_mcp package
 prek run --all-files         # everything CI lints, in one go
 uv run paperless-mcp --help
 ```
+
+The same commands are wired up as VS Code tasks (`test: pytest`,
+`lint: ruff check`, `validate: full suite` as the default build task), and
+three debug configurations are ready in the Run view:
+
+- **paperless-mcp debug script** runs [`run/debug.py`](run/debug.py), a scratch
+  file that builds the real server, opens one session and calls tools directly
+  against the Paperless in your `.env`. This is the one to reach for when you
+  want a breakpoint inside a tool without an MCP client in the loop.
+- **paperless-mcp (http)** serves Streamable HTTP on port 8000 (forwarded out
+  of the container), for driving the server from a real client or MCP Inspector.
+- **paperless-mcp (stdio)** starts the transport a client would spawn — useful
+  for checking startup and configuration errors, less so for interactive work.
 
 [AGENTS.md](AGENTS.md) documents the module layout and the conventions that
 hold this together — the tool surface as public API, why tools never raise, why

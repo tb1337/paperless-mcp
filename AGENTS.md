@@ -31,6 +31,8 @@ in-process it is `build_mcp(settings)` / `serve(settings)` in `server.py`.
 - `tests/` — pytest driving the real `MCPServer` in-process over a fake PaperlessClient
   (`tests/conftest.py`); no network in tests
 - `script/` — `bootstrap` (resync dev venv), `setup` (devcontainer entry point)
+- `run/debug.py` — scratch runner: builds the real server, opens one session and calls tools
+  against the live instance from `.env`; the target of the VS Code debug configuration
 - `examples/` — ready-made `claude_desktop_config.json` variants
 
 Current code surface (trust these over older docs): MCP SDK 2.x — the server class is `MCPServer`
@@ -61,7 +63,8 @@ installs the prek hooks.
 1. `uv run pytest -x -q` — always required, all green, coverage ≥ 80 %.
 2. Try the change against a live Paperless-ngx instance — **only** when it could affect live API
    interaction: a new or changed tool, or edits to `client.py`, `config.py` or `formatting.py`.
-   There is no smoketest script; run the server against your `.env` and call the tool.
+   There is no smoketest suite; call the tool from `run/debug.py`, which drives the real server
+   against the instance in your `.env`.
 
 For docs, pure refactors and docstrings, run the unit tests only and state that the live check was
 skipped and why. Report both results (or the skip reason) before closing the task.

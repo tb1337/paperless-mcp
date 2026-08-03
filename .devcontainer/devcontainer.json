@@ -7,11 +7,7 @@
   "containerEnv": {
     "DEVCONTAINER": "true"
   },
-  "features": {
-    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {
-      "version": "latest"
-    }
-  },
+  "features": {},
   "runArgs": [
     "-e",
     "GIT_EDITOR=code --wait",
@@ -29,13 +25,11 @@
     "vscode": {
       "extensions": [
         "charliermarsh.ruff",
-        "ms-python.vscode-pylance",
-        "ms-azuretools.vscode-docker",
+        "ms-python.python",
         "redhat.vscode-yaml",
         "GitHub.vscode-pull-request-github",
         "ryanluker.vscode-coverage-gutters",
-        "yzhang.markdown-all-in-one",
-        "tamasfe.even-better-toml"
+        "yzhang.markdown-all-in-one"
       ],
       "settings": {
         "coverage-gutters.customizable.context-menu": true,

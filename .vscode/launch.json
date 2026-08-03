@@ -1,0 +1,31 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Python: paperless-mcp debug script",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "run/debug.py",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "Python: paperless-mcp (http)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "paperless_mcp",
+      "args": ["--http", "--host", "0.0.0.0", "--port", "8000", "--log-level", "DEBUG"],
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "Python: paperless-mcp (stdio)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "paperless_mcp",
+      "args": ["--stdio", "--log-level", "DEBUG"],
+      "console": "integratedTerminal",
+      "justMyCode": true
+    }
+  ]
+}
