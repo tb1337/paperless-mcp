@@ -36,3 +36,6 @@ htmlcov/
 # OS
 .DS_Store
 Thumbs.db
+
+# Claude
+.claude/settings.local.json
