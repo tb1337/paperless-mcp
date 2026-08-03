@@ -139,3 +139,51 @@ async def test_search_everywhere_rejects_bad_input(
     assert result["error"] == "invalid_argument"
     assert reason in result["cause"]
     assert paperless.search.get_calls == []
+
+
+@pytest.mark.asyncio
+async def test_search_autocomplete_returns_the_index_terms(make_paperless: Any) -> None:
+    paperless = make_paperless()
+    calls: list[tuple[Any, ...]] = []
+
+    async def _autocomplete(term: str, limit: int) -> list[str]:
+        calls.append((term, limit))
+        return ["invoice", "invoices", "invoiced"]
+
+    paperless.search = SimpleNamespace(autocomplete=_autocomplete)
+    mcp = build_mcp(make_settings(), paperless)
+
+    result = await call_tool(mcp, "search_autocomplete", term="inv", limit=3)
+
+    assert result == {
+        "term": "inv",
+        "suggestions": ["invoice", "invoices", "invoiced"],
+        "limit": 3,
+    }
+    assert calls == [("inv", 3)]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("kwargs", "reason"),
+    [({"term": "  "}, "empty"), ({"term": "inv", "limit": 0}, "at least 1")],
+)
+async def test_search_autocomplete_rejects_bad_input(
+    make_paperless: Any, kwargs: dict[str, Any], reason: str
+) -> None:
+    paperless = make_paperless()
+    called = False
+
+    async def _autocomplete(term: str, limit: int) -> list[str]:
+        nonlocal called
+        called = True
+        return []
+
+    paperless.search = SimpleNamespace(autocomplete=_autocomplete)
+    mcp = build_mcp(make_settings(), paperless)
+
+    result = await call_tool(mcp, "search_autocomplete", **kwargs)
+
+    assert result["error"] == "invalid_argument"
+    assert reason in result["cause"]
+    assert called is False

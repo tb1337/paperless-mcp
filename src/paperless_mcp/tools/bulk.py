@@ -5,10 +5,30 @@ from __future__ import annotations
 from typing import Any
 
 from mcp.server.mcpserver import MCPServer
+from pypaperless import PaperlessClient
+from pypaperless.models import Document
 
 from ..client import ToolContext, get_client
 from ..config import Settings
 from ._helpers import ToolInputError, safe_tool, write_tool
+
+
+async def _resolve_page_count(
+    paperless: PaperlessClient, document_id: int, given: int | None
+) -> int:
+    """Return the document's page count, reading the record when not supplied."""
+    if given is not None:
+        return given
+    # Annotated because the service is generic over its resource, so the call
+    # itself types as Any and would leak through the int return.
+    document: Document = await paperless.documents(document_id)
+    count = document.page_count
+    if count is None:
+        raise ToolInputError(
+            f"Document {document_id} reports no page count — it is not a PDF, or "
+            "has not been processed yet. Pass page_count if you know it."
+        )
+    return count
 
 
 def register(mcp: MCPServer, settings: Settings) -> None:
@@ -115,3 +135,89 @@ def register(mcp: MCPServer, settings: Settings) -> None:
         paperless = await get_client(ctx)
         await paperless.documents.bulk_edit.rotate(document_ids, degrees)
         return {"document_ids": document_ids, "degrees": degrees}
+
+    @write_tool(mcp, destructive=True, idempotent=False)
+    @safe_tool
+    async def split_document(
+        ctx: ToolContext,
+        document_id: int,
+        page_groups: list[list[int]],
+        delete_original: bool = False,
+        page_count: int | None = None,
+    ) -> dict[str, Any]:
+        """Split one document into several new ones, one per page group.
+
+        ``page_groups`` partitions the document: ``[[1, 2], [3, 4, 5]]`` turns a
+        five-page scan into a two-page and a three-page document, in that order.
+
+        Every page must appear exactly once. Paperless keeps only the pages it
+        is handed and discards the rest without complaint, and losing sheets
+        from an archive is not something to infer from a short list — so a gap
+        is refused here instead. To drop pages, call ``delete_document_pages``;
+        to do both, split first and delete afterwards.
+
+        The results inherit the source metadata unchanged, so there is no
+        "(split 1)" suffix in their titles — rename them afterwards if that
+        matters. ``delete_original=True`` moves the source to the trash.
+        ``page_count`` skips the read the coverage check needs;
+        ``get_document`` already reports it.
+        """
+        if len(page_groups) < 2:
+            raise ToolInputError("Splitting needs at least two page_groups")
+        if any(not group for group in page_groups):
+            raise ToolInputError("page_groups must not contain an empty group")
+        pages = [page for group in page_groups for page in group]
+        duplicates = sorted({page for page in pages if pages.count(page) > 1})
+        if duplicates:
+            raise ToolInputError(f"Pages {duplicates} appear in more than one group")
+
+        paperless = await get_client(ctx)
+        total = await _resolve_page_count(paperless, document_id, page_count)
+        out_of_range = sorted({page for page in pages if not 1 <= page <= total})
+        if out_of_range:
+            raise ToolInputError(
+                f"Pages {out_of_range} are out of range for a {total} page document"
+            )
+        missing = sorted(set(range(1, total + 1)) - set(pages))
+        if missing:
+            raise ToolInputError(
+                f"page_groups must cover all {total} pages; {missing} would be "
+                "discarded. Use delete_document_pages to remove pages on purpose."
+            )
+
+        await paperless.documents.bulk_edit.split(
+            document_id, page_groups, delete_originals=delete_original
+        )
+        return {
+            "document_id": document_id,
+            "page_groups": page_groups,
+            "documents_created": len(page_groups),
+            "delete_original": delete_original,
+        }
+
+    @write_tool(mcp, destructive=True, idempotent=False)
+    @safe_tool
+    async def delete_document_pages(
+        ctx: ToolContext,
+        document_id: int,
+        pages: list[int],
+        page_count: int | None = None,
+    ) -> dict[str, Any]:
+        """Remove pages from a document, leaving a shorter new version of it.
+
+        ``pages`` are 1-based numbers in the document as it stands *now*.
+        Repeating the call does not repeat the edit: the survivors are
+        renumbered afterwards, so a second ``[2, 4]`` removes what have since
+        become pages 2 and 4 — different sheets. Read the document again before
+        retrying.
+
+        Not atomic. Paperless takes the pages to keep, so the complement is
+        computed from a page count read in an earlier request; a document that
+        gains a version in between loses the wrong pages. ``page_count`` skips
+        that read — ``get_document`` reports it — but does not close the window.
+        """
+        if not pages:
+            raise ToolInputError("pages must not be empty")
+        paperless = await get_client(ctx)
+        await paperless.documents.bulk_edit.delete_pages(document_id, pages, page_count=page_count)
+        return {"document_id": document_id, "pages_removed": sorted(set(pages))}

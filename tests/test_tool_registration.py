@@ -41,6 +41,7 @@ _READ_TOOLS = frozenset(
         "get_paperless_info",
         "get_next_asn",
         "search_everywhere",
+        "search_autocomplete",
         "get_document_suggestions",
         "get_document_ai_suggestions",
     }
@@ -55,6 +56,8 @@ _WRITE_TOOLS = frozenset(
         "bulk_reprocess_documents",
         "bulk_merge_documents",
         "bulk_rotate_documents",
+        "split_document",
+        "delete_document_pages",
         "acknowledge_tasks",
         "create_tag",
         "update_tag",
