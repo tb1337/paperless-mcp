@@ -317,6 +317,19 @@ with `--env-file`) and never overwrites variables the MCP client already set.
 
 Notes on semantics:
 
+- **Relations take a name or an ID.** Correspondent, document type, storage
+  path and tags can be given as `document_type_name: "Kündigung"` instead of
+  `document_type_id: 11`, and as `tag_names` instead of `tag_ids`, on
+  `search_documents`, `update_document`, `upload_document` and
+  `bulk_edit_documents`. Names are what every result already reports back, and
+  what a human reading the call along can veto — a wrong ID hits another valid
+  object and relabels a document without an error anywhere. Matching is exact,
+  then case-insensitive, never fuzzy: an archive holding `MR-ST 1337` next to
+  `MR-ST 1337_2` leaves no room to guess, and an ambiguous name is refused with
+  both candidates. An unknown name is an error listing the near misses, never a
+  newly created tag — but it costs one snapshot reload first, so master data
+  added elsewhere a moment ago still resolves. Passing both halves is allowed
+  and they must agree; a mismatch is rejected rather than silently resolved.
 - `search_documents` combines a Whoosh full-text `query` with Django-style
   filters, and takes `order_by` / `descending`.
 - `search_everywhere` is the other half: one global-search call that answers
@@ -371,8 +384,8 @@ Notes on semantics:
 - `update_document` **replaces** the tag list and accepts a `clear_fields`
   list (`correspondent`, `document_type`, `storage_path`,
   `archive_serial_number`) to unset foreign keys. Setting and clearing the
-  same field in one call is rejected. Use `bulk_edit_documents` to add or
-  remove individual tags.
+  same field in one call is rejected — including when the value came in as a
+  name. Use `bulk_edit_documents` to add or remove individual tags.
 - `upload_document` queues a file for consumption and returns a task UUID to
   poll with `get_task`. Pass `poll=true` to have the server do the waiting
   instead: the call then blocks until the consumer is done and answers with the

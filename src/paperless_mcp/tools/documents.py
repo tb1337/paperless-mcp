@@ -37,6 +37,7 @@ from ._helpers import (
     window,
     write_tool,
 )
+from ._relations import resolve_relation, resolve_tags
 from ._task_polling import (
     MAX_POLL_TIMEOUT_SECONDS,
     task_document_id,
@@ -172,11 +173,17 @@ def _register_reads(mcp: MCPServer) -> None:
         content_contains: str | None = None,
         title_or_content: str | None = None,
         tags_all: list[int] | None = None,
+        tags_all_names: list[str] | None = None,
         tags_any: list[int] | None = None,
+        tags_any_names: list[str] | None = None,
         tags_none: list[int] | None = None,
+        tags_none_names: list[str] | None = None,
         correspondent_id: int | None = None,
+        correspondent_name: str | None = None,
         document_type_id: int | None = None,
+        document_type_name: str | None = None,
         storage_path_id: int | None = None,
+        storage_path_name: str | None = None,
         archive_serial_number: int | None = None,
         is_in_inbox: bool | None = None,
         is_tagged: bool | None = None,
@@ -196,9 +203,14 @@ def _register_reads(mcp: MCPServer) -> None:
         Pass ``query`` for a full-text search over the OCR index (Whoosh syntax,
         e.g. ``invoice AND 2024``); pass any of the other arguments to filter
         server-side. Combining both is allowed. Date arguments are ISO dates
-        (``YYYY-MM-DD``); tag/correspondent/type arguments are numeric IDs, which
-        you can look up with ``list_tags`` / ``list_correspondents`` /
-        ``list_document_types``.
+        (``YYYY-MM-DD``).
+
+        Tags, correspondent, document type and storage path each filter by name
+        or by ID: pass ``*_name`` / ``*_names`` when the value comes from the
+        conversation, ``*_id`` / the ID list only when you have it verbatim from
+        a tool result. Passing both is allowed but they must agree — a mismatch
+        is rejected, not resolved. A name that matches nothing is an error
+        listing the near misses, so no filter silently matches everything.
 
         ``custom_field_query`` filters on custom field *values*, which no other
         argument reaches — "invoices due in August" is one call instead of a
@@ -236,6 +248,36 @@ def _register_reads(mcp: MCPServer) -> None:
         included — call ``get_document_content`` for that.
         """
         paperless = await get_client(ctx)
+        tags_all = await resolve_tags(
+            ctx,
+            pks=tags_all,
+            names=tags_all_names,
+            id_field="tags_all",
+            name_field="tags_all_names",
+        )
+        tags_any = await resolve_tags(
+            ctx,
+            pks=tags_any,
+            names=tags_any_names,
+            id_field="tags_any",
+            name_field="tags_any_names",
+        )
+        tags_none = await resolve_tags(
+            ctx,
+            pks=tags_none,
+            names=tags_none_names,
+            id_field="tags_none",
+            name_field="tags_none_names",
+        )
+        correspondent_id = await resolve_relation(
+            ctx, field="correspondent", pk=correspondent_id, name=correspondent_name
+        )
+        document_type_id = await resolve_relation(
+            ctx, field="document_type", pk=document_type_id, name=document_type_name
+        )
+        storage_path_id = await resolve_relation(
+            ctx, field="storage_path", pk=storage_path_id, name=storage_path_name
+        )
         names = await get_names(ctx)
         filters = _build_doc_filters(
             title_contains=title_contains,
@@ -463,9 +505,13 @@ def _register_writes(mcp: MCPServer) -> None:
         content_base64: str,
         title: str | None = None,
         correspondent_id: int | None = None,
+        correspondent_name: str | None = None,
         document_type_id: int | None = None,
+        document_type_name: str | None = None,
         storage_path_id: int | None = None,
+        storage_path_name: str | None = None,
         tag_ids: list[int] | None = None,
+        tag_names: list[str] | None = None,
         archive_serial_number: int | None = None,
         created: str | None = None,
         poll: bool = False,
@@ -476,6 +522,12 @@ def _register_writes(mcp: MCPServer) -> None:
         ``content_base64`` is the raw file, base64-encoded. ``created`` is an
         optional ISO date/datetime; Paperless falls back to the consumption
         time.
+
+        Correspondent, document type, storage path and tags each take a name or
+        an ID: pass ``*_name`` / ``tag_names`` when the value comes from the
+        conversation, ``*_id`` / ``tag_ids`` only when you have it verbatim from
+        a tool result. Passing both is allowed but they must agree, and a name
+        no object carries is rejected instead of created.
 
         Consumption is asynchronous, so by default the call returns as soon as
         the file is queued and the ``task_uuid`` is yours to poll with
@@ -505,6 +557,19 @@ def _register_writes(mcp: MCPServer) -> None:
             raise ToolInputError(f"content_base64 is not valid base64: {exc}") from exc
         if not content:
             raise ToolInputError("content_base64 decoded to an empty file")
+
+        correspondent_id = await resolve_relation(
+            ctx, field="correspondent", pk=correspondent_id, name=correspondent_name
+        )
+        document_type_id = await resolve_relation(
+            ctx, field="document_type", pk=document_type_id, name=document_type_name
+        )
+        storage_path_id = await resolve_relation(
+            ctx, field="storage_path", pk=storage_path_id, name=storage_path_name
+        )
+        tag_ids = await resolve_tags(
+            ctx, pks=tag_ids, names=tag_names, id_field="tag_ids", name_field="tag_names"
+        )
 
         draft = paperless.documents.create(
             document=content,
@@ -546,9 +611,13 @@ def _register_writes(mcp: MCPServer) -> None:
         document_id: int,
         title: str | None = None,
         correspondent_id: int | None = None,
+        correspondent_name: str | None = None,
         document_type_id: int | None = None,
+        document_type_name: str | None = None,
         storage_path_id: int | None = None,
+        storage_path_name: str | None = None,
         tag_ids: list[int] | None = None,
+        tag_names: list[str] | None = None,
         archive_serial_number: int | None = None,
         content: str | None = None,
         created: str | None = None,
@@ -556,14 +625,35 @@ def _register_writes(mcp: MCPServer) -> None:
     ) -> dict[str, Any]:
         """Update fields on an existing document.
 
-        Only the fields you pass are modified, and ``tag_ids`` *replaces* the
-        tag list (use ``bulk_edit_documents`` to add or remove individual tags).
+        Only the fields you pass are modified, and the tag list is *replaced*
+        (use ``bulk_edit_documents`` to add or remove individual tags).
+
+        Correspondent, document type, storage path and tags each take a name or
+        an ID: pass ``*_name`` / ``tag_names`` when the value comes from the
+        conversation, ``*_id`` / ``tag_ids`` only when you have it verbatim from
+        a tool result — which is what every result reports next to the ID.
+        Passing both is allowed but they must agree; a mismatch is rejected
+        rather than resolved, and a name that matches nothing is an error rather
+        than a newly created tag.
+
         To explicitly unset a foreign key or the ASN, list its name in
         ``clear_fields``: ``correspondent``, ``document_type``,
         ``storage_path``, ``archive_serial_number``. Setting and clearing the
         same field in one call is rejected.
         """
         paperless = await get_client(ctx)
+        correspondent_id = await resolve_relation(
+            ctx, field="correspondent", pk=correspondent_id, name=correspondent_name
+        )
+        document_type_id = await resolve_relation(
+            ctx, field="document_type", pk=document_type_id, name=document_type_name
+        )
+        storage_path_id = await resolve_relation(
+            ctx, field="storage_path", pk=storage_path_id, name=storage_path_name
+        )
+        tag_ids = await resolve_tags(
+            ctx, pks=tag_ids, names=tag_names, id_field="tag_ids", name_field="tag_names"
+        )
         names = await get_names(ctx)
 
         clear_set = set(clear_fields or [])

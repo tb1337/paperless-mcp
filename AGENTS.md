@@ -18,6 +18,8 @@ in-process it is `build_mcp(settings)` / `serve(settings)` in `server.py`.
   - `tools/_helpers.py` — registration decorators (`read_tool`, `write_tool`, `delete_tool`),
     `safe_tool` (exception → structured error), `paginate` / `page_result` (offset/limit →
     Paperless pages), `ToolInputError`
+  - `tools/_relations.py` — `<field>_name` → ID for the relation arguments (`resolve_relation`,
+    `resolve_tags`)
   - `prompts/` — one module per workflow (`triage`, `review`, `duplicates`), same
     `register(mcp, settings)` / `register_all()` shape as `tools/`;
     `prompts/_helpers.py` holds `sections()` and `capability_note()`
@@ -105,6 +107,18 @@ breaking change and gets the `breaking-change` label.
   documents, never after: the same call fills pypaperless' custom-field cache, which enriches a
   `Document` while it is being parsed. Anything that creates, renames or deletes master data
   calls `invalidate_names(ctx)`.
+- **Names come back in.** Every argument that assigns or filters a relation exists twice —
+  `<field>_id` and `<field>_name`, `tag_ids` and `tag_names` — resolved through
+  `_relations.resolve_relation` / `resolve_tags`. A wrong ID silently hits another valid object;
+  a wrong name cannot, and it is the half a human reading the call along can veto. Matching is
+  exact, then case-insensitive, **never fuzzy**, and ambiguity is an error rather than a pick. A
+  miss buys one `invalidate_names` + reload before it is refused, which covers master data
+  created elsewhere since the snapshot. Supplying both halves cross-checks them: a disagreement
+  is rejected, never ranked. Resolution runs before the first write request, so a typo cannot
+  leave a half-applied bulk edit. A tool that gains a relation argument gains both spellings, and
+  its docstring carries the rule verbatim: *pass `*_name` when the value comes from the
+  conversation, `*_id` only when you have it verbatim from a tool result; passing both is allowed
+  but they must agree*.
 - **Writes and deletes are gated.** `settings.expose_writes` and `settings.expose_deletes` decide
   whether a tool is registered at all — check them in `register()` rather than failing at call
   time, so a read-only deployment simply does not advertise the tool.

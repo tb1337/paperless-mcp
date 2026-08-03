@@ -66,8 +66,8 @@ Step 3 — apply the decisions.
   `bulk_edit_documents(document_ids=[...], ...)` call. Keep `update_document` for what is
   genuinely per-document — the title and the date.
 - Individual tags are added and removed with
-  `bulk_edit_documents(add_tag_ids=[...], remove_tag_ids=[...])`.
-  `update_document(tag_ids=...)` **replaces** the whole list, so it silently drops every tag you
+  `bulk_edit_documents(add_tag_names=[...], remove_tag_names=[...])`.
+  `update_document(tag_names=...)` **replaces** the whole list, so it silently drops every tag you
   did not repeat.
 - Remove the inbox tag last, in its own call, and only from the documents you actually resolved.
   Doing it earlier means a failure halfway through leaves a half-filed document that no longer
