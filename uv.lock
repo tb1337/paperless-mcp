@@ -612,7 +612,7 @@ requires-dist = [
 dev = [
     { name = "codespell", specifier = ">=2.4.3" },
     { name = "covdefaults", specifier = ">=2.3.0" },
-    { name = "coverage", specifier = ">=7.15.2" },
+    { name = "coverage", specifier = ">=7.15.3" },
     { name = "mypy", specifier = ">=2.3.0" },
     { name = "prek", specifier = ">=0.4.11" },
     { name = "pytest", specifier = ">=9.1.1" },
