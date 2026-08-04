@@ -34,6 +34,12 @@ TRANSPORTS: Final[tuple[str, ...]] = tuple(_TRANSPORT_LITERALS)
 DEFAULT_HOST: Final = "127.0.0.1"
 DEFAULT_PORT: Final = 8000
 
+#: Unauthenticated liveness endpoint. Declared here because ``server.py`` routes
+#: it and ``healthcheck.py`` probes it: the two must agree, and a settings module
+#: is the one place both already import (``healthcheck.py`` needs it to stay
+#: stdlib-only on import, which this module is).
+HEALTH_PATH: Final = "/healthz"
+
 
 class ConfigError(RuntimeError):
     """Raised when required configuration is missing or invalid."""

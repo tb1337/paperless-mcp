@@ -249,6 +249,9 @@ lockfile, then restart the client.
   is wrong or unreachable from the machine running the client. The server
   starts anyway by design; the error text names the cause.
 - **`auth_failed`** — the API token is wrong, or belongs to a deactivated user.
+- **`cannot start on <host>:<port>: [Errno 98] Address already in use`** — with
+  `--transport http`, something already listens there. Pick another `--port`, or
+  stop the other process. Exit code 1; a configuration error is exit code 2.
 - **Self-signed certificate** — set `"PAPERLESS_MCP_VERIFY_SSL": "false"`.
 - Logs go to stderr and end up in Claude Desktop's MCP log
   (`~/Library/Logs/Claude/mcp-server-paperless.log` on macOS). Set

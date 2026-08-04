@@ -130,6 +130,12 @@ def main(argv: list[str] | None = None) -> int:
         serve(settings)
     except KeyboardInterrupt:  # pragma: no cover - interactive interrupt
         logging.getLogger("paperless_mcp").info("Interrupted, shutting down.")
+    except OSError as exc:
+        # uvicorn reports a taken port as OSError. A traceback tells the user
+        # nothing they can act on; exit 1, since 2 already means "bad config".
+        where = f" on {settings.host}:{settings.port}" if settings.transport == "http" else ""
+        print(f"paperless-mcp: cannot start{where}: {exc}", file=sys.stderr)
+        return 1
     return 0
 
 

@@ -316,3 +316,19 @@ def test_env_example_documents_every_variable() -> None:
     """CLAUDE.md: anything user-facing lands in .env.example in the same change."""
     text = (Path(__file__).parent.parent / ".env.example").read_text(encoding="utf-8")
     assert [name for name in ENV_VARS if f"{name}=" not in text] == []
+
+
+def test_cli_reports_a_taken_port_without_a_traceback(
+    monkeypatch: pytest.MonkeyPatch, configured: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def refuse(_settings: Settings) -> None:
+        raise OSError(98, "Address already in use")
+
+    monkeypatch.setattr("paperless_mcp.__main__.serve", refuse)
+    exit_code = main(["--http", "--port", "8123", "--env-file", "/nonexistent"])
+
+    assert exit_code == 1
+    captured = capsys.readouterr()
+    assert "cannot start on 127.0.0.1:8123" in captured.err
+    assert "Address already in use" in captured.err
+    assert captured.out == ""

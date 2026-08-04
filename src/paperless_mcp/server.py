@@ -30,14 +30,11 @@ from starlette.routing import Mount, Route
 from . import __version__
 from .auth import BearerAuthMiddleware
 from .client import CLIENT_KEY, SETTINGS_KEY, PaperlessConnection
-from .config import Settings
+from .config import HEALTH_PATH, Settings
 from .prompts import register_all as register_prompts
 from .tools import register_all as register_tools
 
 log = logging.getLogger("paperless_mcp")
-
-#: Unauthenticated liveness endpoint used by the container healthcheck.
-HEALTH_PATH = "/healthz"
 
 INSTRUCTIONS = """\
 Tools for searching, reading and curating documents in a Paperless-ngx archive.
