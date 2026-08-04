@@ -345,7 +345,14 @@ async def paginate(
 
 
 async def _drain(pages: Any, *, skip: int, limit: int) -> tuple[list[Any], int | None]:
-    """Collect up to *limit* items from *pages*, dropping the leading *skip*."""
+    """Collect up to *limit* items from *pages*, dropping the leading *skip*.
+
+    Runs the generator out rather than stopping on ``page.is_last_page``. That
+    check was redundant: pypaperless stops following pages once a response
+    carries no ``next``, which is the same response that reports
+    ``is_last_page``, so the loop ended on the same page either way — and it
+    costs no extra request, because there is no ``next`` left to prefetch.
+    """
     items: list[Any] = []
     total: int | None = None
 
@@ -362,8 +369,6 @@ async def _drain(pages: Any, *, skip: int, limit: int) -> tuple[list[Any], int |
             items.append(item)
             if len(items) >= limit:
                 return items, total
-        if page.is_last_page:
-            break
     return items, total
 
 
