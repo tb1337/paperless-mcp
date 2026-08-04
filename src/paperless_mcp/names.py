@@ -12,12 +12,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import time
 from collections.abc import AsyncIterable, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
-
-from pypaperless.exceptions import PaperlessError
 
 if TYPE_CHECKING:
     from pypaperless import PaperlessClient
@@ -64,10 +63,20 @@ async def _collect(service: AsyncIterable[Any], *, resource: str) -> list[Any]:
 
     ``/api/users/`` is closed to tokens without the right permissions, and
     losing the owner names must not cost us the correspondent names too.
+
+    The catch is deliberately broad, and broader than ``PaperlessError``: these
+    six run as siblings under one :func:`asyncio.gather`, so an exception that
+    escapes here cancels the other five — which is the very outcome the previous
+    sentence rules out. pypaperless wraps httpx only on the paths it owns, and an
+    unexpected payload surfaces as a :class:`pydantic.ValidationError`, so
+    enumerating the types would just be a list to keep up to date.
+    ``asyncio.gather(return_exceptions=True)`` is *not* the fix: it would also
+    turn a ``CancelledError`` into a returned value, so a shutdown landing here
+    would be swallowed and the snapshot silently half-empty.
     """
     try:
         return [item async for item in service]
-    except PaperlessError as exc:
+    except Exception as exc:
         log.warning(
             "Cannot read %s for name resolution (%s: %s); those names stay unresolved.",
             resource,
@@ -86,13 +95,24 @@ def _index(items: list[Any], attribute: str) -> dict[int, str]:
     }
 
 
+def _prime_custom_field_cache(paperless: PaperlessClient, fields: list[Any]) -> None:
+    """Fill pypaperless' custom-field cache from an already-read definition list.
+
+    This is what makes a ``Document`` carry the name, type and select options of
+    its custom fields: the enrichment happens while the document is being
+    validated, so the cache has to be warm *before* the documents are fetched.
+    """
+    paperless.runtime.cache.custom_fields = {
+        item.id: item for item in fields if isinstance(item.id, int)
+    }
+
+
 async def load_names(paperless: PaperlessClient) -> NameMap:
     """Read the master-data endpoints once and build a fresh snapshot.
 
-    Also fills pypaperless' custom-field cache, which is what makes a
-    ``Document`` carry the name, type and select options of its custom fields.
-    That enrichment happens while the document is being validated, so this has
-    to run *before* the documents are fetched — afterwards is too late.
+    Also primes pypaperless' custom-field cache as a side effect, because the
+    definitions come from the same six requests — see
+    :func:`_prime_custom_field_cache` for why the order matters.
     """
     collected = await asyncio.gather(
         _collect(paperless.correspondents, resource="correspondents"),
@@ -104,9 +124,7 @@ async def load_names(paperless: PaperlessClient) -> NameMap:
     )
     correspondents, document_types, storage_paths, tags, users, custom_fields = collected
 
-    paperless.runtime.cache.custom_fields = {
-        item.id: item for item in custom_fields if isinstance(item.id, int)
-    }
+    _prime_custom_field_cache(paperless, custom_fields)
     return NameMap(
         correspondents=_index(correspondents, "name"),
         document_types=_index(document_types, "name"),
@@ -142,16 +160,29 @@ class NameCache:
             way to refresh.
     """
 
+    __slots__ = ("_expires_at", "_generation", "_lock", "_snapshot", "_ttl")
+
     def __init__(self, ttl: float) -> None:
         """Start out empty; the first read loads the snapshot."""
-        self._ttl = ttl
+        # ``inf`` rather than 0-means-forever, so freshness is one comparison
+        # and the disabled case is not a special value tested by truthiness.
+        self._ttl = ttl if ttl > 0 else math.inf
         self._snapshot: NameMap | None = None
-        self._loaded_at = 0.0
+        self._expires_at = 0.0
+        self._generation = 0
         self._lock = asyncio.Lock()
 
     def invalidate(self) -> None:
-        """Drop the snapshot so the next read rebuilds it."""
+        """Drop the snapshot so the next read rebuilds it.
+
+        Bumping the generation also discards a load already in flight. That load
+        read the master data *before* the write which prompted this call, so
+        publishing it would hide a just-created tag for a whole TTL — the exact
+        staleness the caller invalidated to avoid.
+        """
         self._snapshot = None
+        self._expires_at = 0.0
+        self._generation += 1
 
     async def get(self, paperless: PaperlessClient) -> NameMap:
         """Return the current snapshot, loading it once for concurrent callers."""
@@ -160,15 +191,18 @@ class NameCache:
             return cached
         async with self._lock:
             cached = self._fresh()
-            if cached is None:
-                cached = await load_names(paperless)
-                self._snapshot = cached
-                self._loaded_at = time.monotonic()
-            return cached
+            if cached is not None:
+                return cached
+            generation = self._generation
+            snapshot = await load_names(paperless)
+            if generation == self._generation:
+                self._snapshot = snapshot
+                self._expires_at = time.monotonic() + self._ttl
+            # Handed to this caller either way: it is the freshest data there is,
+            # and retrying instead would let a burst of writes spin.
+            return snapshot
 
     def _fresh(self) -> NameMap | None:
-        if self._snapshot is None:
-            return None
-        if self._ttl and time.monotonic() - self._loaded_at >= self._ttl:
+        if self._snapshot is None or time.monotonic() >= self._expires_at:
             return None
         return self._snapshot

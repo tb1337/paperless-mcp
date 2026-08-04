@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 from typing import Any
 
@@ -12,6 +13,7 @@ from pypaperless.models.custom_fields import CustomField
 from pypaperless.models.documents.document import Document
 from pypaperless.runtime import PaperlessRuntime
 
+from paperless_mcp import names as names_mod
 from paperless_mcp.names import NameCache, load_names, name_of, names_of
 from tests.conftest import FakeService
 
@@ -100,6 +102,54 @@ async def test_cache_loads_once_and_reloads_after_invalidation(make_paperless: A
     cache.invalidate()
     assert await cache.get(paperless) is not first
     assert len(paperless.tags.page_calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_concurrent_readers_share_one_load(make_paperless: Any) -> None:
+    """Six master-data requests per waiting tool call is what the lock prevents."""
+    paperless = _populated(make_paperless())
+    cache = NameCache(ttl=0)
+
+    first, second, third = await asyncio.gather(*(cache.get(paperless) for _ in range(3)))
+
+    assert first is second is third
+    assert len(paperless.tags.page_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_an_invalidation_during_a_load_is_not_lost(
+    monkeypatch: pytest.MonkeyPatch, make_paperless: Any
+) -> None:
+    """A write while the snapshot is loading must not publish the pre-write read.
+
+    The loading coroutine holds the lock, so ``invalidate()`` finds the snapshot
+    already ``None`` and has nothing to clear. Without a generation counter the
+    load then stores data read *before* the write, and a just-created tag stays
+    invisible for the whole TTL.
+    """
+    paperless = _populated(make_paperless())
+    cache = NameCache(ttl=0)
+    started = asyncio.Event()
+    release = asyncio.Event()
+    original_load = names_mod.load_names
+
+    async def blocking_load(client: Any) -> Any:
+        started.set()
+        await release.wait()
+        return await original_load(client)
+
+    with monkeypatch.context() as blocked:
+        blocked.setattr(names_mod, "load_names", blocking_load)
+        in_flight = asyncio.ensure_future(cache.get(paperless))
+        await started.wait()
+        cache.invalidate()
+        release.set()
+        stale = await in_flight
+
+    # The discarded snapshot was still handed to its own caller - it is the
+    # freshest data that existed - but must not be served to the next one. The
+    # real loader is back, so this read cannot block whether it reloads or not.
+    assert await cache.get(paperless) is not stale
 
 
 @pytest.mark.asyncio
