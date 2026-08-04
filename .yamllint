@@ -51,10 +51,16 @@ rules:
   key-duplicates:
     level: error
   line-length:
-    level: warning
+    # Was `warning`, i.e. a rule that could not fail in a workflow that runs
+    # yamllint as a required check.
+    level: error
     max: 120
     allow-non-breakable-words: true
     allow-non-breakable-inline-mappings: true
+    # The issue templates' `description:` fields are prose GitHub renders as one
+    # paragraph; folding them would show up as a literal break in the form.
+    ignore: |
+      .github/ISSUE_TEMPLATE/
   new-line-at-end-of-file:
     level: error
   new-lines:

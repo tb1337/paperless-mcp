@@ -141,7 +141,10 @@ def register(mcp: MCPServer, settings: Settings) -> None:
         unattributed, consumption failed) and names the recurring senders that
         went silent. ``month`` is ``YYYY-MM`` and defaults to last month.
         """
-        window = month_window(month, dt.date.today())
+        # Local rather than UTC on purpose: Paperless stores wall-clock dates,
+        # so "last month" has to mean the month the archive itself is in.
+        today = dt.datetime.now(dt.UTC).astimezone().date()
+        window = month_window(month, today)
         return sections(
             _INTRO.format(label=window.label, start=window.start, end=window.end),
             capability_note(settings),

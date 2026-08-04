@@ -224,7 +224,7 @@ _URL_HINT: Final = (
     "PAPERLESS_URL is required (or pass --url). "
     "Example: PAPERLESS_URL=https://paperless.example.com"
 )
-_TOKEN_HINT: Final = (
+_CREDENTIAL_HINT: Final = (
     "PAPERLESS_TOKEN is required (or pass --token). "
     "Create one in Paperless-ngx under Settings -> API tokens."
 )
@@ -266,7 +266,7 @@ def load_settings(overrides: Mapping[str, object] | None = None) -> Settings:
 
     settings = Settings(
         paperless_url=_required(over, "paperless_url", "PAPERLESS_URL", _URL_HINT),
-        paperless_token=_required(over, "paperless_token", "PAPERLESS_TOKEN", _TOKEN_HINT),
+        paperless_token=_required(over, "paperless_token", "PAPERLESS_TOKEN", _CREDENTIAL_HINT),
         transport=_TRANSPORT.value(over),
         auth_token=_AUTH_TOKEN.value(over),
         host=_HOST.value(over),

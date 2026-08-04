@@ -15,7 +15,7 @@ from ._helpers import page_result, paginate, read_tool, safe_tool
 from ._saved_view_filters import translate_filter_rules, view_ordering
 
 
-def register(mcp: MCPServer, settings: Settings) -> None:
+def register(mcp: MCPServer, _settings: Settings) -> None:
     """Register system / saved view tools."""
 
     @read_tool(mcp)

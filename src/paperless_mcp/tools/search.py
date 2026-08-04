@@ -42,7 +42,7 @@ _CATEGORIES: tuple[tuple[str, Callable[[Any, NameMap], dict[str, Any]]], ...] = 
 )
 
 
-def register(mcp: MCPServer, settings: Settings) -> None:
+def register(mcp: MCPServer, _settings: Settings) -> None:
     """Register global search tools."""
 
     @read_tool(mcp)

@@ -68,4 +68,4 @@ def register(mcp: MCPServer, settings: Settings) -> None:
             # Passing an empty list would ask Paperless to purge nothing at all,
             # so an omitted argument has to stay None to mean "everything".
             await paperless.trash.empty(document_ids or None)
-            return {"purged": document_ids if document_ids else "all"}
+            return {"purged": document_ids or "all"}

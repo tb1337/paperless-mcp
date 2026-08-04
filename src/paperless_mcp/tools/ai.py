@@ -12,7 +12,7 @@ from ..formatting import enrich_suggestions, safe_dump
 from ._helpers import read_tool, safe_tool
 
 
-def register(mcp: MCPServer, settings: Settings) -> None:
+def register(mcp: MCPServer, _settings: Settings) -> None:
     """Register suggestion tools (read-only)."""
 
     @read_tool(mcp)
