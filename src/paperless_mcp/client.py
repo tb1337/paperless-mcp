@@ -63,7 +63,16 @@ class PaperlessConnection:
         await self.close()
 
     async def open(self) -> None:
-        """Create the HTTP pool and attempt an initial handshake with Paperless."""
+        """Create the HTTP pool and attempt an initial handshake with Paperless.
+
+        Raises:
+            RuntimeError: When the connection is already open. Overwriting the
+                pair would drop the previous one unclosed, along with its
+                sockets; ``httpx.AsyncClient`` refuses a second open for the
+                same reason.
+        """
+        if self._client is not None:
+            raise RuntimeError("PaperlessConnection.open() was already awaited")
         self._http = httpx.AsyncClient(
             verify=self._settings.verify_ssl,
             timeout=httpx.Timeout(self._settings.request_timeout),
@@ -92,13 +101,22 @@ class PaperlessConnection:
             )
 
     async def close(self) -> None:
-        """Release the Paperless client and the underlying HTTP pool."""
-        if self._client is not None:
-            await self._client.close()
-            self._client = None
-        if self._http is not None:
-            await self._http.aclose()
-            self._http = None
+        """Release the Paperless client and the underlying HTTP pool.
+
+        The pool is closed in a ``finally``: a failure on the Paperless half used
+        to skip it, leaking the sockets it holds. Both attributes are cleared
+        first, so a second call is a no-op even if the first one raised.
+        """
+        client, http = self._client, self._http
+        self._client = None
+        self._http = None
+        self._names.invalidate()
+        try:
+            if client is not None:
+                await client.close()
+        finally:
+            if http is not None:
+                await http.aclose()
 
     async def client(self) -> PaperlessClient:
         """Return an initialized :class:`PaperlessClient`, connecting on demand.

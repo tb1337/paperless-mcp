@@ -72,6 +72,33 @@ async def test_connection_opens_and_closes_both_halves(fake_client_class: Any) -
 
 
 @pytest.mark.asyncio
+async def test_close_releases_the_pool_even_when_the_client_refuses(
+    fake_client_class: Any,
+) -> None:
+    """A failure on the Paperless half used to skip aclose(), leaking sockets."""
+    connection = PaperlessConnection(make_settings())
+    await connection.open()
+    client = fake_client_class.instances[-1]
+    with (
+        patch.object(_FakePaperlessClient, "close", autospec=True, side_effect=_always_fail),
+        pytest.raises(PaperlessConnectionError),
+    ):
+        await connection.close()
+    assert client.http.is_closed
+    # Cleared before the failing await, so teardown can be retried.
+    await connection.close()
+
+
+@pytest.mark.asyncio
+async def test_opening_twice_is_refused_rather_than_leaking(fake_client_class: Any) -> None:
+    """Overwriting the pair would drop the first one unclosed."""
+    async with PaperlessConnection(make_settings()) as connection:
+        with pytest.raises(RuntimeError, match="already awaited"):
+            await connection.open()
+    assert len(fake_client_class.instances) == 1
+
+
+@pytest.mark.asyncio
 async def test_connection_retries_after_a_failed_startup(fake_client_class: Any) -> None:
     """A Paperless that is down at launch must not kill the MCP session."""
     connection = PaperlessConnection(make_settings())
