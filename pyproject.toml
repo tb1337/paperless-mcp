@@ -227,7 +227,7 @@ subtract_omit = "*/__main__.py"
 # defensive line then needs a pragma, and those are forbidden here. The real
 # figure is tracked instead, and it is ratcheted deliberately - never lowered to
 # accommodate a change.
-fail_under = 88
+fail_under = 93
 show_missing = true
 
 [tool.pytest.ini_options]
