@@ -6,6 +6,7 @@ import datetime as dt
 from typing import Any
 
 import pytest
+from mcp.types import GetPromptResult, TextContent
 
 from paperless_mcp.config import Settings
 from paperless_mcp.prompts._helpers import sections
@@ -23,7 +24,12 @@ async def render(settings: Settings, name: str, /, **arguments: Any) -> str:
     tests and break in a client.
     """
     result = await build_mcp(settings).get_prompt(name, arguments or None)
-    return "\n\n".join(message.content.text for message in result.messages)
+    # Narrowed rather than assumed: the other arms are an elicitation request and
+    # the non-text content blocks, none of which a template prompt produces.
+    assert isinstance(result, GetPromptResult), result
+    blocks = [message.content for message in result.messages]
+    assert all(isinstance(block, TextContent) for block in blocks), blocks
+    return "\n\n".join(block.text for block in blocks if isinstance(block, TextContent))
 
 
 @pytest.mark.parametrize("name", ["triage_inbox", "monthly_review", "find_duplicates"])

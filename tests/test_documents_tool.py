@@ -9,7 +9,6 @@ from typing import Any
 
 import pytest
 from mcp.server.mcpserver.utilities.types import Image
-from pypaperless.cache import PaperlessCache
 from pypaperless.exceptions import (
     AsnRequestError,
     AuthError,
@@ -21,9 +20,18 @@ from pypaperless.models import CustomField, Task
 from pypaperless.models.documents.document import Document
 from pypaperless.models.types import CustomFieldType
 from pypaperless.runtime import PaperlessRuntime
+from pypaperless.transport import PaperlessTransport
 
 from paperless_mcp.tools import _task_polling
-from tests.conftest import FakeService, build_mcp, call_tool, document, make_settings, returns
+from tests.conftest import (
+    FakeService,
+    build_mcp,
+    call_tool,
+    document,
+    make_runtime,
+    make_settings,
+    returns,
+)
 
 
 def _task(
@@ -34,7 +42,7 @@ def _task(
 ) -> Task:
     """Build a real consume task, so a pypaperless field rename breaks here."""
     return Task.from_data(
-        PaperlessRuntime(SimpleNamespace(), PaperlessCache()),
+        make_runtime(),
         {
             "id": 5,
             "task_id": "abc-task-uuid",
@@ -646,7 +654,7 @@ async def test_get_document_carries_the_custom_field_names(make_paperless: Any) 
     already standing when that happens.
     """
     paperless = make_paperless()
-    runtime = PaperlessRuntime(SimpleNamespace(), paperless.runtime.cache)
+    runtime = PaperlessRuntime(PaperlessTransport("http://test", "t"), paperless.runtime.cache)
     definitions = [
         CustomField.from_data(
             runtime,

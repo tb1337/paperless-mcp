@@ -15,17 +15,20 @@ from typing import Any
 
 import httpx
 import pytest
+import uvicorn
+from mcp.server.mcpserver import MCPServer
 from pypaperless import PaperlessClient
 
 from paperless_mcp import server as server_mod
 from paperless_mcp.__main__ import main
 from paperless_mcp.client import PaperlessConnection
+from paperless_mcp.config import Transport
 from tests.conftest import PaperlessStub, make_settings
 
 
 @pytest.mark.parametrize("transport", ["stdio", "http"])
 def test_serve_dispatches_on_the_configured_transport(
-    monkeypatch: pytest.MonkeyPatch, transport: str
+    monkeypatch: pytest.MonkeyPatch, transport: Transport
 ) -> None:
     started: list[str] = []
     monkeypatch.setattr(server_mod, "serve_stdio", lambda _s: started.append("stdio"))
@@ -38,9 +41,7 @@ def test_serve_dispatches_on_the_configured_transport(
 
 def test_serve_stdio_runs_the_mcp_server(monkeypatch: pytest.MonkeyPatch) -> None:
     used: list[Any] = []
-    monkeypatch.setattr(
-        server_mod.MCPServer, "run", lambda _self, **kwargs: used.append(kwargs), raising=True
-    )
+    monkeypatch.setattr(MCPServer, "run", lambda _self, **kwargs: used.append(kwargs))
 
     server_mod.serve_stdio(make_settings())
 
@@ -51,9 +52,7 @@ def test_serve_http_hands_the_app_and_bind_address_to_uvicorn(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     used: list[dict[str, Any]] = []
-    monkeypatch.setattr(
-        server_mod.uvicorn, "run", lambda app, **kw: used.append({"app": app, **kw})
-    )
+    monkeypatch.setattr(uvicorn, "run", lambda app, **kw: used.append({"app": app, **kw}))
 
     settings = replace(make_settings(), transport="http", host="127.0.0.1", port=9123)
     server_mod.serve_http(settings)
@@ -87,12 +86,7 @@ async def test_the_connection_loads_and_invalidates_its_own_snapshot(
     stub = PaperlessStub(
         collections={"/api/tags/": [{"id": 1, "name": "paid", "matching_algorithm": 0}]}
     )
-    monkeypatch.setattr(
-        server_mod.PaperlessConnection,
-        "open",
-        _open_over(stub),
-        raising=True,
-    )
+    monkeypatch.setattr(PaperlessConnection, "open", _open_over(stub))
 
     connection = PaperlessConnection(make_settings())
     await connection.open()
@@ -137,7 +131,7 @@ def test_main_reports_success_when_the_server_shuts_down_cleanly(
 async def test_two_callers_share_one_handshake(monkeypatch: pytest.MonkeyPatch) -> None:
     """The lock exists so a cold connection is initialized once, not per caller."""
     stub = PaperlessStub()
-    monkeypatch.setattr(server_mod.PaperlessConnection, "open", _open_over(stub), raising=True)
+    monkeypatch.setattr(PaperlessConnection, "open", _open_over(stub))
 
     connection = PaperlessConnection(make_settings())
     await connection.open()

@@ -13,7 +13,8 @@ _ENDPOINT = EndpointPath.BULK_EDIT_OBJECTS
 
 
 def _posts(paperless: Any) -> list[dict[str, Any]]:
-    return paperless.runtime.transport.post_calls
+    posts: list[dict[str, Any]] = paperless.runtime.transport.post_calls
+    return posts
 
 
 async def test_hidden_without_enable_delete(make_paperless: Any) -> None:

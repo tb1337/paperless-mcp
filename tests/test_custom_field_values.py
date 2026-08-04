@@ -16,6 +16,7 @@ from pypaperless.models import CustomField
 from pypaperless.models.documents.document import Document
 from pypaperless.runtime import PaperlessRuntime
 from pypaperless.services.documents.document import DocumentService
+from pypaperless.transport import PaperlessTransport
 
 from tests.conftest import build_mcp, call_tool, make_settings
 
@@ -56,7 +57,7 @@ def _setup(
 ) -> tuple[Any, Any, Document]:
     """Build an MCP server over a fake client holding one document."""
     paperless = make_paperless()
-    runtime = PaperlessRuntime(SimpleNamespace(), paperless.runtime.cache)
+    runtime = PaperlessRuntime(PaperlessTransport("http://test", "t"), paperless.runtime.cache)
     definitions = [CustomField.from_data(runtime, payload) for payload in [*_FIELDS, *extra_fields]]
     paperless.custom_fields.filter_results = definitions
     # Filled before the document is parsed, exactly as load_names does it in
@@ -414,15 +415,28 @@ async def test_set_accepts_an_empty_documentlink_list(make_paperless: Any) -> No
     assert paperless.documents.filter_calls == []
 
 
-class _RecordingTransport:
-    """Capture the request pypaperless would send instead of performing it."""
+class _RecordingTransport(PaperlessTransport):
+    """Capture the request pypaperless would send instead of performing it.
+
+    A real subclass, so the runtime it is handed to is the one the library builds
+    and a renamed transport method shows up as a type error rather than as a
+    method that is simply never called.
+    """
 
     def __init__(self) -> None:
+        super().__init__("http://test", "t")
         self.patches: list[dict[str, Any]] = []
 
-    async def patch(self, path: str, *, json: dict[str, Any], params: Any = None) -> dict[str, Any]:
+    async def patch(
+        self,
+        path: str,
+        *,
+        json: dict[str, Any] | None = None,
+        params: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> Any:
         self.patches.append({"path": path, "json": json})
-        return {"id": 1, "title": "Doc", **json}
+        return {"id": 1, "title": "Doc", **(json or {})}
 
 
 async def test_the_write_goes_out_as_a_patch_of_the_whole_array(make_paperless: Any) -> None:

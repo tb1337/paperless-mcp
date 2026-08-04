@@ -3,18 +3,16 @@
 from __future__ import annotations
 
 import json
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from pypaperless.cache import PaperlessCache
 from pypaperless.models import CustomField
-from pypaperless.runtime import PaperlessRuntime
 
 from paperless_mcp.tools._custom_field_query import build_custom_field_query
 from paperless_mcp.tools._helpers import ToolInputError
+from tests.conftest import make_runtime
 
-_RUNTIME = PaperlessRuntime(SimpleNamespace(), PaperlessCache())
+_RUNTIME = make_runtime()
 
 
 def _field(pk: int, name: str, data_type: str, **extra: Any) -> CustomField:

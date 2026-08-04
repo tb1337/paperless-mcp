@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import http.client
 import urllib.error
+import urllib.request
 from typing import Any
 
 import pytest
@@ -41,7 +42,7 @@ def probe(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
     monkeypatch.delenv("PAPERLESS_MCP_HOST", raising=False)
     monkeypatch.delenv("PAPERLESS_MCP_PORT", raising=False)
-    monkeypatch.setattr(healthcheck.urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
     return urls
 
 
@@ -91,9 +92,7 @@ def test_an_unusable_port_is_unhealthy_rather_than_a_traceback(
 
 
 def test_a_non_200_answer_is_unhealthy(monkeypatch: pytest.MonkeyPatch, probe: list[str]) -> None:
-    monkeypatch.setattr(
-        healthcheck.urllib.request, "urlopen", lambda url, timeout=0: _Response(503)
-    )
+    monkeypatch.setattr(urllib.request, "urlopen", lambda url, timeout=0: _Response(503))
 
     assert healthcheck.main() == 1
 
@@ -115,6 +114,6 @@ def test_every_probe_failure_is_unhealthy_rather_than_a_traceback(
     def raising(url: str, timeout: float = 0) -> Any:
         raise error
 
-    monkeypatch.setattr(healthcheck.urllib.request, "urlopen", raising)
+    monkeypatch.setattr(urllib.request, "urlopen", raising)
 
     assert healthcheck.main() == 1
