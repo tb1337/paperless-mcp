@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from typing import Any
 
@@ -143,8 +144,6 @@ async def test_every_tool_has_a_description() -> None:
 @pytest.mark.asyncio
 async def test_tool_schemas_are_json_serializable() -> None:
     """A schema that cannot be serialized breaks the tools/list response."""
-    import json
-
     tools = await build_mcp(_settings(readonly=False, enable_delete=True)).list_tools()
     for tool in tools:
         json.dumps(tool.input_schema)
@@ -156,7 +155,8 @@ def test_handshake_reports_our_own_version() -> None:
     options = mcp._lowlevel_server.create_initialization_options()
     assert options.server_name == "paperless-mcp"
     assert options.server_version == __version__
-    assert options.instructions and "Paperless-ngx" in options.instructions
+    assert options.instructions is not None
+    assert "Paperless-ngx" in options.instructions
 
 
 @pytest.mark.asyncio

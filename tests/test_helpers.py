@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import datetime as dt
+import inspect
 from typing import Any
 
 import httpx
 import pytest
+from pypaperless import PaperlessClient
 from pypaperless.exceptions import (
     ItemNotFoundError,
     NotFoundError,
@@ -281,7 +283,6 @@ async def test_safe_tool_passes_through_normal_result() -> None:
 
 def test_safe_tool_preserves_the_wrapped_signature() -> None:
     """MCPServer derives each tool's schema from the signature, so it must survive."""
-    import inspect
 
     @safe_tool
     async def tool(document_id: int, title: str | None = None) -> dict[str, Any]:
@@ -314,8 +315,6 @@ def test_paginated_services_keep_the_filter_plus_pages_contract(service_name: st
     6.0.0rc2 removed `TrashService.filter()` because that endpoint declares no
     filters, and only a check like this notices an override changing shape.
     """
-    from pypaperless import PaperlessClient
-
     # Constructing the client performs no I/O; the services are cached properties.
     service = getattr(PaperlessClient("http://test", "token"), service_name)
 

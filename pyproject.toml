@@ -94,40 +94,152 @@ select = [
     "SIM",           # simplify
     "RUF",           # ruff-specific
     "D",             # pydocstyle
+    "A",             # builtin shadowing
+    "ARG",           # unused arguments
+    "ASYNC",         # async antipatterns
+    "BLE",           # blind except: makes "catch only expected exceptions" enforced
+    "DTZ",           # naive datetime construction
+    "ERA",           # commented-out code, the counterpart to "comments explain why"
+    "EXE",           # shebang / executable-bit mismatch
+    "FA",            # pins the mandatory `from __future__ import annotations`
+    "FURB",          # refurb modernizations
+    "G",             # no f-strings in logging calls (they format even when filtered)
+    "ICN",           # import conventions
+    "INP",           # implicit namespace packages
+    "INT",           # gettext
+    "ISC",           # implicit string concat
+    "LOG",           # logging misuse
+    "PERF",          # obvious perf antipatterns
+    "PIE",           # misc lints
+    "PLC", "PLE", "PLR", "PLW",  # pylint
+    "PT",            # pytest style
+    "PTH",           # pathlib over os.path
+    "RET",           # return simplification
+    "RSE",           # raise
+    "S",             # bandit
+    "SLF",           # private-member access
+    "SLOT",          # __slots__ on str/tuple subclasses
+    "T20",           # print / pprint
+    "YTT",           # sys.version misuse
 ]
+# Deliberately NOT selected, with what each reports on this tree today, so the
+# question does not get re-litigated:
+#   TID252  (84) every intra-package relative import; the layout is the convention
+#   TC      (63) `from __future__ import annotations` is mandatory in every module
+#                already, so a runtime/type import split buys churn, not safety
+#   TRY003
+#     + EM (172) the exception message IS the model-facing payload - `_ERROR_MAP`
+#                turns it into `cause` - so it belongs at the raise site
+#   COM812 (167) conflicts with `ruff format`
+#   ANN    (329, nearly all ANN401) mypy --strict is the same check with real
+#                inference; ANN401 would only push `Any` behind an alias
+#   FBT     (37) a tool's positional bool parameters ARE its JSON schema
+#   DOC    (161) preview only
+#   CPY     (51) this project carries no per-file copyright header
+#   Q        (0) `ruff format` already owns quoting, and one decision wants one
+#                owner - two is how the COM812 conflict starts
+#   C901         see the mccabe note below
 ignore = [
     "D203",          # one-blank-line-before-class (conflicts with D211)
     "D213",          # multi-line-summary-second-line (conflicts with D212)
+    "ISC001",        # single-line implicit concat: `ruff format` owns this
+    # `wait_for_task(..., timeout=)` must not become an `anyio` cancel scope: it
+    # returns `(task, timed_out)` because a tool reports a timeout as data, never
+    # by raising (see the tool contract in AGENTS.md).
+    "ASYNC109",
+    # The naive datetime never escapes: the one `strptime` in the tree is reduced
+    # to a `date` on the same line. DTZ011 stays on, and it is the one that found
+    # a real bug (`date.today()` in the monthly-review window).
+    "DTZ007",
+    # Magic values. `0 <= port <= 65535`, `status == 200` and
+    # `degrees in {90, 180, 270}` read better as literals than behind a name, and
+    # 64 of the 71 findings are expected values in test assertions.
+    "PLR2004",
+    # A tool signature IS the JSON schema the model sees, and it is spelled out on
+    # purpose - `search_documents` takes 30 arguments because the model needs to
+    # see all 30 filters.
+    "PLR0913", "PLR0917",
+    # Complexity limits, held back rather than dropped: their current findings are
+    # the `register()` closures and two table-driven functions, which the tools
+    # restructuring removes. They land together with C901 once it does.
+    "PLR0911", "PLR0912", "PLR0915",
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["D"]
-"src/paperless_mcp/__main__.py" = ["D"]
+"tests/*" = [
+    "D",                             # tests document themselves through their names
+    "S101",                          # `assert` IS the test
+    "S104", "S105", "S106",          # "0.0.0.0" and the fake tokens are literal on purpose
+    "ARG001", "ARG002", "ARG005",    # a requested-but-unread fixture is how pytest
+                                     # spells "apply this patch", and the fakes
+                                     # record keywords they never read
+    "DTZ001",                         # parse_datetime returns naive datetimes by
+                                      # design (Paperless sends wall-clock dates),
+                                      # so the expected values have to be naive too
+    "SLF001",                         # MCPServer offers no public way to enumerate
+                                      # tools or enter a lifespan outside a live
+                                      # session; the suite drives the real server
+]
+"src/paperless_mcp/__main__.py" = [
+    "D",
+    # A configuration error has to reach the user's terminal before
+    # `configure_logging` has run; a log record at that point goes nowhere.
+    "T201",
+]
+"src/paperless_mcp/healthcheck.py" = [
+    # S104 fires on the "0.0.0.0" literal, which sits in a deny-list that rewrites
+    # a bind-all host *to* loopback - the opposite of binding to all interfaces.
+    "S104",
+]
+"src/paperless_mcp/names.py" = [
+    # `_collect` catches Exception deliberately: its six calls are siblings under
+    # one `asyncio.gather`, so an escaping exception cancels the other five and
+    # costs the caller every other name. The reasoning is in its docstring.
+    "BLE001",
+]
 # run/debug.py is a scratch pad driven from the debugger: a value parked in a
-# name to inspect, or an import left behind between two experiments, is the
-# point of the file and must not fail the commit hook.
-"run/*" = ["F401", "F841"]
+# name to inspect, an import left behind between two experiments, a print of what
+# a tool returned, and reaching into MCPServer's internals are all the point of
+# the file and must not fail the commit hook.
+"run/*" = ["F401", "F841", "T201", "INP001", "SLF001"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
 
 [tool.codespell]
-skip = "./uv.lock,./.git"
+# `uv run codespell` (a documented dev command) walks the whole tree, so the
+# generated and vendored paths have to be named here. The prek hook only ever
+# sees git-tracked files and needs none of it.
+skip = "./.git,./.venv,./uv.lock,./coverage.xml,./.coverage,./.mypy_cache,./.pytest_cache,./.ruff_cache,./htmlcov"
 
 [tool.coverage.run]
 plugins = ["covdefaults"]
 source = ["paperless_mcp"]
 
+[tool.coverage.covdefaults]
+# covdefaults omits */__main__.py, but tests/test_config.py drives main(),
+# resolve_settings() and build_parser() directly. The omission hides lines the
+# suite already covers, and would hide a regression in the CLI entry point.
+subtract_omit = "*/__main__.py"
+
 [tool.coverage.report]
-# covdefaults defaults this to 100; the real figure is tracked here instead so
-# the gate moves deliberately rather than by accident.
-fail_under = 80
+# covdefaults defaults this to 100, which is a suppression generator: every
+# defensive line then needs a pragma, and those are forbidden here. The real
+# figure is tracked instead, and it is ratcheted deliberately - never lowered to
+# accommodate a change.
+fail_under = 88
 show_missing = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# Explicit because pytest-asyncio warns at config time while it is unset, which
+# `filterwarnings = ["error"]` would turn into a collection failure.
+asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
-addopts = "-ra --cov --cov-report=term --cov-report=xml"
+addopts = "-ra --strict-markers --strict-config --cov --cov-report=term --cov-report=xml"
+# pypaperless is pinned exactly, so a DeprecationWarning out of it is the earliest
+# signal that the pin has to move: it must fail the run, not scroll past it.
+filterwarnings = ["error"]
 
 [tool.mypy]
 python_version = "3.13"

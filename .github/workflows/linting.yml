@@ -20,6 +20,10 @@ jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    env:
+      # Run explicitly in the step above (for GitHub annotations) or in their own
+      # workflow. Guarded below, so a hook rename cannot silently un-skip them.
+      SKIP: mypy,pytest,ruff-check,ruff-format
     steps:
       - name: ⤵️ Check out code from GitHub
         uses: actions/checkout@v7.0.1
@@ -39,7 +43,13 @@ jobs:
         run: |
           uv run ruff check --output-format=github .
           uv run ruff format --check .
+      - name: 🔍 Verify SKIP still names real hooks
+        run: |
+          # A renamed hook would silently un-skip: mypy and pytest would then run
+          # twice per PR, and a typo here would go unnoticed for months.
+          for id in ${SKIP//,/ }; do
+            grep -qE "^ +- id: ${id}\$" .pre-commit-config.yaml \
+              || { echo "::error title=Stale SKIP::'${id}' is not a hook id"; exit 1; }
+          done
       - name: 🚀 Run remaining hooks via prek
-        env:
-          SKIP: mypy,pytest,ruff-check,ruff-format
         run: uv run prek run --all-files --show-diff-on-failure

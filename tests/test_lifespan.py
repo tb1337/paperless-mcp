@@ -12,6 +12,7 @@ Three invariants matter here:
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any, ClassVar
 from unittest.mock import patch
 
@@ -200,6 +201,4 @@ def test_bearer_auth_guards_the_mcp_endpoint(fake_client_class: Any) -> None:
 
 
 def _secured(settings: Settings, token: str) -> Settings:
-    from dataclasses import replace
-
     return replace(settings, auth_token=token, transport="http")
