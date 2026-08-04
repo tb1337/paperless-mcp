@@ -18,6 +18,8 @@ in-process it is `build_mcp(settings)` / `serve(settings)` in `server.py`.
   - `tools/_helpers.py` — registration decorators (`read_tool`, `write_tool`, `delete_tool`),
     `safe_tool` (exception → structured error), `paginate` / `page_result` (offset/limit →
     Paperless pages), `ToolInputError`
+  - `tools/_relations.py` — `<field>_name` → ID for the relation arguments (`resolve_relation`,
+    `resolve_tags`)
   - `prompts/` — one module per workflow (`triage`, `review`, `duplicates`), same
     `register(mcp, settings)` / `register_all()` shape as `tools/`;
     `prompts/_helpers.py` holds `sections()` and `capability_note()`
@@ -31,13 +33,22 @@ in-process it is `build_mcp(settings)` / `serve(settings)` in `server.py`.
 - `tests/` — pytest driving the real `MCPServer` in-process over a fake PaperlessClient
   (`tests/conftest.py`); no network in tests
 - `script/` — `bootstrap` (resync dev venv), `setup` (devcontainer entry point)
+- `run/debug.py` — scratch runner: builds the real server, opens one session and calls tools
+  against the live instance from `.env`; the target of the VS Code debug configuration
 - `examples/` — ready-made `claude_desktop_config.json` variants
 
 Current code surface (trust these over older docs): MCP SDK 2.x — the server class is `MCPServer`
 from `mcp.server.mcpserver`, not `FastMCP` · pypaperless is pinned exactly (`==6.0.0`), so a
-version bump is a deliberate change with a test run, never an automerge · 63 tools (30 read,
-22 write, 9 delete), enumerated in `tests/test_tool_registration.py` · 3 workflow prompts,
+version bump is a deliberate change with a test run, never an automerge · 64 tools (30 read,
+24 write, 10 delete), enumerated in `tests/test_tool_registration.py` · 3 workflow prompts,
 enumerated in `tests/test_prompt_registration.py`.
+
+Every request goes through a pypaperless service, with one exception:
+`taxonomy._delete_objects` posts to `/api/bulk_edit_objects/` through
+`paperless.runtime.transport`, because the service there only ever sends an `objects` list and
+pypaperless 6.0.0 predates the `all` + `filters` selection API v10 added. Once pypaperless carries
+those, that helper is what to delete. It is not a licence for a second one: reaching past a
+service that does cover the endpoint loses the model parsing, the caches and the error types.
 
 ## Dev Commands
 
@@ -61,7 +72,8 @@ installs the prek hooks.
 1. `uv run pytest -x -q` — always required, all green, coverage ≥ 80 %.
 2. Try the change against a live Paperless-ngx instance — **only** when it could affect live API
    interaction: a new or changed tool, or edits to `client.py`, `config.py` or `formatting.py`.
-   There is no smoketest script; run the server against your `.env` and call the tool.
+   There is no smoketest suite; call the tool from `run/debug.py`, which drives the real server
+   against the instance in your `.env`.
 
 For docs, pure refactors and docstrings, run the unit tests only and state that the live check was
 skipped and why. Report both results (or the skip reason) before closing the task.
@@ -90,7 +102,7 @@ breaking change and gets the `breaking-change` label.
   with a type, and describe the non-obvious ones in the docstring body.
 - **Register through `read_tool` / `write_tool` / `delete_tool`**, never a bare `@mcp.tool()`.
   Those helpers attach the MCP annotations and derive the display title from the function name, so
-  the hints stay consistent across 63 tools instead of being retyped per call site. The two
+  the hints stay consistent across 64 tools instead of being retyped per call site. The two
   `write_tool` flags are a judgement call worth making deliberately: `destructive` means the call
   can overwrite data that was already stored, `idempotent` means repeating the identical call
   converges on the same state — false for anything that adds a row, queues a task or accumulates
@@ -102,6 +114,18 @@ breaking change and gets the `breaking-change` label.
   documents, never after: the same call fills pypaperless' custom-field cache, which enriches a
   `Document` while it is being parsed. Anything that creates, renames or deletes master data
   calls `invalidate_names(ctx)`.
+- **Names come back in.** Every argument that assigns or filters a relation exists twice —
+  `<field>_id` and `<field>_name`, `tag_ids` and `tag_names` — resolved through
+  `_relations.resolve_relation` / `resolve_tags`. A wrong ID silently hits another valid object;
+  a wrong name cannot, and it is the half a human reading the call along can veto. Matching is
+  exact, then case-insensitive, **never fuzzy**, and ambiguity is an error rather than a pick. A
+  miss buys one `invalidate_names` + reload before it is refused, which covers master data
+  created elsewhere since the snapshot. Supplying both halves cross-checks them: a disagreement
+  is rejected, never ranked. Resolution runs before the first write request, so a typo cannot
+  leave a half-applied bulk edit. A tool that gains a relation argument gains both spellings, and
+  its docstring carries the rule verbatim: *pass `*_name` when the value comes from the
+  conversation, `*_id` only when you have it verbatim from a tool result; passing both is allowed
+  but they must agree*.
 - **Writes and deletes are gated.** `settings.expose_writes` and `settings.expose_deletes` decide
   whether a tool is registered at all — check them in `register()` rather than failing at call
   time, so a read-only deployment simply does not advertise the tool.

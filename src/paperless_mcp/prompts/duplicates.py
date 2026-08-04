@@ -60,8 +60,8 @@ did not confirm in step 3."""
 _TAG_INSTEAD = """\
 Do not try to remove the other copy — this deployment registers no delete tools. Tag it instead:
 `create_tag(name="duplicate")` once, then `bulk_edit_documents(document_ids=[...],
-add_tag_ids=[<that id>])` for every confirmed duplicate. The pairs then survive this conversation
-and a human can clear them out in one filtered view."""
+add_tag_names=["duplicate"])` for every confirmed duplicate. The pairs then survive this
+conversation and a human can clear them out in one filtered view."""
 
 _READONLY = """\
 This deployment is read-only, so the finding *is* the deliverable. Make it precise enough to act

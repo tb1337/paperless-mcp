@@ -98,6 +98,10 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["D"]
 "src/paperless_mcp/__main__.py" = ["D"]
+# run/debug.py is a scratch pad driven from the debugger: a value parked in a
+# name to inspect, or an import left behind between two experiments, is the
+# point of the file and must not fail the commit hook.
+"run/*" = ["F401", "F841"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"

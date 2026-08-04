@@ -87,6 +87,7 @@ _DELETE_TOOLS = frozenset(
         "delete_custom_field",
         "delete_share_link",
         "empty_trash",
+        "bulk_delete_objects",
     }
 )
 

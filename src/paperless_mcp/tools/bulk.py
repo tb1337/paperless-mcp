@@ -11,6 +11,7 @@ from pypaperless.models import Document
 from ..client import ToolContext, get_client
 from ..config import Settings
 from ._helpers import ToolInputError, safe_tool, write_tool
+from ._relations import resolve_relation, resolve_tags
 
 
 async def _resolve_page_count(
@@ -42,10 +43,15 @@ def register(mcp: MCPServer, settings: Settings) -> None:
         ctx: ToolContext,
         document_ids: list[int],
         correspondent_id: int | None = None,
+        correspondent_name: str | None = None,
         document_type_id: int | None = None,
+        document_type_name: str | None = None,
         storage_path_id: int | None = None,
+        storage_path_name: str | None = None,
         add_tag_ids: list[int] | None = None,
+        add_tag_names: list[str] | None = None,
         remove_tag_ids: list[int] | None = None,
+        remove_tag_names: list[str] | None = None,
     ) -> dict[str, Any]:
         """Apply assignments to many documents at once.
 
@@ -53,10 +59,40 @@ def register(mcp: MCPServer, settings: Settings) -> None:
         rather than replaced wholesale. Every non-null argument triggers its own
         bulk-edit request; they run in order, and if one fails the ``applied``
         list reflects only the operations that already succeeded.
+
+        Correspondent, document type, storage path and both tag lists each take
+        names or IDs: pass ``*_name`` / ``*_names`` when the value comes from
+        the conversation, ``*_id`` / ``*_ids`` only when you have it verbatim
+        from a tool result. Passing both is allowed but they must agree; a
+        mismatch is rejected rather than resolved. Names are resolved before the
+        first request goes out, so an unknown one costs no half-applied edit.
         """
         if not document_ids:
             raise ToolInputError("document_ids must not be empty")
         paperless = await get_client(ctx)
+        correspondent_id = await resolve_relation(
+            ctx, field="correspondent", pk=correspondent_id, name=correspondent_name
+        )
+        document_type_id = await resolve_relation(
+            ctx, field="document_type", pk=document_type_id, name=document_type_name
+        )
+        storage_path_id = await resolve_relation(
+            ctx, field="storage_path", pk=storage_path_id, name=storage_path_name
+        )
+        add_tag_ids = await resolve_tags(
+            ctx,
+            pks=add_tag_ids,
+            names=add_tag_names,
+            id_field="add_tag_ids",
+            name_field="add_tag_names",
+        )
+        remove_tag_ids = await resolve_tags(
+            ctx,
+            pks=remove_tag_ids,
+            names=remove_tag_names,
+            id_field="remove_tag_ids",
+            name_field="remove_tag_names",
+        )
         applied: list[str] = []
         if correspondent_id is not None:
             await paperless.documents.bulk_edit.set_correspondent(document_ids, correspondent_id)
