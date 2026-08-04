@@ -41,6 +41,75 @@ def make_settings(*, readonly: bool = False, enable_delete: bool = True) -> Sett
     )
 
 
+def named(**by_id: str) -> list[SimpleNamespace]:
+    """Build master-data stubs from ``{"7": "Temp"}`` pairs.
+
+    Keys are strings because they arrive as keyword arguments; they name the ID.
+    """
+    return [SimpleNamespace(id=int(pk), name=name) for pk, name in by_id.items()]
+
+
+def returns(value: Any) -> Callable[..., Awaitable[Any]]:
+    """Build an async callable that ignores its arguments and answers *value*."""
+
+    async def _call(*_args: Any, **_kwargs: Any) -> Any:
+        return value
+
+    return _call
+
+
+def rule(rule_type: int | None, value: str | None = None) -> SimpleNamespace:
+    """Build one saved-view filter rule."""
+    return SimpleNamespace(rule_type=rule_type, value=value)
+
+
+def document(doc_id: int = 1, title: str = "Test", **overrides: Any) -> SimpleNamespace:
+    """A Document stand-in carrying every field the formatters read.
+
+    Every field is present because a missing one reads as ``None`` through
+    ``formatting._safe`` rather than failing, which would hide a projection that
+    reaches for a field the model does not have.
+    """
+    fields: dict[str, Any] = {
+        "id": doc_id,
+        "title": title,
+        "correspondent": None,
+        "document_type": None,
+        "storage_path": None,
+        "tags": [],
+        "created": None,
+        "added": None,
+        "modified": None,
+        "deleted_at": None,
+        "archive_serial_number": None,
+        "original_file_name": None,
+        "archived_file_name": None,
+        "owner": None,
+        "page_count": None,
+        "mime_type": None,
+        "is_shared_by_requester": False,
+        "content": "ocr text",
+        "custom_fields": [],
+        "notes_": [],
+        "root_document": None,
+        "search_hit_": None,
+    }
+    return SimpleNamespace(**(fields | overrides))
+
+
+class BulkRecorder:
+    """Records every bulk-edit call so tests can assert exact ordering."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, tuple[Any, ...], dict[str, Any]]] = []
+
+    def __getattr__(self, name: str) -> Any:
+        async def _record(*args: Any, **kwargs: Any) -> None:
+            self.calls.append((name, args, kwargs))
+
+        return _record
+
+
 class FakePage:
     """Stand-in for ``pypaperless.pagination.Page``."""
 

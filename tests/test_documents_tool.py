@@ -23,34 +23,7 @@ from pypaperless.models.types import CustomFieldType
 from pypaperless.runtime import PaperlessRuntime
 
 from paperless_mcp.tools import _task_polling
-from tests.conftest import FakeService, build_mcp, call_tool, make_settings
-
-
-def _doc(doc_id: int = 1, title: str = "Test") -> SimpleNamespace:
-    return SimpleNamespace(
-        id=doc_id,
-        title=title,
-        correspondent=None,
-        document_type=None,
-        storage_path=None,
-        tags=[],
-        created=None,
-        added=None,
-        modified=None,
-        deleted_at=None,
-        archive_serial_number=None,
-        original_file_name=None,
-        archived_file_name=None,
-        owner=None,
-        page_count=None,
-        mime_type=None,
-        is_shared_by_requester=False,
-        content="ocr text",
-        custom_fields=[],
-        notes_=[],
-        root_document=None,
-        search_hit_=None,
-    )
+from tests.conftest import FakeService, build_mcp, call_tool, document, make_settings, returns
 
 
 def _task(
@@ -114,10 +87,9 @@ def clock(monkeypatch: pytest.MonkeyPatch) -> _Clock:
     return fake
 
 
-@pytest.mark.asyncio
 async def test_search_documents_paginates(make_paperless: Any) -> None:
     paperless = make_paperless()
-    paperless.documents.filter_results = [_doc(i) for i in range(1, 6)]
+    paperless.documents.filter_results = [document(i) for i in range(1, 6)]
     mcp = build_mcp(make_settings(), paperless)
 
     page1 = await call_tool(mcp, "search_documents", offset=0, limit=2)
@@ -131,7 +103,6 @@ async def test_search_documents_paginates(make_paperless: Any) -> None:
     assert page3["has_more"] is False
 
 
-@pytest.mark.asyncio
 async def test_search_documents_passes_filters(make_paperless: Any) -> None:
     paperless = make_paperless()
     mcp = build_mcp(make_settings(), paperless)
@@ -163,7 +134,6 @@ async def test_search_documents_passes_filters(make_paperless: Any) -> None:
     ]
 
 
-@pytest.mark.asyncio
 async def test_search_documents_sends_the_custom_field_query_as_json(
     make_paperless: Any,
 ) -> None:
@@ -188,7 +158,6 @@ async def test_search_documents_sends_the_custom_field_query_as_json(
     ]
 
 
-@pytest.mark.asyncio
 async def test_search_documents_checks_the_query_against_the_definitions(
     make_paperless: Any,
 ) -> None:
@@ -206,14 +175,12 @@ async def test_search_documents_checks_the_query_against_the_definitions(
     assert paperless.documents.filter_calls == []
 
 
-@pytest.mark.asyncio
 async def test_search_documents_rejects_unknown_ordering(make_paperless: Any) -> None:
     mcp = build_mcp(make_settings(), make_paperless())
     result = await call_tool(mcp, "search_documents", order_by="content")
     assert result["error"] == "invalid_argument"
 
 
-@pytest.mark.asyncio
 async def test_search_documents_rejects_bad_dates(make_paperless: Any) -> None:
     mcp = build_mcp(make_settings(), make_paperless())
     result = await call_tool(mcp, "search_documents", created_after="yesterday")
@@ -221,10 +188,9 @@ async def test_search_documents_rejects_bad_dates(make_paperless: Any) -> None:
     assert "created_after" in result["cause"]
 
 
-@pytest.mark.asyncio
 async def test_get_document_returns_detail(make_paperless: Any) -> None:
     paperless = make_paperless()
-    paperless.documents.get_result = _doc(42, "Bill")
+    paperless.documents.get_result = document(42, "Bill")
     mcp = build_mcp(make_settings(), paperless)
 
     result = await call_tool(mcp, "get_document", document_id=42)
@@ -237,10 +203,9 @@ async def test_get_document_returns_detail(make_paperless: Any) -> None:
     assert result["content_characters"] == len("ocr text")
 
 
-@pytest.mark.asyncio
 async def test_get_document_content_reports_length(make_paperless: Any) -> None:
     paperless = make_paperless()
-    paperless.documents.get_result = _doc(3, "Bill")
+    paperless.documents.get_result = document(3, "Bill")
     mcp = build_mcp(make_settings(), paperless)
 
     result = await call_tool(mcp, "get_document_content", document_id=3)
@@ -252,7 +217,6 @@ async def test_get_document_content_reports_length(make_paperless: Any) -> None:
     }
 
 
-@pytest.mark.asyncio
 async def test_get_document_translates_not_found(make_paperless: Any) -> None:
     paperless = make_paperless()
     paperless.documents.get_raises = ItemNotFoundError("no such id")
@@ -263,9 +227,8 @@ async def test_get_document_translates_not_found(make_paperless: Any) -> None:
     assert "does not exist" in result["detail"]
 
 
-@pytest.mark.asyncio
 async def test_update_document_clear_fields(make_paperless: Any) -> None:
-    doc = _doc(5, "old")
+    doc = document(5, "old")
     doc.correspondent = 7
     doc.document_type = 3
 
@@ -290,10 +253,9 @@ async def test_update_document_clear_fields(make_paperless: Any) -> None:
     assert result["changed"] is True
 
 
-@pytest.mark.asyncio
 async def test_update_document_rejects_unknown_clear_field(make_paperless: Any) -> None:
     paperless = make_paperless()
-    paperless.documents.get_result = _doc(5)
+    paperless.documents.get_result = document(5)
     mcp = build_mcp(make_settings(), paperless)
 
     result = await call_tool(mcp, "update_document", document_id=5, clear_fields=["title"])
@@ -302,10 +264,9 @@ async def test_update_document_rejects_unknown_clear_field(make_paperless: Any) 
     assert paperless.documents.update_calls == []  # nothing happened
 
 
-@pytest.mark.asyncio
 async def test_update_document_rejects_conflicting_set_and_clear(make_paperless: Any) -> None:
     paperless = make_paperless()
-    paperless.documents.get_result = _doc(5)
+    paperless.documents.get_result = document(5)
     mcp = build_mcp(make_settings(), paperless)
 
     result = await call_tool(
@@ -319,7 +280,6 @@ async def test_update_document_rejects_conflicting_set_and_clear(make_paperless:
     assert paperless.documents.update_calls == []
 
 
-@pytest.mark.asyncio
 async def test_upload_document_passes_content_and_metadata(make_paperless: Any) -> None:
     paperless = make_paperless()
     paperless.documents.save_returns = "abc-task-uuid"
@@ -351,7 +311,6 @@ async def test_upload_document_passes_content_and_metadata(make_paperless: Any) 
     assert paperless.tasks.get_calls == []
 
 
-@pytest.mark.asyncio
 async def test_upload_document_poll_returns_the_new_document_id(
     make_paperless: Any, clock: _Clock
 ) -> None:
@@ -381,7 +340,6 @@ async def test_upload_document_poll_returns_the_new_document_id(
     assert clock.slept == [1.0, 1.5]
 
 
-@pytest.mark.asyncio
 async def test_upload_document_poll_reports_a_timeout(make_paperless: Any, clock: _Clock) -> None:
     """A wait that runs out is not an error: the UUID is still pollable."""
     paperless = make_paperless()
@@ -405,7 +363,6 @@ async def test_upload_document_poll_reports_a_timeout(make_paperless: Any, clock
     assert clock.now == 10
 
 
-@pytest.mark.asyncio
 async def test_upload_document_poll_waits_out_an_unregistered_task(
     make_paperless: Any, clock: _Clock
 ) -> None:
@@ -429,7 +386,6 @@ async def test_upload_document_poll_waits_out_an_unregistered_task(
     assert result["timed_out"] is False
 
 
-@pytest.mark.asyncio
 async def test_upload_document_poll_rides_out_a_broken_connection(
     make_paperless: Any, clock: _Clock
 ) -> None:
@@ -453,7 +409,6 @@ async def test_upload_document_poll_rides_out_a_broken_connection(
     assert result["timed_out"] is False
 
 
-@pytest.mark.asyncio
 async def test_upload_document_poll_keeps_the_uuid_when_polling_fails(
     make_paperless: Any, clock: _Clock
 ) -> None:
@@ -476,7 +431,6 @@ async def test_upload_document_poll_keeps_the_uuid_when_polling_fails(
     assert result["size_bytes"] == len(b"%PDF-1.4")
 
 
-@pytest.mark.asyncio
 async def test_upload_document_poll_surfaces_a_rejected_file(
     make_paperless: Any, clock: _Clock
 ) -> None:
@@ -503,7 +457,6 @@ async def test_upload_document_poll_surfaces_a_rejected_file(
     assert clock.slept == []
 
 
-@pytest.mark.asyncio
 async def test_upload_document_rejects_an_out_of_range_poll_timeout(
     make_paperless: Any,
 ) -> None:
@@ -524,7 +477,6 @@ async def test_upload_document_rejects_an_out_of_range_poll_timeout(
     assert paperless.documents.save_calls == []
 
 
-@pytest.mark.asyncio
 async def test_upload_document_rejects_bad_base64(make_paperless: Any) -> None:
     paperless = make_paperless()
     mcp = build_mcp(make_settings(), paperless)
@@ -539,7 +491,6 @@ async def test_upload_document_rejects_bad_base64(make_paperless: Any) -> None:
     assert paperless.documents.save_calls == []
 
 
-@pytest.mark.asyncio
 async def test_upload_document_rejects_empty_payload(make_paperless: Any) -> None:
     paperless = make_paperless()
     mcp = build_mcp(make_settings(), paperless)
@@ -549,7 +500,6 @@ async def test_upload_document_rejects_empty_payload(make_paperless: Any) -> Non
     assert paperless.documents.save_calls == []
 
 
-@pytest.mark.asyncio
 async def test_add_document_note_creates_a_scoped_draft(make_paperless: Any) -> None:
     paperless = make_paperless()
     paperless.documents.notes = FakeService(save_returns=11)
@@ -560,7 +510,6 @@ async def test_add_document_note_creates_a_scoped_draft(make_paperless: Any) -> 
     assert paperless.documents.notes.create_calls == [{"args": (4,), "note": "checked"}]
 
 
-@pytest.mark.asyncio
 async def test_delete_document_note_passes_the_document_pk(make_paperless: Any) -> None:
     """pypaperless v6 renamed the keyword from ``document_pk`` to ``pk``."""
     paperless = make_paperless()
@@ -572,15 +521,13 @@ async def test_delete_document_note_passes_the_document_pk(make_paperless: Any) 
     assert paperless.documents.notes.delete_calls == [{"obj": 11, "args": (), "pk": 4}]
 
 
-@pytest.mark.asyncio
 async def test_delete_document_hidden_without_enable_delete(make_paperless: Any) -> None:
     mcp = build_mcp(make_settings(enable_delete=False), make_paperless())
     assert "delete_document" not in mcp._tool_manager._tools
 
 
-@pytest.mark.asyncio
 async def test_delete_document_fetches_lazily(make_paperless: Any) -> None:
-    doc = _doc(7)
+    doc = document(7)
     paperless = make_paperless()
     paperless.documents.get_result = doc
     mcp = build_mcp(make_settings(enable_delete=True), paperless)
@@ -591,10 +538,9 @@ async def test_delete_document_fetches_lazily(make_paperless: Any) -> None:
     assert paperless.documents.delete_calls == [{"obj": doc, "args": ()}]
 
 
-@pytest.mark.asyncio
 async def test_download_document_returns_base64(make_paperless: Any) -> None:
     paperless = make_paperless()
-    paperless.documents.download = _returns(
+    paperless.documents.download = returns(
         SimpleNamespace(
             content=b"%PDF-1.4",
             content_type="application/pdf",
@@ -608,11 +554,10 @@ async def test_download_document_returns_base64(make_paperless: Any) -> None:
     assert base64.b64decode(result["content_base64"]) == b"%PDF-1.4"
 
 
-@pytest.mark.asyncio
 async def test_download_document_rejects_oversized(make_paperless: Any) -> None:
     big = b"x" * (2 * 1024 * 1024)  # 2 MiB > the 1 MiB test cap
     paperless = make_paperless()
-    paperless.documents.download = _returns(
+    paperless.documents.download = returns(
         SimpleNamespace(content=big, content_type="application/pdf", disposition_filename="x.pdf")
     )
     mcp = build_mcp(make_settings(), paperless)
@@ -623,10 +568,9 @@ async def test_download_document_rejects_oversized(make_paperless: Any) -> None:
     assert result["max_bytes"] == 1024 * 1024
 
 
-@pytest.mark.asyncio
 async def test_get_document_thumbnail_returns_image_content(make_paperless: Any) -> None:
     paperless = make_paperless()
-    paperless.documents.thumbnail = _returns(
+    paperless.documents.thumbnail = returns(
         SimpleNamespace(content=b"webpdata", content_type="image/webp")
     )
     mcp = build_mcp(make_settings(), paperless)
@@ -637,10 +581,9 @@ async def test_get_document_thumbnail_returns_image_content(make_paperless: Any)
     assert result.to_image_content().mime_type == "image/webp"
 
 
-@pytest.mark.asyncio
 async def test_get_document_thumbnail_reports_non_image_types(make_paperless: Any) -> None:
     paperless = make_paperless()
-    paperless.documents.thumbnail = _returns(
+    paperless.documents.thumbnail = returns(
         SimpleNamespace(content=b"nope", content_type="text/html")
     )
     mcp = build_mcp(make_settings(), paperless)
@@ -650,15 +593,12 @@ async def test_get_document_thumbnail_reports_non_image_types(make_paperless: An
     assert result["document_id"] == 1
 
 
-@pytest.mark.asyncio
 async def test_get_document_thumbnail_rejects_oversized(make_paperless: Any) -> None:
     # The tool is declared as returning Image, so the error travels out as a
     # ToolResultError; the model must still see the same dict a JSON tool sends.
     big = b"x" * (2 * 1024 * 1024)  # 2 MiB > the 1 MiB test cap
     paperless = make_paperless()
-    paperless.documents.thumbnail = _returns(
-        SimpleNamespace(content=big, content_type="image/webp")
-    )
+    paperless.documents.thumbnail = returns(SimpleNamespace(content=big, content_type="image/webp"))
     mcp = build_mcp(make_settings(), paperless)
 
     result = await call_tool(mcp, "get_document_thumbnail", document_id=1)
@@ -667,18 +607,10 @@ async def test_get_document_thumbnail_rejects_oversized(make_paperless: Any) -> 
     assert result["max_bytes"] == 1024 * 1024
 
 
-def _returns(value: Any) -> Any:
-    async def _call(*_args: Any, **_kwargs: Any) -> Any:
-        return value
-
-    return _call
-
-
-@pytest.mark.asyncio
 async def test_search_documents_resolves_ids_to_names(make_paperless: Any) -> None:
     """The names come from the shared snapshot, not from a per-document lookup."""
     paperless = make_paperless()
-    doc = _doc(1)
+    doc = document(1)
     doc.correspondent = 10
     doc.tags = [40, 99]
     paperless.documents.filter_results = [doc]
@@ -694,11 +626,10 @@ async def test_search_documents_resolves_ids_to_names(make_paperless: Any) -> No
     assert found["tag_names"] == ["paid", None]
 
 
-@pytest.mark.asyncio
 async def test_get_document_warms_the_cache_before_fetching(make_paperless: Any) -> None:
     """Order matters: pypaperless enriches custom fields while parsing the document."""
     paperless = make_paperless()
-    paperless.documents.get_result = _doc(1)
+    paperless.documents.get_result = document(1)
     paperless.custom_fields.filter_results = [SimpleNamespace(id=7, name="Status")]
     mcp = build_mcp(make_settings(), paperless)
 
@@ -707,7 +638,6 @@ async def test_get_document_warms_the_cache_before_fetching(make_paperless: Any)
     assert paperless.runtime.cache.custom_fields == {7: paperless.custom_fields.filter_results[0]}
 
 
-@pytest.mark.asyncio
 async def test_get_document_carries_the_custom_field_names(make_paperless: Any) -> None:
     """A bare ``{"field": 1, "value": "EUR6372.00"}`` tells a model nothing.
 
@@ -765,7 +695,6 @@ async def test_get_document_carries_the_custom_field_names(make_paperless: Any) 
     ]
 
 
-@pytest.mark.asyncio
 async def test_search_documents_reports_a_negative_offset_as_a_result(make_paperless: Any) -> None:
     """A bad window must be answerable, not a protocol failure the model cannot see."""
     paperless = make_paperless()
@@ -777,7 +706,6 @@ async def test_search_documents_reports_a_negative_offset_as_a_result(make_paper
     assert "non-negative" in result["cause"]
 
 
-@pytest.mark.asyncio
 async def test_get_next_asn_reports_the_number(make_paperless: Any) -> None:
     paperless = make_paperless()
 
@@ -790,7 +718,6 @@ async def test_get_next_asn_reports_the_number(make_paperless: Any) -> None:
     assert await call_tool(mcp, "get_next_asn") == {"next_asn": 43}
 
 
-@pytest.mark.asyncio
 async def test_get_next_asn_reports_a_refusal_as_a_structured_error(make_paperless: Any) -> None:
     paperless = make_paperless()
 

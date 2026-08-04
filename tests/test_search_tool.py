@@ -33,7 +33,6 @@ def _with_search(paperless: Any, result: Any) -> Any:
     return paperless
 
 
-@pytest.mark.asyncio
 async def test_search_everywhere_always_reports_every_category(make_paperless: Any) -> None:
     paperless = _with_search(make_paperless(), _result(total=0))
     mcp = build_mcp(make_settings(), paperless)
@@ -46,7 +45,6 @@ async def test_search_everywhere_always_reports_every_category(make_paperless: A
     assert result["truncated"] is False
 
 
-@pytest.mark.asyncio
 async def test_search_everywhere_formats_hits_and_resolves_names(make_paperless: Any) -> None:
     paperless = make_paperless()
     paperless.tags.filter_results = [SimpleNamespace(id=7, name="Invoice")]
@@ -68,7 +66,6 @@ async def test_search_everywhere_formats_hits_and_resolves_names(make_paperless:
     assert result["tags"][0]["name"] == "Invoice"
 
 
-@pytest.mark.asyncio
 async def test_search_everywhere_leaves_out_the_admin_categories(make_paperless: Any) -> None:
     paperless = _with_search(
         make_paperless(),
@@ -88,7 +85,6 @@ async def test_search_everywhere_leaves_out_the_admin_categories(make_paperless:
         assert key not in result
 
 
-@pytest.mark.asyncio
 async def test_search_everywhere_caps_each_category_and_flags_it(make_paperless: Any) -> None:
     paperless = _with_search(
         make_paperless(),
@@ -108,7 +104,6 @@ async def test_search_everywhere_caps_each_category_and_flags_it(make_paperless:
     assert result["truncated"] is True
 
 
-@pytest.mark.asyncio
 async def test_search_everywhere_omits_db_only_unless_asked(make_paperless: Any) -> None:
     paperless = _with_search(make_paperless(), _result())
     mcp = build_mcp(make_settings(), paperless)
@@ -120,7 +115,6 @@ async def test_search_everywhere_omits_db_only_unless_asked(make_paperless: Any)
     assert paperless.search.get_calls[-1] == ("a", {"db_only": True})
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("kwargs", "reason"),
     [
@@ -141,7 +135,6 @@ async def test_search_everywhere_rejects_bad_input(
     assert paperless.search.get_calls == []
 
 
-@pytest.mark.asyncio
 async def test_search_autocomplete_returns_the_index_terms(make_paperless: Any) -> None:
     paperless = make_paperless()
     calls: list[tuple[Any, ...]] = []
@@ -163,7 +156,6 @@ async def test_search_autocomplete_returns_the_index_terms(make_paperless: Any) 
     assert calls == [("inv", 3)]
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("kwargs", "reason"),
     [({"term": "  "}, "empty"), ({"term": "inv", "limit": 0}, "at least 1")],

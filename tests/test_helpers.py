@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import inspect
+from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -51,38 +52,35 @@ def _not_found() -> NotFoundError:
     return NotFoundError(httpx.Response(404, request=request))
 
 
-@pytest.mark.asyncio
-async def test_paginate_returns_all_when_under_limit() -> None:
-    service = FakeService(filter_results=[1, 2, 3])
-    items, total = await paginate(service, offset=0, limit=10)
-    assert items == [1, 2, 3]
-    assert total == 3
+@pytest.mark.parametrize(
+    ("items", "offset", "limit", "expected", "expected_total"),
+    [
+        ([1, 2, 3], 0, 10, [1, 2, 3], 3),
+        ([1, 2, 3, 4, 5], 0, 2, [1, 2], 5),
+        ([1, 2, 3, 4, 5], 2, 2, [3, 4], 5),
+        # An offset that does not land on a page boundary: the window straddles
+        # two server pages and the leading items are dropped.
+        (list(range(1, 11)), 3, 4, [4, 5, 6, 7], 10),
+        # Paperless answers 404 for a page past the end; that is an empty window,
+        # and the count is unknown rather than zero.
+        ([1, 2, 3], 100, 5, [], None),
+        # limit=0 still costs one request, because the total is the point.
+        ([1, 2, 3], 0, 0, [], 3),
+    ],
+    ids=["under-limit", "capped", "offset", "unaligned-offset", "past-end", "limit-zero"],
+)
+async def test_paginate_windows_a_result_set(
+    items: list[int],
+    offset: int,
+    limit: int,
+    expected: list[int],
+    expected_total: int | None,
+) -> None:
+    got, total = await paginate(FakeService(filter_results=items), offset=offset, limit=limit)
+    assert got == expected
+    assert total == expected_total
 
 
-@pytest.mark.asyncio
-async def test_paginate_caps_at_limit() -> None:
-    service = FakeService(filter_results=[1, 2, 3, 4, 5])
-    items, total = await paginate(service, offset=0, limit=2)
-    assert items == [1, 2]
-    assert total == 5
-
-
-@pytest.mark.asyncio
-async def test_paginate_respects_offset() -> None:
-    service = FakeService(filter_results=[1, 2, 3, 4, 5])
-    items, _ = await paginate(service, offset=2, limit=2)
-    assert items == [3, 4]
-
-
-@pytest.mark.asyncio
-async def test_paginate_offset_not_aligned_to_page_size() -> None:
-    service = FakeService(filter_results=list(range(1, 11)))
-    items, total = await paginate(service, offset=3, limit=4)
-    assert items == [4, 5, 6, 7]
-    assert total == 10
-
-
-@pytest.mark.asyncio
 async def test_paginate_asks_the_server_for_the_right_page() -> None:
     """A large offset must become a page number, not a client-side skip."""
     service = FakeService(filter_results=list(range(1, 101)))
@@ -91,38 +89,18 @@ async def test_paginate_asks_the_server_for_the_right_page() -> None:
     assert service.page_calls == [{"page": 9, "page_size": 10}]
 
 
-@pytest.mark.asyncio
-async def test_paginate_offset_past_end() -> None:
-    """Paperless answers 404 for a page past the end; that is an empty window."""
-    service = FakeService(filter_results=[1, 2, 3])
-    items, total = await paginate(service, offset=100, limit=5)
-    assert items == []
-    assert total is None
-
-
-@pytest.mark.asyncio
-async def test_paginate_limit_zero_still_reports_total() -> None:
-    service = FakeService(filter_results=[1, 2, 3])
-    items, total = await paginate(service, offset=0, limit=0)
-    assert items == []
-    assert total == 3
-
-
-@pytest.mark.asyncio
 async def test_paginate_closes_the_page_generator() -> None:
     service = FakeService(filter_results=list(range(20)))
     await paginate(service, offset=0, limit=2)
     assert [g.closed for g in service.generators] == [True]
 
 
-@pytest.mark.asyncio
 async def test_paginate_forwards_filters_to_the_service() -> None:
     service = FakeService(filter_results=[])
     await paginate(service, {"tags__id__none": [1, 2]}, offset=0, limit=5)
     assert service.filter_calls == [{"tags__id__none": "1,2"}]
 
 
-@pytest.mark.asyncio
 async def test_paginate_rejects_negative() -> None:
     # ToolInputError, not a bare ValueError: only the mapped type reaches the
     # model as a structured result instead of a protocol-level failure.
@@ -130,7 +108,6 @@ async def test_paginate_rejects_negative() -> None:
         await paginate(FakeService(), offset=-1, limit=5)
 
 
-@pytest.mark.asyncio
 async def test_paginate_lets_other_errors_propagate() -> None:
     class _Exploding(FakeService):
         def pages(self, page: int = 1, page_size: int = 150) -> Any:
@@ -187,6 +164,7 @@ def test_page_result_does_not_promise_more_for_an_empty_window() -> None:
     ("value", "expected"),
     [
         ("2026-01-02", dt.date(2026, 1, 2)),
+        # A datetime keeps only its date half.
         ("2026-01-02T13:45:00", dt.date(2026, 1, 2)),
     ],
 )
@@ -194,18 +172,26 @@ def test_parse_date(value: str, expected: dt.date) -> None:
     assert parse_date(value, field="created") == expected
 
 
-def test_parse_date_rejects_garbage() -> None:
-    with pytest.raises(ToolInputError, match="created"):
-        parse_date("last tuesday", field="created")
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("2026-01-02T13:45:00", dt.datetime(2026, 1, 2, 13, 45)),
+        # A bare date widens to midnight.
+        ("2026-01-02", dt.datetime(2026, 1, 2, 0, 0)),
+    ],
+)
+def test_parse_datetime(value: str, expected: dt.datetime) -> None:
+    assert parse_datetime(value, field="expiration") == expected
 
 
-def test_parse_datetime_widens_a_bare_date() -> None:
-    assert parse_datetime("2026-01-02", field="expiration") == dt.datetime(2026, 1, 2, 0, 0)
-
-
-def test_parse_datetime_rejects_garbage() -> None:
-    with pytest.raises(ToolInputError, match="expiration"):
-        parse_datetime("soon", field="expiration")
+@pytest.mark.parametrize(
+    ("parse", "field"), [(parse_date, "created"), (parse_datetime, "expiration")]
+)
+def test_a_date_that_is_not_iso_names_the_field_it_came_from(
+    parse: Callable[..., object], field: str
+) -> None:
+    with pytest.raises(ToolInputError, match=field):
+        parse("last tuesday", field=field)
 
 
 def test_translate_error_prefers_the_most_specific_match() -> None:
@@ -240,7 +226,6 @@ def test_tool_result_error_is_not_swallowed_by_the_error_map() -> None:
     }
 
 
-@pytest.mark.asyncio
 async def test_safe_tool_translates_known_exception() -> None:
     @safe_tool
     async def tool() -> dict[str, Any]:
@@ -251,7 +236,6 @@ async def test_safe_tool_translates_known_exception() -> None:
     assert "42" in result["cause"]
 
 
-@pytest.mark.asyncio
 async def test_safe_tool_translates_tool_input_error() -> None:
     @safe_tool
     async def tool() -> dict[str, Any]:
@@ -262,7 +246,6 @@ async def test_safe_tool_translates_tool_input_error() -> None:
     assert result["cause"] == "limit must be positive"
 
 
-@pytest.mark.asyncio
 async def test_safe_tool_reraises_unknown_exception() -> None:
     @safe_tool
     async def tool() -> dict[str, Any]:
@@ -272,7 +255,6 @@ async def test_safe_tool_reraises_unknown_exception() -> None:
         await tool()
 
 
-@pytest.mark.asyncio
 async def test_safe_tool_passes_through_normal_result() -> None:
     @safe_tool
     async def tool() -> dict[str, Any]:
