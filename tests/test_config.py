@@ -2,31 +2,35 @@
 
 from __future__ import annotations
 
+from dataclasses import fields
+from pathlib import Path
+
 import pytest
 
 from paperless_mcp.__main__ import build_parser, main, resolve_settings
-from paperless_mcp.config import ConfigError, Settings, load_settings
-
-_ALL_ENV = (
-    "PAPERLESS_URL",
-    "PAPERLESS_TOKEN",
-    "PAPERLESS_MCP_TRANSPORT",
-    "PAPERLESS_MCP_AUTH_TOKEN",
-    "PAPERLESS_MCP_HOST",
-    "PAPERLESS_MCP_PORT",
-    "PAPERLESS_MCP_READONLY",
-    "PAPERLESS_MCP_ENABLE_DELETE",
-    "PAPERLESS_MCP_MAX_FILE_BYTES",
-    "PAPERLESS_MCP_VERIFY_SSL",
-    "PAPERLESS_MCP_TIMEOUT",
-    "PAPERLESS_MCP_LOG_LEVEL",
+from paperless_mcp.config import (
+    _ENV_SETTINGS,
+    ENV_VARS,
+    ConfigError,
+    Settings,
+    load_settings,
 )
+
+#: Derived, so a new setting cannot be added without this fixture clearing it.
+#: Hand-listing it here is how PAPERLESS_MCP_NAME_CACHE_TTL came to be missed.
+_ALL_ENV = ENV_VARS
 
 
 @pytest.fixture
 def clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
     for name in _ALL_ENV:
         monkeypatch.delenv(name, raising=False)
+
+
+@pytest.fixture
+def configured(monkeypatch: pytest.MonkeyPatch, clean_env: None) -> None:
+    monkeypatch.setenv("PAPERLESS_URL", "http://x")
+    monkeypatch.setenv("PAPERLESS_TOKEN", "y")
 
 
 def test_load_settings_minimal(monkeypatch: pytest.MonkeyPatch, clean_env: None) -> None:
@@ -190,3 +194,125 @@ def test_cli_parser_exposes_the_documented_flags() -> None:
         "log_level",
         "env_file",
     } <= options
+
+
+def test_a_cli_flag_wins_over_an_unparsable_environment_variable(
+    monkeypatch: pytest.MonkeyPatch, configured: None
+) -> None:
+    """The flag overrides the variable, so the variable is never parsed.
+
+    Parsing every source eagerly made this abort with "must be an integer",
+    contradicting --help's promise that flags win over the environment.
+    """
+    monkeypatch.setenv("PAPERLESS_MCP_PORT", "abc")
+    assert resolve_settings(["--port", "9000", "--env-file", "/nonexistent"]).port == 9000
+
+
+def test_an_unparsable_variable_still_fails_when_nothing_overrides_it(
+    monkeypatch: pytest.MonkeyPatch, configured: None
+) -> None:
+    monkeypatch.setenv("PAPERLESS_MCP_PORT", "abc")
+    with pytest.raises(ConfigError, match="must be an integer"):
+        load_settings()
+
+
+@pytest.mark.parametrize(
+    ("overrides", "field", "expected"),
+    [
+        ({"readonly": "false"}, "readonly", False),
+        ({"readonly": "no"}, "readonly", False),
+        ({"readonly": True}, "readonly", True),
+        ({"verify_ssl": "off"}, "verify_ssl", False),
+        ({"port": "1234"}, "port", 1234),
+        ({"request_timeout": "2.5"}, "request_timeout", 2.5),
+        ({"log_level": "debug"}, "log_level", "DEBUG"),
+        ({"transport": "HTTP"}, "transport", "http"),
+        # An already-typed value passes through rather than round-tripping
+        # through str(), which is what a CLI flag always supplies.
+        ({"port": 1234}, "port", 1234),
+        ({"request_timeout": 2.5}, "request_timeout", 2.5),
+        ({"name_cache_ttl": 15}, "name_cache_ttl", 15.0),
+        ({"auth_token": "  shared-secret  "}, "auth_token", "shared-secret"),
+        # An empty token means "no authentication", the same as an unset one.
+        ({"auth_token": "   "}, "auth_token", None),
+    ],
+)
+def test_an_override_is_parsed_like_an_environment_value(
+    configured: None, overrides: dict[str, object], field: str, expected: object
+) -> None:
+    """``bool("false")`` is True, so re-coercing an override inverted it."""
+    assert getattr(load_settings(overrides), field) == expected
+
+
+def test_an_empty_auth_token_variable_means_no_authentication(
+    monkeypatch: pytest.MonkeyPatch, configured: None
+) -> None:
+    """.env ships PAPERLESS_MCP_AUTH_TOKEN= as the documented way to opt out."""
+    monkeypatch.setenv("PAPERLESS_MCP_AUTH_TOKEN", "")
+    assert load_settings().auth_token is None
+    monkeypatch.setenv("PAPERLESS_MCP_AUTH_TOKEN", " shared-secret ")
+    assert load_settings().auth_token == "shared-secret"
+
+
+def test_a_key_that_is_not_a_setting_is_refused(configured: None) -> None:
+    """A typo used to be dropped silently, leaving the default in place."""
+    with pytest.raises(ConfigError, match="Not a setting: reedonly"):
+        load_settings({"reedonly": True})
+
+
+def test_vars_aliases_the_namespace_so_the_overrides_must_be_a_copy() -> None:
+    """Pins why resolve_settings builds a dict instead of popping env_file.
+
+    ``vars(args)`` *is* ``args.__dict__``, so removing a key from it deletes the
+    parsed attribute. ``resolve_settings`` reads ``args.env_file`` after building
+    the overrides, which a pop would have made impossible.
+    """
+    args = build_parser().parse_args(["--env-file", "/nonexistent"])
+    assert vars(args) is args.__dict__
+
+
+@pytest.mark.parametrize(
+    ("variable", "value", "message"),
+    [
+        ("PAPERLESS_MCP_PORT", "abc", "must be an integer"),
+        ("PAPERLESS_MCP_PORT", "-1", "0-65535"),
+        ("PAPERLESS_MCP_TIMEOUT", "fast", "must be a number"),
+        ("PAPERLESS_MCP_TIMEOUT", "0", "TIMEOUT must be positive"),
+        ("PAPERLESS_MCP_MAX_FILE_BYTES", "0", "MAX_FILE_BYTES must be positive"),
+        ("PAPERLESS_MCP_NAME_CACHE_TTL", "-1", "must not be negative"),
+        ("PAPERLESS_MCP_LOG_LEVEL", "chatty", "Unknown log level"),
+        ("PAPERLESS_MCP_READONLY", "maybe", "must be a boolean"),
+    ],
+)
+def test_a_bad_value_names_the_variable_and_the_expectation(
+    monkeypatch: pytest.MonkeyPatch, configured: None, variable: str, value: str, message: str
+) -> None:
+    """These messages are what an operator sees for a broken .env."""
+    monkeypatch.setenv(variable, value)
+    with pytest.raises(ConfigError, match=message):
+        load_settings()
+
+
+def test_every_setting_is_reachable_from_the_environment() -> None:
+    """The settings table and the dataclass are one list, or the env misses a knob."""
+    required = {"paperless_url", "paperless_token"}
+    assert {setting.field for setting in _ENV_SETTINGS} | required == {
+        field.name for field in fields(Settings)
+    }
+
+
+def test_a_settings_default_is_declared_once() -> None:
+    """Both the dataclass field and the settings table must read one constant."""
+    defaults = {
+        field.name: field.default for field in fields(Settings) if field.name not in _REQUIRED
+    }
+    assert {setting.field: setting.default for setting in _ENV_SETTINGS} == defaults
+
+
+_REQUIRED = ("paperless_url", "paperless_token")
+
+
+def test_env_example_documents_every_variable() -> None:
+    """CLAUDE.md: anything user-facing lands in .env.example in the same change."""
+    text = (Path(__file__).parent.parent / ".env.example").read_text(encoding="utf-8")
+    assert [name for name in ENV_VARS if f"{name}=" not in text] == []

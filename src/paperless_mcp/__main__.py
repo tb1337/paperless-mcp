@@ -5,25 +5,25 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
-from typing import Any
+import textwrap
 
 from dotenv import load_dotenv
 
 from . import __version__
-from .config import ConfigError, Settings, load_settings
+from .config import ENV_VARS, LOG_LEVELS, TRANSPORTS, ConfigError, Settings, load_settings
 from .server import configure_logging, serve
 
-EPILOG = """\
+# The variable list is generated: hand-listing it here is how it drifts out of
+# step with the settings table it documents.
+EPILOG = f"""\
 By default the server speaks the stdio transport, which is what Claude Desktop
 and other MCP clients use when they launch it as a subprocess. Pass
 --transport http to expose it on the network instead.
 
-Every flag has an environment-variable equivalent (PAPERLESS_URL,
-PAPERLESS_TOKEN, PAPERLESS_MCP_TRANSPORT, PAPERLESS_MCP_HOST,
-PAPERLESS_MCP_PORT, PAPERLESS_MCP_AUTH_TOKEN, PAPERLESS_MCP_READONLY,
-PAPERLESS_MCP_ENABLE_DELETE, PAPERLESS_MCP_MAX_FILE_BYTES,
-PAPERLESS_MCP_VERIFY_SSL, PAPERLESS_MCP_TIMEOUT, PAPERLESS_MCP_NAME_CACHE_TTL,
-PAPERLESS_MCP_LOG_LEVEL); flags win over the environment.
+Every flag has an environment-variable equivalent; flags win over the
+environment, including over a variable that cannot be parsed:
+
+{textwrap.fill(", ".join(ENV_VARS), width=76)}
 """
 
 
@@ -38,7 +38,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"paperless-mcp {__version__}")
     parser.add_argument(
         "--transport",
-        choices=("stdio", "http"),
+        choices=TRANSPORTS,
         default=None,
         help="Transport to serve (default: stdio).",
     )
@@ -96,7 +96,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--log-level",
-        choices=("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"),
+        choices=LOG_LEVELS,
         help="Log verbosity (logs always go to stderr).",
     )
     parser.add_argument(
@@ -110,11 +110,11 @@ def build_parser() -> argparse.ArgumentParser:
 def resolve_settings(argv: list[str] | None = None) -> Settings:
     """Parse *argv*, load the dotenv file, and resolve the effective settings."""
     args = build_parser().parse_args(argv)
-    overrides: dict[str, Any] = vars(args)
-    env_file = overrides.pop("env_file", None)
     # Never override a variable the MCP client passed in explicitly.
-    load_dotenv(env_file, override=False)
-    return load_settings(overrides)
+    load_dotenv(args.env_file, override=False)
+    # vars() hands back the Namespace's own __dict__, so the overrides are built
+    # as a copy rather than by popping env_file out of the parsed arguments.
+    return load_settings({key: value for key, value in vars(args).items() if key != "env_file"})
 
 
 def main(argv: list[str] | None = None) -> int:
