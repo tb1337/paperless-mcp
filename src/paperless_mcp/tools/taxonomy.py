@@ -6,7 +6,7 @@ signatures, so the MCP JSON schemas stay tight and LLM-friendly.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from functools import partial
 from typing import Any
 
@@ -25,8 +25,9 @@ from ..formatting import (
     format_storage_path,
     format_tag,
 )
+from ..resources import BULK_OBJECTS
 from ._errors import ToolInputError
-from ._paging import Filterable, page_result, paginate
+from ._paging import page_result, paginate
 from ._registry import delete_tool, read_tool, register_tools, write_tool
 from ._relations import resolve_relations
 
@@ -90,17 +91,6 @@ def _apply(obj: Any, values: dict[str, Any]) -> None:
 def _name_filters(name_contains: str | None) -> dict[str, Any]:
     return {"name__icontains": name_contains} if name_contains else {}
 
-
-#: The four resources ``/api/bulk_edit_objects/`` accepts, each mapped to the
-#: relation ``_relations`` resolves its members under and to the service that
-#: lists it. Custom fields are not among them: the endpoint has no branch for
-#: them at all, so ``delete_custom_field`` stays the only way to remove one.
-_BULK_OBJECTS: Mapping[str, tuple[str, Callable[[PaperlessClient], Filterable]]] = {
-    "tags": ("tag", lambda paperless: paperless.tags),
-    "correspondents": ("correspondent", lambda paperless: paperless.correspondents),
-    "document_types": ("document_type", lambda paperless: paperless.document_types),
-    "storage_paths": ("storage_path", lambda paperless: paperless.storage_paths),
-}
 
 #: Filter argument -> lookup, for the ones every object type understands. All
 #: four are the case-insensitive variants, because that is all the FilterSets
@@ -596,11 +586,11 @@ async def bulk_delete_objects(
     before the delete went out. For ``tags`` it can understate: Paperless
     also removes the descendants of every matched tag.
     """
-    if object_type not in _BULK_OBJECTS:
+    if object_type not in BULK_OBJECTS:
         raise ToolInputError(
-            f"object_type must be one of {sorted(_BULK_OBJECTS)}, got {object_type!r}"
+            f"object_type must be one of {sorted(BULK_OBJECTS)}, got {object_type!r}"
         )
-    relation, service_of = _BULK_OBJECTS[object_type]
+    resource = BULK_OBJECTS[object_type]
     filters = _bulk_filters(
         object_type,
         names={
@@ -616,7 +606,7 @@ async def bulk_delete_objects(
     # deleted and the rest refused.
     object_ids = await resolve_relations(
         ctx,
-        field=relation,
+        field=resource.singular,
         pks=object_ids,
         names=object_names,
         id_field="object_ids",
@@ -633,7 +623,7 @@ async def bulk_delete_objects(
         # limit=0 still costs one request and reports the server's match
         # count, which is the only feedback there is: the endpoint answers a
         # filtered delete with a bare "OK".
-        _, matched = await paginate(service_of(paperless), filters, offset=0, limit=0)
+        _, matched = await paginate(resource.service(paperless), filters, offset=0, limit=0)
         if not matched:
             raise ToolInputError(
                 f"No {object_type} match {filters} — nothing was deleted. "

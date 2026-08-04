@@ -15,25 +15,13 @@ works as a checksum rather than hiding a disagreement.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
-
 from ..client import ToolContext, get_names, invalidate_names
-from ..names import NameLookup, NameMap
+from ..names import NameLookup
+from ..resources import RELATIONS
 from ._errors import ToolInputError
 
 #: How many candidates an unknown-name error lists before it stops.
 _MAX_SUGGESTIONS = 10
-
-type _Lookup = Callable[[NameMap], NameLookup]
-
-#: Relation, spelled as the tool arguments spell it, mapped to its ``id -> name``
-#: lookup and to the tool that lists the resource in full.
-_RELATIONS: Mapping[str, tuple[_Lookup, str]] = {
-    "correspondent": (lambda names: names.correspondents, "list_correspondents"),
-    "document_type": (lambda names: names.document_types, "list_document_types"),
-    "storage_path": (lambda names: names.storage_paths, "list_storage_paths"),
-    "tag": (lambda names: names.tags, "list_tags"),
-}
 
 
 def _labelled(lookup: NameLookup, pks: list[int]) -> list[str]:
@@ -80,8 +68,8 @@ async def _resolve_name(ctx: ToolContext, *, field: str, name: str) -> int:
     Raises:
         ToolInputError: When no entry carries the name, or several do.
     """
-    lookup, list_tool = _RELATIONS[field]
-    match = _match(lookup(await get_names(ctx)), name, field=field)
+    list_tool = RELATIONS[field].list_tool
+    match = _match(RELATIONS[field].lookup(await get_names(ctx)), name, field=field)
     if match is not None:
         return match
 
@@ -89,7 +77,7 @@ async def _resolve_name(ctx: ToolContext, *, field: str, name: str) -> int:
     # the object was created elsewhere since it was taken. One reload settles
     # that; what is still missing afterwards does not exist.
     invalidate_names(ctx)
-    fresh = lookup(await get_names(ctx))
+    fresh = RELATIONS[field].lookup(await get_names(ctx))
     match = _match(fresh, name, field=field)
     if match is None:
         suggestions = _candidates(fresh, name)
