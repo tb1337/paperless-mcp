@@ -7,8 +7,12 @@ from typing import Any
 
 import httpx
 import pytest
+from pypaperless.cache import PaperlessCache
 from pypaperless.exceptions import ForbiddenError, ItemNotFoundError
+from pypaperless.models.statistics import Statistic
 from pypaperless.models.status import Status
+from pypaperless.runtime import PaperlessRuntime
+from pypaperless.transport import PaperlessTransport
 
 from paperless_mcp import __version__
 from tests.conftest import FakeService, build_mcp, call_tool, make_settings
@@ -32,20 +36,25 @@ async def test_get_paperless_info_returns_version_metadata(make_paperless: Any) 
 
 @pytest.mark.asyncio
 async def test_get_statistics_serializes_pydantic_model(make_paperless: Any) -> None:
-    class _Stats:
-        def model_dump(self, mode: str = "python") -> dict[str, int]:
-            return {"documents_total": 42, "documents_inbox": 3}
+    """Built from the real Statistic model, not a stand-in that only quacks.
 
+    ``safe_dump`` dispatches on ``BaseModel``, so a duck-typed fake carrying only
+    a ``model_dump`` method would take the ``str(obj)`` fallback here and prove
+    nothing about the endpoint this tool actually calls.
+    """
     paperless = make_paperless()
+    runtime = PaperlessRuntime(PaperlessTransport("http://test", "t"), PaperlessCache())
+    stats = Statistic.from_data(runtime, {"documents_total": 42, "documents_inbox": 3})
 
     async def _stats() -> Any:
-        return _Stats()
+        return stats
 
     paperless.statistics = _stats
     mcp = build_mcp(make_settings(), paperless)
 
     result = await call_tool(mcp, "get_statistics")
-    assert result == {"documents_total": 42, "documents_inbox": 3}
+    assert result["documents_total"] == 42
+    assert result["documents_inbox"] == 3
 
 
 @pytest.mark.asyncio

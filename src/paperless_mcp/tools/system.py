@@ -10,7 +10,7 @@ from mcp.server.mcpserver import MCPServer
 from .. import __version__
 from ..client import ToolContext, get_client, get_names, get_settings
 from ..config import Settings
-from ..formatting import format_document, format_saved_view, safe_dump, summarize_status
+from ..formatting import dump_mapping, format_document, format_saved_view, summarize_status
 from ._helpers import page_result, paginate, read_tool, safe_tool
 from ._saved_view_filters import translate_filter_rules, view_ordering
 
@@ -39,8 +39,7 @@ def register(mcp: MCPServer, settings: Settings) -> None:
         """Return aggregate statistics: document totals, inbox count, file types."""
         paperless = await get_client(ctx)
         stats = await paperless.statistics()
-        dumped = safe_dump(stats)
-        return dumped if isinstance(dumped, dict) else {"statistics": dumped}
+        return dump_mapping(stats, key="statistics")
 
     @read_tool(mcp)
     @safe_tool
@@ -58,9 +57,7 @@ def register(mcp: MCPServer, settings: Settings) -> None:
         """
         paperless = await get_client(ctx)
         status = await paperless.status()
-        dumped = safe_dump(status)
-        payload = dumped if isinstance(dumped, dict) else {"status": dumped}
-        return {**summarize_status(status), **payload}
+        return {**summarize_status(status), **dump_mapping(status, key="status")}
 
     @read_tool(mcp)
     @safe_tool

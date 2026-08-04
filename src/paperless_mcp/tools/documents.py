@@ -14,12 +14,12 @@ from pypaperless.exceptions import PaperlessError
 from ..client import ToolContext, get_client, get_names, get_settings
 from ..config import Settings
 from ..formatting import (
+    dump_mapping,
     format_document,
     format_document_detail,
     format_history_entry,
     format_note,
     format_task,
-    safe_dump,
 )
 from ..names import cached_custom_fields
 from ._custom_field_query import build_custom_field_query
@@ -356,8 +356,7 @@ def _register_reads(mcp: MCPServer) -> None:
         """Return file-level metadata (checksums, sizes, original filename, ...)."""
         paperless = await get_client(ctx)
         meta = await paperless.documents.metadata(document_id)
-        dumped = safe_dump(meta)
-        return dumped if isinstance(dumped, dict) else {"metadata": dumped}
+        return dump_mapping(meta, key="metadata")
 
     @read_tool(mcp)
     @safe_tool
