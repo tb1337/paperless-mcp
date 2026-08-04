@@ -9,7 +9,7 @@ import pytest
 from pypaperless.models import CustomField
 
 from paperless_mcp.tools._custom_field_query import build_custom_field_query
-from paperless_mcp.tools._helpers import ToolInputError
+from paperless_mcp.tools._errors import ToolInputError
 from tests.conftest import make_runtime
 
 _RUNTIME = make_runtime()

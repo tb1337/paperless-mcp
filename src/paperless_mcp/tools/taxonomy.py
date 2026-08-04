@@ -25,16 +25,9 @@ from ..formatting import (
     format_storage_path,
     format_tag,
 )
-from ._helpers import (
-    Filterable,
-    ToolInputError,
-    delete_tool,
-    page_result,
-    paginate,
-    read_tool,
-    safe_tool,
-    write_tool,
-)
+from ._errors import ToolInputError, safe_tool
+from ._paging import Filterable, page_result, paginate
+from ._registry import delete_tool, read_tool, write_tool
 from ._relations import resolve_relations
 
 #: Paperless requires the full matching triple on create; these are the

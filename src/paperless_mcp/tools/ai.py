@@ -9,7 +9,8 @@ from mcp.server.mcpserver import MCPServer
 from ..client import ToolContext, get_client, get_names
 from ..config import Settings
 from ..formatting import enrich_suggestions, safe_dump
-from ._helpers import read_tool, safe_tool
+from ._errors import safe_tool
+from ._registry import read_tool
 
 
 def register(mcp: MCPServer, _settings: Settings) -> None:

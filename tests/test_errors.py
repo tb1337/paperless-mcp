@@ -1,0 +1,103 @@
+"""Structured errors: what a tool answers with instead of raising."""
+
+from __future__ import annotations
+
+import inspect
+from typing import Any
+
+import httpx
+import pytest
+from pypaperless.exceptions import ItemNotFoundError, NotFoundError, PaperlessTimeoutError
+
+from paperless_mcp.tools._errors import (
+    ToolInputError,
+    ToolResultError,
+    safe_tool,
+    translate_error,
+)
+
+
+def test_translate_error_prefers_the_most_specific_match() -> None:
+    # PaperlessTimeoutError subclasses PaperlessConnectionError, so ordering in
+    # the map is what decides which entry wins.
+    translated = translate_error(PaperlessTimeoutError())
+    assert translated is not None
+    assert translated["error"] == "timeout"
+
+
+def test_translate_error_maps_a_404_to_not_found() -> None:
+    translated = translate_error(_not_found())
+    assert translated is not None
+    assert translated["error"] == "not_found"
+
+
+def test_translate_error_returns_none_for_foreign_exceptions() -> None:
+    assert translate_error(RuntimeError("boom")) is None
+
+
+def test_translate_error_returns_a_tool_result_error_payload_verbatim() -> None:
+    translated = translate_error(ToolResultError("file_too_large", "Too big.", size_bytes=9))
+    assert translated == {"error": "file_too_large", "detail": "Too big.", "size_bytes": 9}
+
+
+def test_tool_result_error_is_not_swallowed_by_the_error_map() -> None:
+    # It is checked before the map, so a future entry matching Exception cannot
+    # replace the carried payload with a generic one.
+    assert translate_error(ToolResultError("boom", "Detail.")) == {
+        "error": "boom",
+        "detail": "Detail.",
+    }
+
+
+async def test_safe_tool_translates_known_exception() -> None:
+    @safe_tool
+    async def tool() -> dict[str, Any]:
+        raise ItemNotFoundError("doc 42 not found")
+
+    result = await tool()
+    assert result["error"] == "not_found"
+    assert "42" in result["cause"]
+
+
+async def test_safe_tool_translates_tool_input_error() -> None:
+    @safe_tool
+    async def tool() -> dict[str, Any]:
+        raise ToolInputError("limit must be positive")
+
+    result = await tool()
+    assert result["error"] == "invalid_argument"
+    assert result["cause"] == "limit must be positive"
+
+
+async def test_safe_tool_reraises_unknown_exception() -> None:
+    @safe_tool
+    async def tool() -> dict[str, Any]:
+        raise RuntimeError("boom")
+
+    with pytest.raises(RuntimeError):
+        await tool()
+
+
+async def test_safe_tool_passes_through_normal_result() -> None:
+    @safe_tool
+    async def tool() -> dict[str, Any]:
+        return {"ok": True}
+
+    assert await tool() == {"ok": True}
+
+
+def test_safe_tool_preserves_the_wrapped_signature() -> None:
+    """MCPServer derives each tool's schema from the signature, so it must survive."""
+
+    @safe_tool
+    async def tool(document_id: int, title: str | None = None) -> dict[str, Any]:
+        """Doc."""
+        return {}
+
+    assert list(inspect.signature(tool).parameters) == ["document_id", "title"]
+    assert tool.__doc__ == "Doc."
+
+
+def _not_found() -> NotFoundError:
+    request = httpx.Request("GET", "http://test/api/documents/")
+    return NotFoundError(httpx.Response(404, request=request))

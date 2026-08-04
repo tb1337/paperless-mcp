@@ -19,7 +19,7 @@ from collections.abc import Callable, Mapping
 
 from ..client import ToolContext, get_names, invalidate_names
 from ..names import NameLookup, NameMap
-from ._helpers import ToolInputError
+from ._errors import ToolInputError
 
 #: How many candidates an unknown-name error lists before it stops.
 _MAX_SUGGESTIONS = 10
