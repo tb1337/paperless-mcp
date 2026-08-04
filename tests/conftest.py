@@ -12,13 +12,18 @@ import math
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 import httpx
 import pytest
-from mcp.server.mcpserver import MCPServer
+from mcp.server.lowlevel.server import ServerRequestContext
+from mcp.server.mcpserver import Context, MCPServer
+from mcp.types import LATEST_PROTOCOL_VERSION, CallToolResult, TextContent
 from pypaperless.cache import PaperlessCache
 from pypaperless.exceptions import NotFoundError
+
+if TYPE_CHECKING:
+    from mcp.server.session import ServerSession
 
 from paperless_mcp.client import CLIENT_KEY, SETTINGS_KEY
 from paperless_mcp.config import Settings
@@ -339,27 +344,46 @@ async def call_tool(mcp: MCPServer, tool_name: str, /, **kwargs: Any) -> Any:
         return await call(tool_name, **kwargs)
 
 
-def parse_tool_result(result: Any) -> Any:
-    """Decode an MCPServer call_tool() return into a structured payload."""
-    if isinstance(result, tuple) and len(result) == 2:
-        content, structured = result
-        if structured is not None:
-            return structured
-        result = content
-    if hasattr(result, "structured_content") and result.structured_content is not None:
+def parse_tool_result(result: CallToolResult) -> Any:
+    """Decode a ``CallToolResult`` the way a client would read it.
+
+    Structured output wins when the SDK produced any; otherwise the single
+    ``TextContent`` block carries the JSON. A result whose content is not text -
+    an image - is handed back as the content list, because there is nothing to
+    decode.
+    """
+    if result.structured_content is not None:
         return result.structured_content
-    if hasattr(result, "content"):
-        result = result.content
-    if isinstance(result, list) and result:
-        first = result[0]
-        text = getattr(first, "text", None)
-        if text is None:
-            return first
-        try:
-            return json.loads(text)
-        except json.JSONDecodeError:
-            return text
-    return result
+    if len(result.content) == 1 and isinstance(result.content[0], TextContent):
+        return json.loads(result.content[0].text)
+    return result.content
+
+
+async def invoke_tool(mcp: MCPServer, tool_name: str, /, **kwargs: Any) -> CallToolResult:
+    """Call a tool through MCPServer's own pipeline and return the raw result.
+
+    Unlike :func:`call_tool`, this does not reach past the server to the tool
+    function: the arguments go through the published JSON schema and the return
+    value through the SDK's result conversion. That is the only way to see what a
+    client actually receives - including whether an ``Image`` survives, and
+    whether a tool annotated ``-> Image`` can still report an error.
+
+    Raises:
+        ToolError: When the arguments do not satisfy the tool's schema. A schema
+            rejection never becomes a ``CallToolResult``; the lowlevel request
+            handler one layer up is what turns it into an error response.
+    """
+    async with mcp._lowlevel_server.lifespan(mcp._lowlevel_server) as lifespan_ctx:
+        request_context = ServerRequestContext(
+            # The tools read nothing but `lifespan_context` off this, and a real
+            # ServerSession needs a live transport pair to exist.
+            session=cast("ServerSession", SimpleNamespace()),
+            lifespan_context=lifespan_ctx,
+            protocol_version=LATEST_PROTOCOL_VERSION,
+            method="tools/call",
+        )
+        context: Any = Context(request_context=request_context, mcp_server=mcp)
+        return await mcp.call_tool(tool_name, kwargs, context)
 
 
 @pytest.fixture
