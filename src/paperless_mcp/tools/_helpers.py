@@ -392,7 +392,13 @@ def page_result(
     **extra: Any,
 ) -> dict[str, Any]:
     """Build the uniform envelope every list-shaped tool returns."""
-    has_more = (offset + len(items)) < total if total is not None else len(items) == limit
+    if total is not None:
+        has_more = (offset + len(items)) < total
+    else:
+        # Without a server-reported count, a full window is the only hint that
+        # more may follow. `items` has to be non-empty for that: `limit=0`
+        # returns nothing and would otherwise claim there is more.
+        has_more = bool(items) and len(items) == limit
     return {
         key: [formatter(item) for item in items],
         "returned": len(items),
