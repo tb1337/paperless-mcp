@@ -11,87 +11,87 @@ from ..client import ToolContext, get_client
 from ..config import Settings
 from ..formatting import format_share_link
 from ._dates import parse_datetime
-from ._errors import ToolInputError, safe_tool
+from ._errors import ToolInputError
 from ._paging import page_result, paginate, window
-from ._registry import delete_tool, read_tool, write_tool
+from ._registry import delete_tool, read_tool, register_tools, write_tool
 
 _FILE_VERSIONS = ("archive", "original")
 
 
-def register(mcp: MCPServer, settings: Settings) -> None:
-    """Register share-link tools."""
+async def list_share_links(
+    ctx: ToolContext,
+    document_id: int | None = None,
+    offset: int = 0,
+    limit: int = 50,
+) -> dict[str, Any]:
+    """List share links, optionally only those of a single document."""
+    paperless = await get_client(ctx)
+    items: list[Any]
+    total: int | None
+    if document_id is not None:
+        # The share-links collection has no document filter; Paperless
+        # exposes a dedicated per-document endpoint instead.
+        links = await paperless.documents.share_links(document_id)
+        items, total = window(list(links), offset=offset, limit=limit)
+    else:
+        items, total = await paginate(paperless.share_links, offset=offset, limit=limit)
+    return page_result(
+        "share_links",
+        items,
+        offset=offset,
+        limit=limit,
+        total=total,
+        formatter=format_share_link,
+        document_id=document_id,
+    )
 
-    @read_tool(mcp)
-    @safe_tool
-    async def list_share_links(
-        ctx: ToolContext,
-        document_id: int | None = None,
-        offset: int = 0,
-        limit: int = 50,
-    ) -> dict[str, Any]:
-        """List share links, optionally only those of a single document."""
-        paperless = await get_client(ctx)
-        items: list[Any]
-        total: int | None
-        if document_id is not None:
-            # The share-links collection has no document filter; Paperless
-            # exposes a dedicated per-document endpoint instead.
-            links = await paperless.documents.share_links(document_id)
-            items, total = window(list(links), offset=offset, limit=limit)
-        else:
-            items, total = await paginate(paperless.share_links, offset=offset, limit=limit)
-        return page_result(
-            "share_links",
-            items,
-            offset=offset,
-            limit=limit,
-            total=total,
-            formatter=format_share_link,
-            document_id=document_id,
+
+async def create_share_link(
+    ctx: ToolContext,
+    document_id: int,
+    expiration: str | None = None,
+    file_version: str = "archive",
+) -> dict[str, Any]:
+    """Create a publicly reachable share link for a document.
+
+    Anyone holding the returned slug can fetch the file without logging
+    in, so prefer setting ``expiration`` (an ISO datetime) — omitting it
+    creates a link that never expires. ``file_version`` is ``archive``
+    (the OCR'd PDF) or ``original``.
+    """
+    if file_version not in _FILE_VERSIONS:
+        raise ToolInputError(
+            f"file_version must be one of {list(_FILE_VERSIONS)}, got {file_version!r}"
         )
+    paperless = await get_client(ctx)
+    draft = paperless.share_links.create(
+        document=document_id,
+        file_version=ShareLinkFileVersion(file_version),
+        expiration=(
+            parse_datetime(expiration, field="expiration") if expiration is not None else None
+        ),
+    )
+    new_id = await paperless.share_links.save(draft)
+    link = await paperless.share_links(new_id)
+    return {"share_link": format_share_link(link)}
 
-    if settings.expose_writes:
 
-        @write_tool(mcp, destructive=False, idempotent=False)
-        @safe_tool
-        async def create_share_link(
-            ctx: ToolContext,
-            document_id: int,
-            expiration: str | None = None,
-            file_version: str = "archive",
-        ) -> dict[str, Any]:
-            """Create a publicly reachable share link for a document.
+async def delete_share_link(ctx: ToolContext, share_link_id: int) -> dict[str, Any]:
+    """Delete a share link, revoking public access to that document."""
+    paperless = await get_client(ctx)
+    obj = await paperless.share_links(share_link_id, lazy=True)
+    await paperless.share_links.delete(obj)
+    return {"share_link_id": share_link_id, "deleted": True}
 
-            Anyone holding the returned slug can fetch the file without logging
-            in, so prefer setting ``expiration`` (an ISO datetime) — omitting it
-            creates a link that never expires. ``file_version`` is ``archive``
-            (the OCR'd PDF) or ``original``.
-            """
-            if file_version not in _FILE_VERSIONS:
-                raise ToolInputError(
-                    f"file_version must be one of {list(_FILE_VERSIONS)}, got {file_version!r}"
-                )
-            paperless = await get_client(ctx)
-            draft = paperless.share_links.create(
-                document=document_id,
-                file_version=ShareLinkFileVersion(file_version),
-                expiration=(
-                    parse_datetime(expiration, field="expiration")
-                    if expiration is not None
-                    else None
-                ),
-            )
-            new_id = await paperless.share_links.save(draft)
-            link = await paperless.share_links(new_id)
-            return {"share_link": format_share_link(link)}
 
-    if settings.expose_deletes:
-
-        @delete_tool(mcp)
-        @safe_tool
-        async def delete_share_link(ctx: ToolContext, share_link_id: int) -> dict[str, Any]:
-            """Delete a share link, revoking public access to that document."""
-            paperless = await get_client(ctx)
-            obj = await paperless.share_links(share_link_id, lazy=True)
-            await paperless.share_links.delete(obj)
-            return {"share_link_id": share_link_id, "deleted": True}
+def register(mcp: MCPServer, settings: Settings) -> None:
+    """Register the share-link tools this deployment exposes."""
+    register_tools(
+        mcp,
+        settings,
+        (
+            read_tool(list_share_links),
+            write_tool(create_share_link, destructive=False, idempotent=False),
+            delete_tool(delete_share_link),
+        ),
+    )

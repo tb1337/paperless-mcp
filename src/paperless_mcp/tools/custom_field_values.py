@@ -31,9 +31,9 @@ from ..config import Settings
 from ..formatting import safe_dump
 from ..names import cached_custom_field
 from ._dates import parse_date
-from ._errors import ToolInputError, ToolResultError, safe_tool
+from ._errors import ToolInputError, ToolResultError
 from ._paging import paginate
-from ._registry import write_tool
+from ._registry import register_tools, write_tool
 
 #: An amount with an optional ISO 4217 prefix: ``6589``, ``-6589.00``, ``EUR6589.00``.
 _MONETARY = re.compile(r"^(?P<currency>[A-Za-z]{3})?(?P<amount>-?\d+(?:\.\d+)?)$")
@@ -209,123 +209,127 @@ async def _require_documents(paperless: PaperlessClient, document_ids: list[int]
         )
 
 
-def register(mcp: MCPServer, settings: Settings) -> None:
-    """Register the custom field value tools when writes are exposed."""
-    if not settings.expose_writes:
-        return
+async def set_document_custom_field(
+    ctx: ToolContext,
+    document_id: int,
+    custom_field_id: int,
+    value: Any,
+    currency: str | None = None,
+) -> dict[str, Any]:
+    """Set or replace the value of one custom field on a document.
 
-    @write_tool(mcp, destructive=True, idempotent=True)
-    @safe_tool
-    async def set_document_custom_field(
-        ctx: ToolContext,
-        document_id: int,
-        custom_field_id: int,
-        value: Any,
-        currency: str | None = None,
-    ) -> dict[str, Any]:
-        """Set or replace the value of one custom field on a document.
+    This is an upsert: a field the document does not carry yet is added, an
+    existing one has its value replaced. Look ``custom_field_id`` up with
+    ``list_custom_fields`` — its ``data_type`` decides what ``value`` has to
+    be:
 
-        This is an upsert: a field the document does not carry yet is added, an
-        existing one has its value replaced. Look ``custom_field_id`` up with
-        ``list_custom_fields`` — its ``data_type`` decides what ``value`` has to
-        be:
+    - ``string``, ``longtext``, ``url``: a string.
+    - ``date``: an ISO date, ``YYYY-MM-DD``.
+    - ``boolean``: true or false — ``"true"`` and ``1`` are rejected.
+    - ``integer``: a whole number; ``1.0`` is rejected, not rounded.
+    - ``float``: a number.
+    - ``monetary``: a number (``6589``) or a prefixed string
+      (``"EUR6589.00"``). The currency comes from ``currency``, else from
+      the field's ``default_currency``, else ``EUR``; the amount is stored
+      with two decimals.
+    - ``select``: an option ID or its exact label.
+    - ``documentlink``: a list of document IDs.
 
-        - ``string``, ``longtext``, ``url``: a string.
-        - ``date``: an ISO date, ``YYYY-MM-DD``.
-        - ``boolean``: true or false — ``"true"`` and ``1`` are rejected.
-        - ``integer``: a whole number; ``1.0`` is rejected, not rounded.
-        - ``float``: a number.
-        - ``monetary``: a number (``6589``) or a prefixed string
-          (``"EUR6589.00"``). The currency comes from ``currency``, else from
-          the field's ``default_currency``, else ``EUR``; the amount is stored
-          with two decimals.
-        - ``select``: an option ID or its exact label.
-        - ``documentlink``: a list of document IDs.
+    Two traps with ``documentlink``: the list **replaces** the stored one,
+    so adding a link means reading the current list from ``get_document``
+    and sending it back with the new ID appended — otherwise the existing
+    links are dropped. And Paperless maintains the reverse link itself:
+    linking A to B makes B show A, so never set both directions.
 
-        Two traps with ``documentlink``: the list **replaces** the stored one,
-        so adding a link means reading the current list from ``get_document``
-        and sending it back with the new ID appended — otherwise the existing
-        links are dropped. And Paperless maintains the reverse link itself:
-        linking A to B makes B show A, so never set both directions.
+    Nothing is written when the field already holds this value; the result
+    says ``changed: false``. A write rewrites the document's entire custom
+    field array, so a value another client stored between this call's read
+    and its write is lost.
+    """
+    paperless = await get_client(ctx)
+    # Fills pypaperless' custom field cache: without it a drafted value
+    # stays untyped and the document's stored values arrive unenriched.
+    await get_names(ctx)
+    field = _definition(paperless, custom_field_id)
+    draft = _draft_value(field, value, currency)
+    if field.data_type is CustomFieldType.DOCUMENT_LINK:
+        # Called again on the way out: it is what narrows the drafted value
+        # back to the ID list, which the model carries as ``Any``.
+        await _require_documents(paperless, _link_ids(field, draft.value))
 
-        Nothing is written when the field already holds this value; the result
-        says ``changed: false``. A write rewrites the document's entire custom
-        field array, so a value another client stored between this call's read
-        and its write is lost.
-        """
-        paperless = await get_client(ctx)
-        # Fills pypaperless' custom field cache: without it a drafted value
-        # stays untyped and the document's stored values arrive unenriched.
-        await get_names(ctx)
-        field = _definition(paperless, custom_field_id)
-        draft = _draft_value(field, value, currency)
-        if field.data_type is CustomFieldType.DOCUMENT_LINK:
-            # Called again on the way out: it is what narrows the drafted value
-            # back to the ID list, which the model carries as ``Any``.
-            await _require_documents(paperless, _link_ids(field, draft.value))
+    document = await paperless.documents(document_id)
+    fields = document.custom_fields
+    stored = fields.default(custom_field_id) if fields is not None else None
+    result = {
+        "created": stored is None,
+        "document_id": document_id,
+        "custom_field_id": custom_field_id,
+        "field_name": field.name,
+        "data_type": _type_name(field),
+        "previous_value": safe_dump(stored.value) if stored is not None else None,
+        "value": safe_dump(draft.value),
+    }
+    if stored is not None and stored.value == draft.value:
+        return {"changed": False, **result}
 
-        document = await paperless.documents(document_id)
-        fields = document.custom_fields
-        stored = fields.default(custom_field_id) if fields is not None else None
-        result = {
-            "created": stored is None,
-            "document_id": document_id,
-            "custom_field_id": custom_field_id,
-            "field_name": field.name,
-            "data_type": _type_name(field),
-            "previous_value": safe_dump(stored.value) if stored is not None else None,
-            "value": safe_dump(draft.value),
-        }
-        if stored is not None and stored.value == draft.value:
-            return {"changed": False, **result}
+    if fields is None:
+        fields = DocumentCustomFieldList(root=[])
+        document.custom_fields = fields
+    # An upsert, not an append: add() alone would leave a second entry for
+    # the same field in the array.
+    fields.remove(custom_field_id)
+    fields.add(draft)
+    changed = await paperless.documents.update(document)
+    return {"changed": changed, **result}
 
-        if fields is None:
-            fields = DocumentCustomFieldList(root=[])
-            document.custom_fields = fields
-        # An upsert, not an append: add() alone would leave a second entry for
-        # the same field in the array.
-        fields.remove(custom_field_id)
-        fields.add(draft)
-        changed = await paperless.documents.update(document)
-        return {"changed": changed, **result}
 
-    @write_tool(mcp, destructive=True, idempotent=True)
-    @safe_tool
-    async def remove_document_custom_field(
-        ctx: ToolContext, document_id: int, custom_field_id: int
-    ) -> dict[str, Any]:
-        """Remove one custom field's value from a document.
+async def remove_document_custom_field(
+    ctx: ToolContext, document_id: int, custom_field_id: int
+) -> dict[str, Any]:
+    """Remove one custom field's value from a document.
 
-        Only the assignment on this document goes away — the field definition
-        and its values on every other document stay untouched, which is what
-        ``delete_custom_field`` would destroy instead. Removing a
-        ``documentlink`` value also drops the reverse link Paperless keeps on
-        the documents it pointed at.
+    Only the assignment on this document goes away — the field definition
+    and its values on every other document stay untouched, which is what
+    ``delete_custom_field`` would destroy instead. Removing a
+    ``documentlink`` value also drops the reverse link Paperless keeps on
+    the documents it pointed at.
 
-        A field the document does not carry is not an error: the call reports
-        ``removed: false`` and changes nothing.
-        """
-        paperless = await get_client(ctx)
-        await get_names(ctx)
-        document = await paperless.documents(document_id)
-        fields = document.custom_fields
-        stored = fields.default(custom_field_id) if fields is not None else None
-        if fields is None or stored is None:
-            return {
-                "changed": False,
-                "removed": False,
-                "document_id": document_id,
-                "custom_field_id": custom_field_id,
-                "previous_value": None,
-            }
-
-        previous = safe_dump(stored.value)
-        fields.remove(custom_field_id)
-        changed = await paperless.documents.update(document)
+    A field the document does not carry is not an error: the call reports
+    ``removed: false`` and changes nothing.
+    """
+    paperless = await get_client(ctx)
+    await get_names(ctx)
+    document = await paperless.documents(document_id)
+    fields = document.custom_fields
+    stored = fields.default(custom_field_id) if fields is not None else None
+    if fields is None or stored is None:
         return {
-            "changed": changed,
-            "removed": True,
+            "changed": False,
+            "removed": False,
             "document_id": document_id,
             "custom_field_id": custom_field_id,
-            "previous_value": previous,
+            "previous_value": None,
         }
+
+    previous = safe_dump(stored.value)
+    fields.remove(custom_field_id)
+    changed = await paperless.documents.update(document)
+    return {
+        "changed": changed,
+        "removed": True,
+        "document_id": document_id,
+        "custom_field_id": custom_field_id,
+        "previous_value": previous,
+    }
+
+
+def register(mcp: MCPServer, settings: Settings) -> None:
+    """Register the custom field value tools this deployment exposes."""
+    register_tools(
+        mcp,
+        settings,
+        (
+            write_tool(set_document_custom_field, destructive=True, idempotent=True),
+            write_tool(remove_document_custom_field, destructive=True, idempotent=True),
+        ),
+    )
