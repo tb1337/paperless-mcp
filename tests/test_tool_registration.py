@@ -237,6 +237,23 @@ async def test_annotations_go_out_under_their_camel_case_aliases() -> None:
     assert dumped["annotations"] == {"readOnlyHint": True, "openWorldHint": False}
 
 
+def test_no_tool_can_be_registered_unwrapped() -> None:
+    """``register_tools`` applies ``safe_tool``, so no module can forget it.
+
+    That is the point of applying it centrally rather than once per tool: an
+    unwrapped tool turns a Paperless failure into a protocol-level error, which
+    gives the model nothing to recover from. ``functools.wraps`` leaves
+    ``__wrapped__`` behind, so the wrapping is observable.
+    """
+    mcp = build_mcp(make_settings(readonly=False, enable_delete=True))
+    unwrapped = sorted(
+        name
+        for name, tool in mcp._tool_manager._tools.items()
+        if not hasattr(tool.fn, "__wrapped__")
+    )
+    assert unwrapped == []
+
+
 def test_every_tool_receives_the_lifespan_context() -> None:
     """MCPServer injects ``ctx`` only when it recognises the annotation.
 

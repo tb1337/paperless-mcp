@@ -17,8 +17,9 @@ in-process it is `build_mcp(settings)` / `serve(settings)` in `server.py`.
     `tools/__init__.py` calls them all from `register_all()`
   - `tools/_errors.py` — `safe_tool` (exception → structured error), the ordered `_ERROR_MAP`,
     `ToolInputError`, `ToolResultError`
-  - `tools/_registry.py` — registration decorators (`read_tool`, `write_tool`, `delete_tool`)
-    and the `humanize()` that derives each display title
+  - `tools/_registry.py` — `ToolSpec` plus the three factories that build one (`read_tool`,
+    `write_tool`, `delete_tool`), `register_tools()` which applies `safe_tool` and the
+    visibility gate, and the `humanize()` that derives each display title
   - `tools/_dates.py` — `parse_date` / `parse_datetime` for the ISO arguments
   - `tools/_paging.py` — `paginate` / `page_result` (offset/limit → Paperless pages), `window`
     for the endpoints that answer with a bare list, and the `Page` / `Filterable` protocols
@@ -104,13 +105,19 @@ breaking change and gets the `breaking-change` label.
 - **Explicit signatures, never `**kwargs`.** The signature becomes the JSON schema the model sees;
   that schema plus the docstring is the only documentation it ever gets. Spell out every parameter
   with a type, and describe the non-obvious ones in the docstring body.
-- **Register through `read_tool` / `write_tool` / `delete_tool`**, never a bare `@mcp.tool()`.
-  Those helpers attach the MCP annotations and derive the display title from the function name, so
-  the hints stay consistent across 64 tools instead of being retyped per call site. The two
-  `write_tool` flags are a judgement call worth making deliberately: `destructive` means the call
-  can overwrite data that was already stored, `idempotent` means repeating the identical call
-  converges on the same state — false for anything that adds a row, queues a task or accumulates
-  (rotation being the obvious trap). `tests/test_tool_registration.py` pins the non-obvious ones.
+- **Tools live at module level and are declared in one table per module.** A module's
+  `register()` is a single `register_tools(mcp, settings, (...))` call over `read_tool(fn)` /
+  `write_tool(fn, destructive=…, idempotent=…)` / `delete_tool(fn)` — never a bare
+  `@mcp.tool()`, and never a function nested inside `register()`. `register_tools` is what
+  applies `safe_tool` and checks the visibility flag, so neither is repeated per tool and a
+  tool cannot reach a client unwrapped. The table is also the point: the flags' whole value is
+  consistency across 64 tools, and an inconsistency between the twenty CRUD tools is visible in
+  a 26-line block and invisible when spread over 700 lines.
+  The two `write_tool` flags are a judgement call worth making deliberately: `destructive`
+  means the call can overwrite data that was already stored, `idempotent` means repeating the
+  identical call converges on the same state — false for anything that adds a row, queues a
+  task or accumulates (rotation being the obvious trap).
+  `tests/test_tool_registration.py` pins the non-obvious ones.
 - **List tools paginate.** Anything list-shaped takes `offset` / `limit` and returns `total` and
   `has_more` via `page_result`. Do not add a tool that can return an unbounded result set.
 - **IDs come with names.** A relation is reported as the raw ID *plus* a `<field>_name` resolved
@@ -131,8 +138,9 @@ breaking change and gets the `breaking-change` label.
   conversation, `*_id` only when you have it verbatim from a tool result; passing both is allowed
   but they must agree*.
 - **Writes and deletes are gated.** `settings.expose_writes` and `settings.expose_deletes` decide
-  whether a tool is registered at all — check them in `register()` rather than failing at call
-  time, so a read-only deployment simply does not advertise the tool.
+  whether a tool is registered at all, never whether it fails at call time, so a read-only
+  deployment simply does not advertise the tool. Declaring it with `write_tool` / `delete_tool` is
+  what applies the gate — `register_tools` reads the flag, so no module branches on it itself.
 - **A new tool module goes in two places**: `tools/__init__.py` and the expected-tool list in
   `tests/test_tool_registration.py`.
 
