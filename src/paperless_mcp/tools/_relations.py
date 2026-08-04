@@ -135,6 +135,45 @@ async def resolve_relation(
     return resolved
 
 
+async def resolve_relations(
+    ctx: ToolContext,
+    *,
+    field: str,
+    pks: list[int] | None,
+    names: list[str] | None,
+    id_field: str,
+    name_field: str,
+) -> list[int] | None:
+    """Resolve several members of one relation supplied as IDs, as names, or as both.
+
+    Args:
+        ctx: The tool context, for the shared name snapshot.
+        field: The relation as the tool spells it, e.g. ``document_type``.
+        pks: The ID list argument.
+        names: The name list argument.
+        id_field: How the tool spells the ID list, for the error message.
+        name_field: How the tool spells the name list, for the error message.
+
+    Returns:
+        The IDs to write, or ``None`` when neither list was supplied. An empty
+        name list resolves to an empty ID list, which is how a tag list is
+        cleared.
+
+    Raises:
+        ToolInputError: When a name is unknown or ambiguous, or when both lists
+            were supplied and describe different sets of objects.
+    """
+    if names is None:
+        return pks
+    resolved = [await _resolve_name(ctx, field=field, name=name) for name in names]
+    if pks is not None and sorted(pks) != sorted(resolved):
+        raise ToolInputError(
+            f"{id_field}={pks} and {name_field}={names} (IDs {resolved}) are different sets "
+            f"of {field}s. Pass only the one you mean."
+        )
+    return resolved
+
+
 async def resolve_tags(
     ctx: ToolContext,
     *,
@@ -161,12 +200,11 @@ async def resolve_tags(
         ToolInputError: When a name is unknown or ambiguous, or when both lists
             were supplied and describe different sets of tags.
     """
-    if names is None:
-        return pks
-    resolved = [await _resolve_name(ctx, field="tag", name=name) for name in names]
-    if pks is not None and sorted(pks) != sorted(resolved):
-        raise ToolInputError(
-            f"{id_field}={pks} and {name_field}={names} (IDs {resolved}) are different sets "
-            f"of tags. Pass only the one you mean."
-        )
-    return resolved
+    return await resolve_relations(
+        ctx,
+        field="tag",
+        pks=pks,
+        names=names,
+        id_field=id_field,
+        name_field=name_field,
+    )

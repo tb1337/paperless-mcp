@@ -168,6 +168,22 @@ class FakeService:
         return self.save_returns
 
 
+class FakeTransport:
+    """Stand-in for ``pypaperless.transport.PaperlessTransport``.
+
+    Only the endpoints no pypaperless service covers go out this way, so the
+    fake records the calls and answers with the bulk-edit envelope.
+    """
+
+    def __init__(self) -> None:
+        self.post_result: Any = {"result": "OK"}
+        self.post_calls: list[dict[str, Any]] = []
+
+    async def post(self, path: str, *, json: dict[str, Any] | None = None, **_kw: Any) -> Any:
+        self.post_calls.append({"path": path, "json": json})
+        return self.post_result
+
+
 class FakePaperless:
     """Bare scaffold of a PaperlessClient - fill it in per test."""
 
@@ -177,7 +193,7 @@ class FakePaperless:
         self.base_url = "http://test"
         # ``load_names`` writes the custom-field cache here, exactly as it does
         # on the real client's runtime.
-        self.runtime = SimpleNamespace(cache=PaperlessCache())
+        self.runtime = SimpleNamespace(cache=PaperlessCache(), transport=FakeTransport())
 
 
 class FakeConnection:

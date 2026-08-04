@@ -39,9 +39,16 @@ in-process it is `build_mcp(settings)` / `serve(settings)` in `server.py`.
 
 Current code surface (trust these over older docs): MCP SDK 2.x — the server class is `MCPServer`
 from `mcp.server.mcpserver`, not `FastMCP` · pypaperless is pinned exactly (`==6.0.0`), so a
-version bump is a deliberate change with a test run, never an automerge · 63 tools (30 read,
-22 write, 9 delete), enumerated in `tests/test_tool_registration.py` · 3 workflow prompts,
+version bump is a deliberate change with a test run, never an automerge · 64 tools (30 read,
+24 write, 10 delete), enumerated in `tests/test_tool_registration.py` · 3 workflow prompts,
 enumerated in `tests/test_prompt_registration.py`.
+
+Every request goes through a pypaperless service, with one exception:
+`taxonomy._delete_objects` posts to `/api/bulk_edit_objects/` through
+`paperless.runtime.transport`, because the service there only ever sends an `objects` list and
+pypaperless 6.0.0 predates the `all` + `filters` selection API v10 added. Once pypaperless carries
+those, that helper is what to delete. It is not a licence for a second one: reaching past a
+service that does cover the endpoint loses the model parsing, the caches and the error types.
 
 ## Dev Commands
 
@@ -95,7 +102,7 @@ breaking change and gets the `breaking-change` label.
   with a type, and describe the non-obvious ones in the docstring body.
 - **Register through `read_tool` / `write_tool` / `delete_tool`**, never a bare `@mcp.tool()`.
   Those helpers attach the MCP annotations and derive the display title from the function name, so
-  the hints stay consistent across 63 tools instead of being retyped per call site. The two
+  the hints stay consistent across 64 tools instead of being retyped per call site. The two
   `write_tool` flags are a judgement call worth making deliberately: `destructive` means the call
   can overwrite data that was already stored, `idempotent` means repeating the identical call
   converges on the same state — false for anything that adds a row, queues a task or accumulates

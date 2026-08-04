@@ -53,7 +53,7 @@ the caller, not a human clicking through a UI:
   `/healthz` for container probes.
 - **Tunable surface**: writes can be disabled (`PAPERLESS_MCP_READONLY=true`)
   and deletes require explicit opt-in (`PAPERLESS_MCP_ENABLE_DELETE=true`).
-  54 tools by default, 63 with deletes enabled.
+  54 tools by default, 64 with deletes enabled.
 - **Workflow prompts**: three slash commands — `triage_inbox`,
   `monthly_review`, `find_duplicates` — that chain the tools into the jobs an
   archive actually needs, with the Paperless-specific judgement calls written
@@ -77,7 +77,7 @@ the caller, not a human clicking through a UI:
 - **Structured errors**: pypaperless exceptions become results like
   `{"error": "not_found", "detail": "...", "cause": "..."}` instead of
   protocol-level failures, so the model can recover rather than give up.
-- **Behaviour hints on every tool**: each of the 63 tools ships MCP tool
+- **Behaviour hints on every tool**: each of the 64 tools ships MCP tool
   annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`,
   `openWorldHint`) plus a display title, so a client can wave a search through
   and stop to ask before a rotate, a merge or an `empty_trash`.
@@ -313,15 +313,16 @@ with `--env-file`) and never overwrites variables the MCP client already set.
 **Delete** (requires `ENABLE_DELETE=true`): `delete_document`,
 `delete_document_note`, `delete_tag`, `delete_correspondent`,
 `delete_document_type`, `delete_storage_path`, `delete_custom_field`,
-`delete_share_link`, `empty_trash`.
+`delete_share_link`, `bulk_delete_objects`, `empty_trash`.
 
 Notes on semantics:
 
 - **Relations take a name or an ID.** Correspondent, document type, storage
   path and tags can be given as `document_type_name: "Kündigung"` instead of
   `document_type_id: 11`, and as `tag_names` instead of `tag_ids`, on
-  `search_documents`, `update_document`, `upload_document` and
-  `bulk_edit_documents`. Names are what every result already reports back, and
+  `search_documents`, `update_document`, `upload_document`,
+  `bulk_edit_documents` and `bulk_delete_objects`. Names are what every result
+  already reports back, and
   what a human reading the call along can veto — a wrong ID hits another valid
   object and relabels a document without an error anywhere. Matching is exact,
   then case-insensitive, never fuzzy: an archive holding `MR-ST 1337` next to
@@ -407,6 +408,24 @@ Notes on semantics:
   the stored one (to add a link, read the current list from `get_document` and
   send it back with the new ID appended), and Paperless maintains the reverse
   link itself, so linking A to B makes B show A — never set both directions.
+- `bulk_delete_objects` deletes tags, correspondents, document types or storage
+  paths in one call, and takes its selection **either** as `object_ids` /
+  `object_names` **or** as a filter — `name_contains`, `name_startswith`,
+  `name_endswith`, `name_exact`, plus `is_root` for tags and `path_contains` for
+  storage paths. The filter form is what API v10 added `all` and `filters` for:
+  clearing out 400 stale correspondents travels as one lookup instead of 400 IDs
+  that would have to be paged out of `list_correspondents` first. The two forms
+  cannot be combined, because Paperless stops looking at `objects` as soon as
+  `all` is set — a call meaning to intersect them would silently delete by
+  filter alone. A filter no FilterSet behind the endpoint knows is refused for
+  the same reason: django-filter drops an unrecognized lookup, and a dropped
+  lookup widens the selection to everything. `deleted` reports how many objects
+  the selection covered, counted immediately before the delete, since the
+  endpoint itself answers a filtered call with a bare `OK`; for `tags` it can
+  understate, as Paperless also removes the matched tags' descendants. The
+  endpoint has no branch for custom fields — `delete_custom_field` stays
+  one-at-a-time — and its other operation, `set_permissions`, is not exposed:
+  this server carries no users or groups to name in one.
 - `remove_document_custom_field` clears the value on one document; the field
   definition and its values elsewhere are untouched, which is what
   `delete_custom_field` would destroy instead. A field that is not set is not
@@ -423,8 +442,11 @@ call deserves without parsing the description:
 - `readOnlyHint` is true for all 30 read tools, and only for those.
   `destructiveHint` / `idempotentHint` are left unset there — the spec only
   gives them meaning once a tool can write.
-- `destructiveHint` is true for 21 tools — every `update_*`, all nine delete
-  tools (`delete_*` plus `empty_trash`), the four bulk operations, and the two
+- `destructiveHint` is true for 24 tools — every `update_*`, all ten delete
+  tools (`delete_*`, `bulk_delete_objects` and `empty_trash`), the six that
+  rewrite a document or its pages (`bulk_edit_documents`,
+  `bulk_reprocess_documents`, `bulk_merge_documents`, `bulk_rotate_documents`,
+  `split_document`, `delete_document_pages`), and the two
   custom field value tools (`set_document_custom_field` replaces a value,
   `remove_document_custom_field` clears one). It is false for the additive ones
   (`upload_document`, `create_*`, `add_document_note`, `restore_documents`,
@@ -438,12 +460,13 @@ call deserves without parsing the description:
 - `openWorldHint` is false everywhere: the tools reach exactly one configured
   Paperless instance, not an open-ended set of external entities.
 
-The vocabulary has no axis for *reversible* versus *final*, so two tools that
-differ a lot end up with identical hints: `delete_document` moves a document to
-the trash and `restore_documents` brings it back, while `empty_trash` cannot be
-undone and purges the entire trash when called without arguments. A client that
-wants to hold the second one back harder has to go by the name or the
-description.
+The vocabulary has no axis for *reversible* versus *final*, so tools that differ
+a lot end up with identical hints: `delete_document` moves a document to the
+trash and `restore_documents` brings it back, while `empty_trash` cannot be
+undone and purges the entire trash when called without arguments, and
+`bulk_delete_objects` can retire a whole branch of the taxonomy from a single
+filter. A client that wants to hold the final ones back harder has to go by the
+name or the description.
 
 They are hints, not a permission system — the actual gate is
 `PAPERLESS_MCP_READONLY` / `PAPERLESS_MCP_ENABLE_DELETE`, which decide whether a
