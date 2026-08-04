@@ -172,6 +172,15 @@ def test_page_result_without_total_falls_back_to_a_full_page() -> None:
     assert not page_result("xs", [1], offset=0, limit=2, total=None, formatter=str)["has_more"]
 
 
+def test_page_result_does_not_promise_more_for_an_empty_window() -> None:
+    """``len([]) == 0 == limit`` used to read as "a full page, so there is more"."""
+    empty = page_result("xs", [], offset=0, limit=0, total=None, formatter=str)
+    assert empty["returned"] == 0
+    assert empty["has_more"] is False
+    # Past the end of an unknown-length result set, likewise.
+    assert not page_result("xs", [], offset=99, limit=25, total=None, formatter=str)["has_more"]
+
+
 @pytest.mark.parametrize(
     ("value", "expected"),
     [
