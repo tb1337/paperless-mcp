@@ -19,6 +19,8 @@ from collections.abc import Iterable, Mapping
 from enum import Enum
 from typing import Any
 
+from pydantic import BaseModel
+
 from .names import EMPTY_NAMES, NameMap, name_of, names_of
 
 
@@ -37,28 +39,55 @@ def _plain(value: Any) -> Any:
     return value.value if isinstance(value, Enum) else value
 
 
-def safe_dump(obj: Any) -> Any:
+#: Everything :func:`safe_dump` can produce. Spelling it out is what lets a
+#: caller narrowing the result with ``isinstance`` actually narrow something,
+#: rather than passing ``Any`` along.
+type JsonValue = bool | int | float | str | list["JsonValue"] | dict[str, "JsonValue"] | None
+
+
+def safe_dump(obj: object) -> JsonValue:
     """Best-effort serialization to a JSON-friendly structure.
 
     Handles Pydantic models, Mappings, iterables and scalars. Falls back to
     ``str(obj)`` when nothing else fits, so the model still sees a useful value
     instead of an exception.
+
+    Order matters: the ``model_dump`` check has to precede the ``Mapping`` one
+    (a pydantic model is not a Mapping, but a RootModel wrapping one dumps far
+    better than it iterates), and the buffer types have to precede ``Iterable``
+    or they serialize as a list of integers.
     """
-    if obj is None or isinstance(obj, (str, int, float, bool)):
+    if obj is None or isinstance(obj, str | int | float):
+        # bool is an int, so it needs no arm of its own.
         return obj
     if isinstance(obj, Enum):
-        return _plain(obj)
-    if hasattr(obj, "model_dump"):
-        return obj.model_dump(mode="json")
+        value = obj.value
+        return value if isinstance(value, bool | int | float | str) else str(value)
+    if isinstance(obj, bytes | bytearray | memoryview):
+        # JSON has no bytes, and every buffer type is Iterable: without this a
+        # PDF's first bytes came back as [37, 80, 68, 70].
+        return f"<{len(obj)} bytes>"
+    if isinstance(obj, BaseModel):
+        dumped: JsonValue = obj.model_dump(mode="json")
+        return dumped
     if isinstance(obj, Mapping):
-        return {k: safe_dump(v) for k, v in obj.items()}
-    if isinstance(obj, (dt.date, dt.datetime)):
+        return {str(key): safe_dump(value) for key, value in obj.items()}
+    if isinstance(obj, dt.date | dt.datetime):
         return obj.isoformat()
-    if isinstance(obj, (list, tuple, set)):
-        return [safe_dump(x) for x in obj]
     if isinstance(obj, Iterable):
-        return [safe_dump(x) for x in obj]
+        return [safe_dump(item) for item in obj]
     return str(obj)
+
+
+def dump_mapping(obj: object, *, key: str) -> dict[str, JsonValue]:
+    """Dump *obj* to a JSON dict, parking a non-mapping result under *key*.
+
+    Every endpoint that answers with a free-form model wants this: a dict is
+    merged into the tool result as-is, and anything else still has to arrive
+    under a name the model can read.
+    """
+    dumped = safe_dump(obj)
+    return dumped if isinstance(dumped, dict) else {key: dumped}
 
 
 def _matching(obj: Any) -> dict[str, Any]:
@@ -291,17 +320,7 @@ def format_note(n: Any, names: NameMap = EMPTY_NAMES) -> dict[str, Any]:
     }
 
 
-#: Suggestion payloads name their ID lists after the resource; each maps to the
-#: key holding the resolved names and to the lookup that resolves them.
-_SUGGESTION_KEYS: tuple[tuple[str, str], ...] = (
-    ("correspondents", "correspondent_names"),
-    ("document_types", "document_type_names"),
-    ("storage_paths", "storage_path_names"),
-    ("tags", "tag_names"),
-)
-
-
-def enrich_suggestions(suggestions: dict[str, Any], names: NameMap) -> dict[str, Any]:
+def enrich_suggestions(suggestions: Mapping[str, Any], names: NameMap) -> dict[str, Any]:
     """Add resolved ``*_names`` lists to an already-dumped suggestions payload.
 
     Both suggestion endpoints answer with ID lists under the same keys. The
@@ -309,15 +328,17 @@ def enrich_suggestions(suggestions: dict[str, Any], names: NameMap) -> dict[str,
     is a plain ``safe_dump`` of a model whose fields differ per Paperless
     version.
     """
-    lookups = {
-        "correspondents": names.correspondents,
-        "document_types": names.document_types,
-        "storage_paths": names.storage_paths,
-        "tags": names.tags,
-    }
+    # The lookups are bound from the NameMap fields directly rather than through
+    # a table keyed by their names: a fifth suggestion resource then means one
+    # row here, not one row in each of two tables that have to agree.
     resolved = {
-        target: names_of(lookups[source], suggestions[source])
-        for source, target in _SUGGESTION_KEYS
+        target: names_of(lookup, suggestions[source])
+        for source, target, lookup in (
+            ("correspondents", "correspondent_names", names.correspondents),
+            ("document_types", "document_type_names", names.document_types),
+            ("storage_paths", "storage_path_names", names.storage_paths),
+            ("tags", "tag_names", names.tags),
+        )
         if source in suggestions
     }
     return {**suggestions, **resolved}

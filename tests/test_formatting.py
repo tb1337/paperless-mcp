@@ -7,17 +7,20 @@ that reaches for a field that no longer exists shows up here.
 
 from __future__ import annotations
 
+import datetime as dt
 from typing import Any
 
 import pytest
 from pypaperless.cache import PaperlessCache
 from pypaperless.models import Document, SavedView, Tag, Task
 from pypaperless.models.status import Status
+from pypaperless.models.types import MatchingAlgorithm
 from pypaperless.runtime import PaperlessRuntime
 from pypaperless.transport import PaperlessTransport
 
 from paperless_mcp.formatting import (
     CONTENT_PREVIEW_CHARS,
+    dump_mapping,
     enrich_suggestions,
     format_document,
     format_document_detail,
@@ -173,19 +176,46 @@ def test_format_saved_view_projects_display_configuration(runtime: PaperlessRunt
         (None, None),
         ("text", "text"),
         (3, 3),
+        (True, True),
         ({"a": 1}, {"a": 1}),
         ([1, 2], [1, 2]),
+        ((1, 2), [1, 2]),
+        ({1: "a"}, {"1": "a"}),
+        (dt.date(2026, 1, 2), "2026-01-02"),
+        (MatchingAlgorithm.LITERAL, 3),
+        # A buffer is Iterable, so without an arm of its own it dumped as a list
+        # of integers: safe_dump(b"%PDF") was [37, 80, 68, 70].
+        (b"%PDF", "<4 bytes>"),
+        (bytearray(b"ab"), "<2 bytes>"),
+        (memoryview(b"abc"), "<3 bytes>"),
     ],
 )
-def test_safe_dump_passes_scalars_through(value: Any, expected: Any) -> None:
+def test_safe_dump_produces_json_friendly_values(value: Any, expected: Any) -> None:
     assert safe_dump(value) == expected
+
+
+def test_safe_dump_falls_back_to_str_for_anything_else() -> None:
+    assert safe_dump(object) == str(object)
 
 
 def test_safe_dump_serializes_pydantic_models(runtime: PaperlessRuntime) -> None:
     tag = Tag.from_data(runtime, {"id": 1, "name": "x", "matching_algorithm": 1})
     dumped = safe_dump(tag)
+    assert isinstance(dumped, dict)
     assert dumped["id"] == 1
     assert dumped["matching_algorithm"] == 1
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ({"total": 3}, {"total": 3}),
+        ("not an object", {"statistics": "not an object"}),
+        (None, {"statistics": None}),
+    ],
+)
+def test_dump_mapping_parks_a_non_mapping_under_its_key(value: Any, expected: Any) -> None:
+    assert dump_mapping(value, key="statistics") == expected
 
 
 def test_format_document_resolves_every_relation(runtime: PaperlessRuntime) -> None:

@@ -28,6 +28,8 @@ def register(mcp: MCPServer, settings: Settings) -> None:
         paperless = await get_client(ctx)
         names = await get_names(ctx)
         dumped = safe_dump(await paperless.documents.suggestions(document_id))
+        # Not dump_mapping: a payload that is not an object passes through as it
+        # came rather than being wrapped under an invented key.
         enriched = enrich_suggestions(dumped, names) if isinstance(dumped, dict) else dumped
         return {"document_id": document_id, "suggestions": enriched}
 
