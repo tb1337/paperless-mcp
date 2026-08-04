@@ -9,17 +9,21 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Final, cast
 
 import httpx
 import pytest
 from mcp.server.lowlevel.server import ServerRequestContext
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.types import LATEST_PROTOCOL_VERSION, CallToolResult, TextContent
+from pypaperless import PaperlessClient
 from pypaperless.cache import PaperlessCache
+from pypaperless.const import EndpointPath
 from pypaperless.exceptions import NotFoundError
 
 if TYPE_CHECKING:
@@ -29,6 +33,10 @@ from paperless_mcp.client import CLIENT_KEY, SETTINGS_KEY
 from paperless_mcp.config import Settings
 from paperless_mcp.names import NameCache, NameMap
 from paperless_mcp.tools import register_all
+
+#: ``/api/tags/3/`` -> its collection and primary key, so detail CRUD needs no
+#: per-resource routing table.
+_DETAIL_PATH: Final = re.compile(r"^(?P<collection>/api/[a-z_]+/)(?P<pk>[^/]+)/$")
 
 
 def make_settings(*, readonly: bool = False, enable_delete: bool = True) -> Settings:
@@ -115,6 +123,117 @@ class BulkRecorder:
         return _record
 
 
+@dataclass(frozen=True, slots=True)
+class RecordedRequest:
+    """One request the stub answered, as the test wants to assert on it."""
+
+    method: str
+    path: str
+    params: dict[str, str]
+    json: Any
+
+
+@dataclass
+class PaperlessStub:
+    """An in-memory Paperless behind ``httpx.MockTransport``.
+
+    The seam is the HTTP transport, not the service layer, so everything the
+    tools actually touch is pypaperless' own code: drafts and their
+    ``extra="forbid"``, ``validate_draft()``, ``Page`` deserialization,
+    ``PageGenerator`` following ``next`` and ending with ``StopAsyncIteration``,
+    ``update()``'s change detection, and the status-to-exception mapping. A
+    re-implementation of those drifts from the library by definition; this cannot.
+
+    Args:
+        collections: ``list path -> rows``, e.g. ``{"/api/tags/": [{"id": 1, ...}]}``.
+            Serves DRF list pagination and, through it, detail CRUD.
+        routes: ``(method, path) -> payload`` for the endpoints that are not a
+            collection: bulk edits, metadata, notes, suggestions.
+        status: ``path -> status code``, to force a failure.
+        requests: Every request that arrived, in order.
+    """
+
+    collections: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    routes: dict[tuple[str, str], Any] = field(default_factory=dict)
+    status: dict[str, int] = field(default_factory=dict)
+    requests: list[RecordedRequest] = field(default_factory=list)
+    version: str = "3.0.1"
+    api_version: int = 10
+
+    def handle(self, request: httpx.Request) -> httpx.Response:
+        """Answer one request, recording it first."""
+        path = request.url.path
+        body = json.loads(request.content) if request.content else None
+        self.requests.append(RecordedRequest(request.method, path, dict(request.url.params), body))
+
+        if forced := self.status.get(path):
+            return httpx.Response(forced, json={"detail": "forced by the stub"})
+        if path == EndpointPath.INDEX:
+            return httpx.Response(
+                200,
+                json={},
+                headers={"x-version": self.version, "x-api-version": str(self.api_version)},
+            )
+        if (route := self.routes.get((request.method, path))) is not None:
+            return httpx.Response(200, json=route)
+        if path in self.collections:
+            return self._collection(request, path, body)
+        if match := _DETAIL_PATH.match(path):
+            return self._detail(request, match["collection"], match["pk"], body)
+        return httpx.Response(404, json={"detail": f"no stub route for {request.method} {path}"})
+
+    def _collection(self, request: httpx.Request, path: str, body: Any) -> httpx.Response:
+        rows = self.collections[path]
+        if request.method == "POST":
+            created = {"id": max((row["id"] for row in rows), default=0) + 1, **(body or {})}
+            rows.append(created)
+            return httpx.Response(201, json=created)
+
+        params = request.url.params
+        page = int(params.get("page", 1))
+        page_size = int(params.get("page_size", 25))
+        last_page = max(math.ceil(len(rows) / page_size), 1)
+        if page > last_page:
+            # DRF answers a page past the end with 404, not an empty envelope.
+            return httpx.Response(404, json={"detail": "Invalid page."})
+
+        def link(target: int) -> str:
+            # Every parameter is carried over, as DRF does: PageGenerator follows
+            # this URL, and a dropped page_size silently reshapes the paging.
+            return str(request.url.copy_merge_params({"page": str(target)}))
+
+        start = (page - 1) * page_size
+        return httpx.Response(
+            200,
+            json={
+                "count": len(rows),
+                "next": link(page + 1) if page < last_page else None,
+                "previous": link(page - 1) if page > 1 else None,
+                "results": rows[start : start + page_size],
+            },
+        )
+
+    def _detail(
+        self, request: httpx.Request, collection: str, pk: str, body: Any
+    ) -> httpx.Response:
+        rows = self.collections.get(collection, [])
+        row = next((candidate for candidate in rows if str(candidate.get("id")) == pk), None)
+        if row is None:
+            return httpx.Response(404, json={"detail": "Not found."})
+        if request.method == "DELETE":
+            rows.remove(row)
+            return httpx.Response(204)
+        if request.method in {"PATCH", "PUT"}:
+            row.update(body or {})
+        return httpx.Response(200, json=row)
+
+
+def make_client(stub: PaperlessStub | None = None) -> PaperlessClient:
+    """Build a real PaperlessClient whose only fake part is the transport."""
+    http = httpx.AsyncClient(transport=httpx.MockTransport((stub or PaperlessStub()).handle))
+    return PaperlessClient("http://test", "t", client=http)
+
+
 class FakePage:
     """Stand-in for ``pypaperless.pagination.Page``."""
 
@@ -133,6 +252,7 @@ class FakePageGenerator:
     def __init__(self, items: list[Any], *, page: int, page_size: int) -> None:
         self._items = items
         self._page = page
+        self._first_page = page
         self._page_size = max(page_size, 1)
         self.closed = False
 
@@ -143,7 +263,13 @@ class FakePageGenerator:
         total = len(self._items)
         last_page = max(math.ceil(total / self._page_size), 1)
         if self._page > last_page:
-            # Matches DRF: asking for a page past the end is a 404, not an
+            if self._page > self._first_page:
+                # Walking off the end ends the iteration, as the real
+                # PageGenerator does once a response carries no `next`. Raising
+                # here instead is what forced a non-mirroring `break` into
+                # FakeService.__aiter__ and made _drain's loop exit untestable.
+                raise StopAsyncIteration
+            # Matches DRF: *asking* for a page past the end is a 404, not an
             # empty result set.
             raise NotFoundError(
                 httpx.Response(404, request=httpx.Request("GET", "http://test/api/"))
@@ -200,14 +326,14 @@ class FakeService:
         return self.get_result
 
     async def __aiter__(self) -> AsyncIterator[Any]:
-        # Mirrors ``IterableService.__aiter__``: page through and flatten.
+        # Mirrors ``IterableService.__aiter__``: page through and flatten. No
+        # break on ``is_last_page`` - the real one has none either, and the
+        # generator terminating is what ends the loop.
         pages = self.pages()
         try:
             async for page in pages:
                 for item in page:
                     yield item
-                if page.is_last_page:
-                    break
         finally:
             await pages.aclose()
 

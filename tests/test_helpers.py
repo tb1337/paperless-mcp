@@ -29,7 +29,7 @@ from paperless_mcp.tools._helpers import (
     translate_error,
     window,
 )
-from tests.conftest import FakeService
+from tests.conftest import FakeService, PaperlessStub, make_client
 
 
 @pytest.mark.parametrize(
@@ -52,53 +52,89 @@ def _not_found() -> NotFoundError:
     return NotFoundError(httpx.Response(404, request=request))
 
 
+def _tags(count: int) -> tuple[PaperlessClient, PaperlessStub]:
+    """A real client over a stub holding *count* tags, plus the request log.
+
+    Driven through the real ``TagService`` rather than a stub service: the paging
+    arithmetic here is only correct if ``PageGenerator`` follows ``next`` and ends
+    with ``StopAsyncIteration``, and a re-implementation of those cannot prove it.
+    """
+    stub = PaperlessStub(
+        collections={
+            "/api/tags/": [
+                {"id": pk, "name": f"tag{pk}", "matching_algorithm": 0}
+                for pk in range(1, count + 1)
+            ]
+        }
+    )
+    return make_client(stub), stub
+
+
 @pytest.mark.parametrize(
-    ("items", "offset", "limit", "expected", "expected_total"),
+    ("count", "offset", "limit", "expected", "expected_total"),
     [
-        ([1, 2, 3], 0, 10, [1, 2, 3], 3),
-        ([1, 2, 3, 4, 5], 0, 2, [1, 2], 5),
-        ([1, 2, 3, 4, 5], 2, 2, [3, 4], 5),
+        (3, 0, 10, [1, 2, 3], 3),
+        (5, 0, 2, [1, 2], 5),
+        (5, 2, 2, [3, 4], 5),
         # An offset that does not land on a page boundary: the window straddles
         # two server pages and the leading items are dropped.
-        (list(range(1, 11)), 3, 4, [4, 5, 6, 7], 10),
+        (10, 3, 4, [4, 5, 6, 7], 10),
         # Paperless answers 404 for a page past the end; that is an empty window,
         # and the count is unknown rather than zero.
-        ([1, 2, 3], 100, 5, [], None),
+        (3, 100, 5, [], None),
         # limit=0 still costs one request, because the total is the point.
-        ([1, 2, 3], 0, 0, [], 3),
+        (3, 0, 0, [], 3),
+        # Fewer items than the window asks for, from the last page onwards: this
+        # is the only case that reaches the loop's natural exit rather than
+        # breaking out on `is_last_page`.
+        (5, 4, 10, [5], 5),
     ],
-    ids=["under-limit", "capped", "offset", "unaligned-offset", "past-end", "limit-zero"],
+    ids=[
+        "under-limit",
+        "capped",
+        "offset",
+        "unaligned-offset",
+        "past-end",
+        "limit-zero",
+        "exhausted-before-limit",
+    ],
 )
 async def test_paginate_windows_a_result_set(
-    items: list[int],
+    count: int,
     offset: int,
     limit: int,
     expected: list[int],
     expected_total: int | None,
 ) -> None:
-    got, total = await paginate(FakeService(filter_results=items), offset=offset, limit=limit)
-    assert got == expected
+    paperless, _ = _tags(count)
+    items, total = await paginate(paperless.tags, offset=offset, limit=limit)
+    assert [tag.id for tag in items] == expected
     assert total == expected_total
 
 
 async def test_paginate_asks_the_server_for_the_right_page() -> None:
     """A large offset must become a page number, not a client-side skip."""
-    service = FakeService(filter_results=list(range(1, 101)))
-    items, _ = await paginate(service, offset=80, limit=10)
-    assert items == list(range(81, 91))
-    assert service.page_calls == [{"page": 9, "page_size": 10}]
+    paperless, stub = _tags(100)
+    items, _ = await paginate(paperless.tags, offset=80, limit=10)
+    assert [tag.id for tag in items] == list(range(81, 91))
+    assert [request.params for request in stub.requests] == [{"page": "9", "page_size": "10"}]
 
 
-async def test_paginate_closes_the_page_generator() -> None:
-    service = FakeService(filter_results=list(range(20)))
-    await paginate(service, offset=0, limit=2)
-    assert [g.closed for g in service.generators] == [True]
+async def test_paginate_does_not_fetch_a_page_it_will_not_use() -> None:
+    """What ``aclose()`` is for: the generator prefetches the next page eagerly.
+
+    Asserted through the request log rather than a flag on the fake, so it is the
+    observable effect being pinned and not the bookkeeping.
+    """
+    paperless, stub = _tags(20)
+    await paginate(paperless.tags, offset=0, limit=2)
+    assert [request.params["page"] for request in stub.requests] == ["1"]
 
 
 async def test_paginate_forwards_filters_to_the_service() -> None:
-    service = FakeService(filter_results=[])
-    await paginate(service, {"tags__id__none": [1, 2]}, offset=0, limit=5)
-    assert service.filter_calls == [{"tags__id__none": "1,2"}]
+    paperless, stub = _tags(0)
+    await paginate(paperless.tags, {"tags__id__none": [1, 2]}, offset=0, limit=5)
+    assert stub.requests[-1].params["tags__id__none"] == "1,2"
 
 
 async def test_paginate_rejects_negative() -> None:
