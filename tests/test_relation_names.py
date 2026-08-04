@@ -3,62 +3,23 @@
 from __future__ import annotations
 
 import base64
-from types import SimpleNamespace
 from typing import Any
 
-import pytest
-
-from tests.conftest import build_mcp, call_tool, make_settings, tool_session
-
-
-def _doc(doc_id: int = 1, title: str = "Test") -> SimpleNamespace:
-    return SimpleNamespace(
-        id=doc_id,
-        title=title,
-        correspondent=None,
-        document_type=None,
-        storage_path=None,
-        tags=[],
-        created=None,
-        added=None,
-        modified=None,
-        deleted_at=None,
-        archive_serial_number=None,
-        original_file_name=None,
-        archived_file_name=None,
-        owner=None,
-        page_count=None,
-        mime_type=None,
-        is_shared_by_requester=False,
-        content="ocr text",
-        custom_fields=[],
-        notes_=[],
-        root_document=None,
-        search_hit_=None,
-    )
+from tests.conftest import (
+    BulkRecorder,
+    build_mcp,
+    call_tool,
+    document,
+    make_settings,
+    named,
+    tool_session,
+)
 
 
-def _named(**by_id: str) -> list[SimpleNamespace]:
-    """Build master-data stubs from ``id="name"`` pairs."""
-    return [SimpleNamespace(id=int(pk), name=name) for pk, name in by_id.items()]
-
-
-class _BulkRecorder:
-    def __init__(self) -> None:
-        self.calls: list[tuple[str, tuple[Any, ...], dict[str, Any]]] = []
-
-    def __getattr__(self, name: str) -> Any:
-        async def _record(*args: Any, **kwargs: Any) -> None:
-            self.calls.append((name, args, kwargs))
-
-        return _record
-
-
-@pytest.mark.asyncio
 async def test_update_document_resolves_a_document_type_name(make_paperless: Any) -> None:
     paperless = make_paperless()
-    paperless.documents.get_result = _doc(1)
-    paperless.document_types.filter_results = _named(**{"10": "Bescheid", "11": "Kündigung"})
+    paperless.documents.get_result = document(1)
+    paperless.document_types.filter_results = named(**{"10": "Bescheid", "11": "Kündigung"})
     mcp = build_mcp(make_settings(), paperless)
 
     result = await call_tool(mcp, "update_document", document_id=1, document_type_name="Kündigung")
@@ -68,11 +29,10 @@ async def test_update_document_resolves_a_document_type_name(make_paperless: Any
     assert paperless.documents.update_calls[0].document_type == 11
 
 
-@pytest.mark.asyncio
 async def test_a_name_matches_case_insensitively(make_paperless: Any) -> None:
     paperless = make_paperless()
-    paperless.documents.get_result = _doc(1)
-    paperless.document_types.filter_results = _named(**{"6": "Rechnung"})
+    paperless.documents.get_result = document(1)
+    paperless.document_types.filter_results = named(**{"6": "Rechnung"})
     mcp = build_mcp(make_settings(), paperless)
 
     result = await call_tool(mcp, "update_document", document_id=1, document_type_name="  rechnung")
@@ -80,12 +40,11 @@ async def test_a_name_matches_case_insensitively(make_paperless: Any) -> None:
     assert result["document_type"] == 6
 
 
-@pytest.mark.asyncio
 async def test_an_exact_hit_wins_over_a_case_variant(make_paperless: Any) -> None:
     """Two entries differing only in case stay individually reachable."""
     paperless = make_paperless()
-    paperless.documents.get_result = _doc(1)
-    paperless.tags.filter_results = _named(**{"1": "Bank", "2": "bank"})
+    paperless.documents.get_result = document(1)
+    paperless.tags.filter_results = named(**{"1": "Bank", "2": "bank"})
     mcp = build_mcp(make_settings(), paperless)
 
     result = await call_tool(mcp, "update_document", document_id=1, tag_names=["bank"])
@@ -93,11 +52,10 @@ async def test_an_exact_hit_wins_over_a_case_variant(make_paperless: Any) -> Non
     assert result["tags"] == [2]
 
 
-@pytest.mark.asyncio
 async def test_an_ambiguous_name_is_rejected(make_paperless: Any) -> None:
     paperless = make_paperless()
-    paperless.documents.get_result = _doc(1)
-    paperless.tags.filter_results = _named(**{"1": "Bank", "2": "bank"})
+    paperless.documents.get_result = document(1)
+    paperless.tags.filter_results = named(**{"1": "Bank", "2": "bank"})
     mcp = build_mcp(make_settings(), paperless)
 
     result = await call_tool(mcp, "update_document", document_id=1, tag_names=["BANK"])
@@ -108,11 +66,10 @@ async def test_an_ambiguous_name_is_rejected(make_paperless: Any) -> None:
     assert paperless.documents.update_calls == []
 
 
-@pytest.mark.asyncio
 async def test_an_unknown_name_is_rejected_with_near_misses(make_paperless: Any) -> None:
     paperless = make_paperless()
-    paperless.documents.get_result = _doc(1)
-    paperless.document_types.filter_results = _named(**{"6": "Rechnung", "12": "Kontoauszug"})
+    paperless.documents.get_result = document(1)
+    paperless.document_types.filter_results = named(**{"6": "Rechnung", "12": "Kontoauszug"})
     mcp = build_mcp(make_settings(), paperless)
 
     result = await call_tool(mcp, "update_document", document_id=1, document_type_name="Rechnun")
@@ -123,10 +80,9 @@ async def test_an_unknown_name_is_rejected_with_near_misses(make_paperless: Any)
     assert paperless.documents.update_calls == []
 
 
-@pytest.mark.asyncio
 async def test_an_unknown_name_never_creates_the_object(make_paperless: Any) -> None:
     paperless = make_paperless()
-    paperless.documents.get_result = _doc(1)
+    paperless.documents.get_result = document(1)
     mcp = build_mcp(make_settings(), paperless)
 
     result = await call_tool(mcp, "update_document", document_id=1, tag_names=["brandneu"])
@@ -136,19 +92,18 @@ async def test_an_unknown_name_never_creates_the_object(make_paperless: Any) -> 
     assert paperless.tags.save_calls == []
 
 
-@pytest.mark.asyncio
 async def test_a_miss_reloads_the_snapshot_once_before_giving_up(make_paperless: Any) -> None:
     """Master data created elsewhere since the snapshot must still resolve."""
     paperless = make_paperless()
-    paperless.documents.get_result = _doc(1)
-    paperless.document_types.filter_results = _named(**{"6": "Rechnung"})
+    paperless.documents.get_result = document(1)
+    paperless.document_types.filter_results = named(**{"6": "Rechnung"})
     mcp = build_mcp(make_settings(), paperless)
 
     async with tool_session(mcp) as call:
         await call("update_document", document_id=1, title="warms the snapshot")
         assert len(paperless.document_types.page_calls) == 1
 
-        paperless.document_types.filter_results = _named(
+        paperless.document_types.filter_results = named(
             **{"6": "Rechnung", "17": "Spendenquittung"}
         )
         result = await call("update_document", document_id=1, document_type_name="Spendenquittung")
@@ -157,11 +112,10 @@ async def test_a_miss_reloads_the_snapshot_once_before_giving_up(make_paperless:
     assert len(paperless.document_types.page_calls) == 2
 
 
-@pytest.mark.asyncio
 async def test_an_id_and_a_name_pointing_elsewhere_are_rejected(make_paperless: Any) -> None:
     paperless = make_paperless()
-    paperless.documents.get_result = _doc(1)
-    paperless.document_types.filter_results = _named(**{"10": "Bescheid", "11": "Kündigung"})
+    paperless.documents.get_result = document(1)
+    paperless.document_types.filter_results = named(**{"10": "Bescheid", "11": "Kündigung"})
     mcp = build_mcp(make_settings(), paperless)
 
     result = await call_tool(
@@ -176,11 +130,10 @@ async def test_an_id_and_a_name_pointing_elsewhere_are_rejected(make_paperless: 
     assert paperless.documents.update_calls == []
 
 
-@pytest.mark.asyncio
 async def test_an_id_and_a_name_that_agree_are_accepted(make_paperless: Any) -> None:
     paperless = make_paperless()
-    paperless.documents.get_result = _doc(1)
-    paperless.document_types.filter_results = _named(**{"11": "Kündigung"})
+    paperless.documents.get_result = document(1)
+    paperless.document_types.filter_results = named(**{"11": "Kündigung"})
     mcp = build_mcp(make_settings(), paperless)
 
     result = await call_tool(
@@ -194,11 +147,10 @@ async def test_an_id_and_a_name_that_agree_are_accepted(make_paperless: Any) -> 
     assert result["document_type"] == 11
 
 
-@pytest.mark.asyncio
 async def test_tag_names_replace_the_tag_list(make_paperless: Any) -> None:
     paperless = make_paperless()
-    paperless.documents.get_result = _doc(1)
-    paperless.tags.filter_results = _named(**{"21": "Bank", "3": "Steuer"})
+    paperless.documents.get_result = document(1)
+    paperless.tags.filter_results = named(**{"21": "Bank", "3": "Steuer"})
     mcp = build_mcp(make_settings(), paperless)
 
     result = await call_tool(mcp, "update_document", document_id=1, tag_names=["Steuer", "Bank"])
@@ -207,10 +159,9 @@ async def test_tag_names_replace_the_tag_list(make_paperless: Any) -> None:
     assert result["tag_names"] == ["Steuer", "Bank"]
 
 
-@pytest.mark.asyncio
 async def test_an_empty_tag_name_list_clears_the_tags(make_paperless: Any) -> None:
     paperless = make_paperless()
-    doc = _doc(1)
+    doc = document(1)
     doc.tags = [3, 21]
     paperless.documents.get_result = doc
     mcp = build_mcp(make_settings(), paperless)
@@ -220,13 +171,12 @@ async def test_an_empty_tag_name_list_clears_the_tags(make_paperless: Any) -> No
     assert result["tags"] == []
 
 
-@pytest.mark.asyncio
 async def test_tag_ids_and_tag_names_describing_different_sets_are_rejected(
     make_paperless: Any,
 ) -> None:
     paperless = make_paperless()
-    paperless.documents.get_result = _doc(1)
-    paperless.tags.filter_results = _named(**{"21": "Bank", "3": "Steuer"})
+    paperless.documents.get_result = document(1)
+    paperless.tags.filter_results = named(**{"21": "Bank", "3": "Steuer"})
     mcp = build_mcp(make_settings(), paperless)
 
     result = await call_tool(
@@ -237,11 +187,10 @@ async def test_tag_ids_and_tag_names_describing_different_sets_are_rejected(
     assert paperless.documents.update_calls == []
 
 
-@pytest.mark.asyncio
 async def test_tag_ids_and_tag_names_agree_in_any_order(make_paperless: Any) -> None:
     paperless = make_paperless()
-    paperless.documents.get_result = _doc(1)
-    paperless.tags.filter_results = _named(**{"21": "Bank", "3": "Steuer"})
+    paperless.documents.get_result = document(1)
+    paperless.tags.filter_results = named(**{"21": "Bank", "3": "Steuer"})
     mcp = build_mcp(make_settings(), paperless)
 
     result = await call_tool(
@@ -251,11 +200,10 @@ async def test_tag_ids_and_tag_names_agree_in_any_order(make_paperless: Any) -> 
     assert result["tags"] == [3, 21]
 
 
-@pytest.mark.asyncio
 async def test_setting_by_name_still_conflicts_with_clear_fields(make_paperless: Any) -> None:
     paperless = make_paperless()
-    paperless.documents.get_result = _doc(1)
-    paperless.document_types.filter_results = _named(**{"11": "Kündigung"})
+    paperless.documents.get_result = document(1)
+    paperless.document_types.filter_results = named(**{"11": "Kündigung"})
     mcp = build_mcp(make_settings(), paperless)
 
     result = await call_tool(
@@ -270,12 +218,11 @@ async def test_setting_by_name_still_conflicts_with_clear_fields(make_paperless:
     assert paperless.documents.update_calls == []
 
 
-@pytest.mark.asyncio
 async def test_search_documents_filters_by_name(make_paperless: Any) -> None:
     paperless = make_paperless()
-    paperless.correspondents.filter_results = _named(**{"5": "Finanzamt"})
-    paperless.document_types.filter_results = _named(**{"6": "Rechnung"})
-    paperless.tags.filter_results = _named(**{"21": "Bank", "3": "Steuer"})
+    paperless.correspondents.filter_results = named(**{"5": "Finanzamt"})
+    paperless.document_types.filter_results = named(**{"6": "Rechnung"})
+    paperless.tags.filter_results = named(**{"21": "Bank", "3": "Steuer"})
     mcp = build_mcp(make_settings(), paperless)
 
     await call_tool(
@@ -294,13 +241,12 @@ async def test_search_documents_filters_by_name(make_paperless: Any) -> None:
     assert sent["tags__id__none"] == "3"
 
 
-@pytest.mark.asyncio
 async def test_bulk_edit_documents_resolves_names(make_paperless: Any) -> None:
     paperless = make_paperless()
-    recorder = _BulkRecorder()
+    recorder = BulkRecorder()
     paperless.documents.bulk_edit = recorder
-    paperless.correspondents.filter_results = _named(**{"5": "Finanzamt"})
-    paperless.tags.filter_results = _named(**{"21": "Bank", "3": "Steuer"})
+    paperless.correspondents.filter_results = named(**{"5": "Finanzamt"})
+    paperless.tags.filter_results = named(**{"21": "Bank", "3": "Steuer"})
     mcp = build_mcp(make_settings(), paperless)
 
     result = await call_tool(
@@ -317,15 +263,14 @@ async def test_bulk_edit_documents_resolves_names(make_paperless: Any) -> None:
     assert recorder.calls[1][2] == {"add_tags": [21], "remove_tags": [3]}
 
 
-@pytest.mark.asyncio
 async def test_bulk_edit_rejects_an_unknown_name_before_the_first_request(
     make_paperless: Any,
 ) -> None:
     """Resolution runs up front, so a typo cannot leave a half-applied edit."""
     paperless = make_paperless()
-    recorder = _BulkRecorder()
+    recorder = BulkRecorder()
     paperless.documents.bulk_edit = recorder
-    paperless.correspondents.filter_results = _named(**{"5": "Finanzamt"})
+    paperless.correspondents.filter_results = named(**{"5": "Finanzamt"})
     mcp = build_mcp(make_settings(), paperless)
 
     result = await call_tool(
@@ -340,12 +285,11 @@ async def test_bulk_edit_rejects_an_unknown_name_before_the_first_request(
     assert recorder.calls == []
 
 
-@pytest.mark.asyncio
 async def test_upload_document_resolves_names(make_paperless: Any) -> None:
     paperless = make_paperless()
     paperless.documents.save_returns = "task-uuid"
-    paperless.document_types.filter_results = _named(**{"6": "Rechnung"})
-    paperless.tags.filter_results = _named(**{"21": "Bank"})
+    paperless.document_types.filter_results = named(**{"6": "Rechnung"})
+    paperless.tags.filter_results = named(**{"21": "Bank"})
     mcp = build_mcp(make_settings(), paperless)
 
     result = await call_tool(

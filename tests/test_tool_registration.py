@@ -3,10 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import replace
 from typing import Any
-
-import pytest
 
 from paperless_mcp import __version__
 from paperless_mcp.config import Settings
@@ -96,62 +93,53 @@ _DELETE_TOOLS = frozenset(
 _ALL_TOOLS = _READ_TOOLS | _WRITE_TOOLS | _DELETE_TOOLS
 
 
-def _settings(*, readonly: bool, enable_delete: bool) -> Settings:
-    return replace(make_settings(), readonly=readonly, enable_delete=enable_delete)
-
-
 async def _tools_by_name(settings: Settings) -> dict[str, Any]:
     return {tool.name: tool for tool in await build_mcp(settings).list_tools()}
 
 
 async def _full_surface() -> dict[str, Any]:
-    return await _tools_by_name(_settings(readonly=False, enable_delete=True))
+    return await _tools_by_name(make_settings(readonly=False, enable_delete=True))
 
 
 async def _tool_names(settings: Settings) -> set[str]:
     return {tool.name for tool in await build_mcp(settings).list_tools()}
 
 
-@pytest.mark.asyncio
 async def test_readonly_hides_writes_and_deletes() -> None:
-    names = await _tool_names(_settings(readonly=True, enable_delete=True))
+    names = await _tool_names(make_settings(readonly=True, enable_delete=True))
     assert names >= _READ_TOOLS
     assert not (_WRITE_TOOLS | _DELETE_TOOLS) & names
 
 
-@pytest.mark.asyncio
 async def test_default_exposes_writes_but_not_deletes() -> None:
-    names = await _tool_names(_settings(readonly=False, enable_delete=False))
+    names = await _tool_names(make_settings(readonly=False, enable_delete=False))
     assert names >= _READ_TOOLS
     assert names >= _WRITE_TOOLS
     assert not _DELETE_TOOLS & names
 
 
-@pytest.mark.asyncio
 async def test_enable_delete_exposes_deletes() -> None:
-    names = await _tool_names(_settings(readonly=False, enable_delete=True))
+    names = await _tool_names(make_settings(readonly=False, enable_delete=True))
     assert names >= _DELETE_TOOLS
 
 
-@pytest.mark.asyncio
 async def test_every_tool_has_a_description() -> None:
     """Claude Desktop shows the description verbatim; an empty one is unusable."""
-    tools = await build_mcp(_settings(readonly=False, enable_delete=True)).list_tools()
+    tools = await build_mcp(make_settings(readonly=False, enable_delete=True)).list_tools()
     missing = [tool.name for tool in tools if not (tool.description or "").strip()]
     assert missing == []
 
 
-@pytest.mark.asyncio
 async def test_tool_schemas_are_json_serializable() -> None:
     """A schema that cannot be serialized breaks the tools/list response."""
-    tools = await build_mcp(_settings(readonly=False, enable_delete=True)).list_tools()
+    tools = await build_mcp(make_settings(readonly=False, enable_delete=True)).list_tools()
     for tool in tools:
         json.dumps(tool.input_schema)
 
 
 def test_handshake_reports_our_own_version() -> None:
     """Without this the client sees the MCP SDK's version as the server's."""
-    mcp = build_mcp(_settings(readonly=False, enable_delete=False))
+    mcp = build_mcp(make_settings(readonly=False, enable_delete=False))
     options = mcp._lowlevel_server.create_initialization_options()
     assert options.server_name == "paperless-mcp"
     assert options.server_version == __version__
@@ -159,7 +147,6 @@ def test_handshake_reports_our_own_version() -> None:
     assert "Paperless-ngx" in options.instructions
 
 
-@pytest.mark.asyncio
 async def test_every_tool_is_annotated_and_titled() -> None:
     """An unannotated tool tells a client nothing about what a call will do."""
     tools = await _full_surface()
@@ -170,7 +157,6 @@ async def test_every_tool_is_annotated_and_titled() -> None:
     assert untitled == []
 
 
-@pytest.mark.asyncio
 async def test_read_tools_are_marked_read_only_and_nothing_else_is() -> None:
     """``readOnlyHint`` is what lets a client run a tool without a confirmation."""
     tools = await _full_surface()
@@ -178,7 +164,6 @@ async def test_read_tools_are_marked_read_only_and_nothing_else_is() -> None:
     assert read_only == set(_READ_TOOLS)
 
 
-@pytest.mark.asyncio
 async def test_read_tools_omit_the_hints_that_only_apply_to_writes() -> None:
     """The spec gives destructive/idempotent meaning only when writes are possible."""
     tools = await _full_surface()
@@ -188,7 +173,6 @@ async def test_read_tools_omit_the_hints_that_only_apply_to_writes() -> None:
         assert annotations.idempotent_hint is None, name
 
 
-@pytest.mark.asyncio
 async def test_write_and_delete_tools_declare_both_write_hints() -> None:
     """A missing hint falls back to the spec default, which is not our claim."""
     tools = await _full_surface()
@@ -199,7 +183,6 @@ async def test_write_and_delete_tools_declare_both_write_hints() -> None:
         assert annotations.idempotent_hint is not None, name
 
 
-@pytest.mark.asyncio
 async def test_deletes_are_destructive_and_idempotent() -> None:
     tools = await _full_surface()
     for name in _DELETE_TOOLS:
@@ -208,7 +191,6 @@ async def test_deletes_are_destructive_and_idempotent() -> None:
         assert annotations.idempotent_hint is True, name
 
 
-@pytest.mark.asyncio
 async def test_additive_writes_are_not_flagged_destructive() -> None:
     """Uploading or creating something never overwrites what was already there."""
     tools = await _full_surface()
@@ -224,7 +206,6 @@ async def test_additive_writes_are_not_flagged_destructive() -> None:
         assert tools[name].annotations.destructive_hint is False, name
 
 
-@pytest.mark.asyncio
 async def test_repeatable_writes_are_flagged_non_idempotent() -> None:
     """These accumulate: a retry is not free, and a client must not assume it is."""
     tools = await _full_surface()
@@ -242,7 +223,6 @@ async def test_repeatable_writes_are_flagged_non_idempotent() -> None:
         assert tools[name].annotations.idempotent_hint is False, name
 
 
-@pytest.mark.asyncio
 async def test_no_tool_claims_an_open_world() -> None:
     """The archive is one known server, not an unbounded set of external entities."""
     tools = await _full_surface()
@@ -250,7 +230,6 @@ async def test_no_tool_claims_an_open_world() -> None:
         assert tool.annotations.open_world_hint is False, name
 
 
-@pytest.mark.asyncio
 async def test_annotations_go_out_under_their_camel_case_aliases() -> None:
     """The wire format is camelCase; a snake_case payload would be ignored."""
     tools = await _full_surface()
@@ -265,7 +244,7 @@ def test_every_tool_receives_the_lifespan_context() -> None:
     being detected, every tool would be called without a client and the ``ctx``
     parameter would leak into the public input schema instead.
     """
-    mcp = build_mcp(_settings(readonly=False, enable_delete=True))
+    mcp = build_mcp(make_settings(readonly=False, enable_delete=True))
     registered = mcp._tool_manager._tools
     assert registered
     for name, tool in registered.items():

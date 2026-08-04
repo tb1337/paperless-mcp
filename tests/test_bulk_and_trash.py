@@ -8,26 +8,12 @@ from typing import Any
 import pytest
 from pypaperless.exceptions import BulkEditPagesError
 
-from tests.conftest import FakeService, build_mcp, call_tool, make_settings
+from tests.conftest import BulkRecorder, FakeService, build_mcp, call_tool, document, make_settings
 
 
-class _BulkRecorder:
-    """Records every bulk-edit call so tests can assert exact ordering."""
-
-    def __init__(self) -> None:
-        self.calls: list[tuple[str, tuple[Any, ...], dict[str, Any]]] = []
-
-    def __getattr__(self, name: str) -> Any:
-        async def _record(*args: Any, **kwargs: Any) -> None:
-            self.calls.append((name, args, kwargs))
-
-        return _record
-
-
-@pytest.mark.asyncio
 async def test_bulk_edit_documents_runs_only_passed_operations(make_paperless: Any) -> None:
     paperless = make_paperless()
-    recorder = _BulkRecorder()
+    recorder = BulkRecorder()
     paperless.documents.bulk_edit = recorder
     mcp = build_mcp(make_settings(), paperless)
 
@@ -45,20 +31,18 @@ async def test_bulk_edit_documents_runs_only_passed_operations(make_paperless: A
     assert recorder.calls[1][2] == {"add_tags": [10, 11], "remove_tags": []}
 
 
-@pytest.mark.asyncio
 async def test_bulk_edit_documents_rejects_a_no_op(make_paperless: Any) -> None:
     paperless = make_paperless()
-    paperless.documents.bulk_edit = _BulkRecorder()
+    paperless.documents.bulk_edit = BulkRecorder()
     mcp = build_mcp(make_settings(), paperless)
 
     result = await call_tool(mcp, "bulk_edit_documents", document_ids=[1])
     assert result["error"] == "invalid_argument"
 
 
-@pytest.mark.asyncio
 async def test_bulk_edit_documents_rejects_empty_ids(make_paperless: Any) -> None:
     paperless = make_paperless()
-    recorder = _BulkRecorder()
+    recorder = BulkRecorder()
     paperless.documents.bulk_edit = recorder
     mcp = build_mcp(make_settings(), paperless)
 
@@ -67,10 +51,9 @@ async def test_bulk_edit_documents_rejects_empty_ids(make_paperless: Any) -> Non
     assert recorder.calls == []
 
 
-@pytest.mark.asyncio
 async def test_bulk_merge_documents_forwards_options(make_paperless: Any) -> None:
     paperless = make_paperless()
-    recorder = _BulkRecorder()
+    recorder = BulkRecorder()
     paperless.documents.bulk_edit = recorder
     mcp = build_mcp(make_settings(), paperless)
 
@@ -87,10 +70,9 @@ async def test_bulk_merge_documents_forwards_options(make_paperless: Any) -> Non
     assert kwargs == {"metadata_document_id": 2, "delete_originals": True}
 
 
-@pytest.mark.asyncio
 async def test_bulk_merge_documents_needs_two_documents(make_paperless: Any) -> None:
     paperless = make_paperless()
-    recorder = _BulkRecorder()
+    recorder = BulkRecorder()
     paperless.documents.bulk_edit = recorder
     mcp = build_mcp(make_settings(), paperless)
 
@@ -99,10 +81,9 @@ async def test_bulk_merge_documents_needs_two_documents(make_paperless: Any) -> 
     assert recorder.calls == []
 
 
-@pytest.mark.asyncio
 async def test_bulk_rotate_rejects_odd_angles(make_paperless: Any) -> None:
     paperless = make_paperless()
-    recorder = _BulkRecorder()
+    recorder = BulkRecorder()
     paperless.documents.bulk_edit = recorder
     mcp = build_mcp(make_settings(), paperless)
 
@@ -111,32 +92,9 @@ async def test_bulk_rotate_rejects_odd_angles(make_paperless: Any) -> None:
     assert recorder.calls == []
 
 
-def _trashed(doc_id: int) -> SimpleNamespace:
-    return SimpleNamespace(
-        id=doc_id,
-        title=f"t{doc_id}",
-        correspondent=None,
-        document_type=None,
-        storage_path=None,
-        tags=[],
-        created=None,
-        added=None,
-        modified=None,
-        deleted_at=None,
-        archive_serial_number=None,
-        original_file_name=None,
-        archived_file_name=None,
-        owner=None,
-        page_count=None,
-        mime_type=None,
-        is_shared_by_requester=False,
-    )
-
-
-@pytest.mark.asyncio
 async def test_list_trash_paginates(make_paperless: Any) -> None:
     paperless = make_paperless()
-    paperless.trash.filter_results = [_trashed(i) for i in range(1, 4)]
+    paperless.trash.filter_results = [document(i, title=f"t{i}") for i in range(1, 4)]
     mcp = build_mcp(make_settings(), paperless)
 
     result = await call_tool(mcp, "list_trash", limit=2)
@@ -160,7 +118,6 @@ class _Trash(FakeService):
         self.emptied.append(documents)
 
 
-@pytest.mark.asyncio
 async def test_restore_documents_forwards_ids(make_paperless: Any) -> None:
     paperless = make_paperless()
     paperless.trash = _Trash()
@@ -170,7 +127,6 @@ async def test_restore_documents_forwards_ids(make_paperless: Any) -> None:
     assert paperless.trash.restored == [[7, 8]]
 
 
-@pytest.mark.asyncio
 async def test_restore_documents_rejects_empty_ids(make_paperless: Any) -> None:
     paperless = make_paperless()
     paperless.trash = _Trash()
@@ -181,7 +137,6 @@ async def test_restore_documents_rejects_empty_ids(make_paperless: Any) -> None:
     assert paperless.trash.restored == []
 
 
-@pytest.mark.asyncio
 async def test_empty_trash_purges_everything_when_no_ids(make_paperless: Any) -> None:
     """An empty list would purge *nothing*, so the argument must stay None."""
     paperless = make_paperless()
@@ -193,7 +148,6 @@ async def test_empty_trash_purges_everything_when_no_ids(make_paperless: Any) ->
     assert paperless.trash.emptied == [None]
 
 
-@pytest.mark.asyncio
 async def test_empty_trash_purges_selected_ids(make_paperless: Any) -> None:
     paperless = make_paperless()
     paperless.trash = _Trash()
@@ -204,15 +158,14 @@ async def test_empty_trash_purges_selected_ids(make_paperless: Any) -> None:
     assert paperless.trash.emptied == [[3, 4]]
 
 
-def _with_pages(make_paperless: Any, page_count: int | None) -> tuple[Any, _BulkRecorder]:
+def _with_pages(make_paperless: Any, page_count: int | None) -> tuple[Any, BulkRecorder]:
     paperless = make_paperless()
-    recorder = _BulkRecorder()
+    recorder = BulkRecorder()
     paperless.documents = FakeService(get_result=SimpleNamespace(page_count=page_count))
     paperless.documents.bulk_edit = recorder
     return paperless, recorder
 
 
-@pytest.mark.asyncio
 async def test_split_document_partitions_the_pages(make_paperless: Any) -> None:
     paperless, recorder = _with_pages(make_paperless, 5)
     mcp = build_mcp(make_settings(), paperless)
@@ -224,7 +177,6 @@ async def test_split_document_partitions_the_pages(make_paperless: Any) -> None:
     assert result["document_id"] == 42
 
 
-@pytest.mark.asyncio
 async def test_split_document_takes_the_page_count_without_a_lookup(make_paperless: Any) -> None:
     paperless, recorder = _with_pages(make_paperless, 5)
     mcp = build_mcp(make_settings(), paperless)
@@ -235,7 +187,6 @@ async def test_split_document_takes_the_page_count_without_a_lookup(make_paperle
     assert len(recorder.calls) == 1
 
 
-@pytest.mark.asyncio
 async def test_split_document_refuses_to_discard_the_pages_left_out(make_paperless: Any) -> None:
     """Paperless drops unlisted pages silently; a short list must not lose sheets."""
     paperless, recorder = _with_pages(make_paperless, 5)
@@ -249,7 +200,6 @@ async def test_split_document_refuses_to_discard_the_pages_left_out(make_paperle
     assert recorder.calls == []
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("page_groups", "reason"),
     [
@@ -272,7 +222,6 @@ async def test_split_document_rejects_a_malformed_partition(
     assert recorder.calls == []
 
 
-@pytest.mark.asyncio
 async def test_split_document_reports_a_missing_page_count(make_paperless: Any) -> None:
     paperless, recorder = _with_pages(make_paperless, None)
     mcp = build_mcp(make_settings(), paperless)
@@ -284,7 +233,6 @@ async def test_split_document_reports_a_missing_page_count(make_paperless: Any) 
     assert recorder.calls == []
 
 
-@pytest.mark.asyncio
 async def test_delete_document_pages_passes_through(make_paperless: Any) -> None:
     paperless, recorder = _with_pages(make_paperless, 5)
     mcp = build_mcp(make_settings(), paperless)
@@ -295,7 +243,6 @@ async def test_delete_document_pages_passes_through(make_paperless: Any) -> None
     assert result == {"document_id": 42, "pages_removed": [2, 4]}
 
 
-@pytest.mark.asyncio
 async def test_delete_document_pages_forwards_a_known_page_count(make_paperless: Any) -> None:
     paperless, recorder = _with_pages(make_paperless, 5)
     mcp = build_mcp(make_settings(), paperless)
@@ -307,7 +254,6 @@ async def test_delete_document_pages_forwards_a_known_page_count(make_paperless:
     assert paperless.documents.get_calls == []
 
 
-@pytest.mark.asyncio
 async def test_delete_document_pages_rejects_an_empty_selection(make_paperless: Any) -> None:
     paperless, recorder = _with_pages(make_paperless, 5)
     mcp = build_mcp(make_settings(), paperless)
@@ -318,7 +264,6 @@ async def test_delete_document_pages_rejects_an_empty_selection(make_paperless: 
     assert recorder.calls == []
 
 
-@pytest.mark.asyncio
 async def test_a_rejected_page_selection_is_an_invalid_argument(make_paperless: Any) -> None:
     """BulkEditPagesError is a DocumentError, so the catch-all would call it a server fault."""
     paperless, _ = _with_pages(make_paperless, 5)

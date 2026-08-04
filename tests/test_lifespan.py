@@ -61,7 +61,6 @@ def fake_client_class() -> Any:
         yield _FakePaperlessClient
 
 
-@pytest.mark.asyncio
 async def test_connection_opens_and_closes_both_halves(fake_client_class: Any) -> None:
     async with PaperlessConnection(make_settings()) as connection:
         client = await connection.client()
@@ -72,7 +71,6 @@ async def test_connection_opens_and_closes_both_halves(fake_client_class: Any) -
     assert client.http.is_closed
 
 
-@pytest.mark.asyncio
 async def test_close_releases_the_pool_even_when_the_client_refuses(
     fake_client_class: Any,
 ) -> None:
@@ -90,7 +88,6 @@ async def test_close_releases_the_pool_even_when_the_client_refuses(
     await connection.close()
 
 
-@pytest.mark.asyncio
 async def test_opening_twice_is_refused_rather_than_leaking(fake_client_class: Any) -> None:
     """Overwriting the pair would drop the first one unclosed."""
     async with PaperlessConnection(make_settings()) as connection:
@@ -99,7 +96,6 @@ async def test_opening_twice_is_refused_rather_than_leaking(fake_client_class: A
     assert len(fake_client_class.instances) == 1
 
 
-@pytest.mark.asyncio
 async def test_connection_retries_after_a_failed_startup(fake_client_class: Any) -> None:
     """A Paperless that is down at launch must not kill the MCP session."""
     connection = PaperlessConnection(make_settings())
@@ -129,7 +125,6 @@ def _fail_once() -> Any:
     return _initialize
 
 
-@pytest.mark.asyncio
 async def test_connection_reuses_an_initialized_client(fake_client_class: Any) -> None:
     async with PaperlessConnection(make_settings()) as connection:
         first = await connection.client()
@@ -138,7 +133,6 @@ async def test_connection_reuses_an_initialized_client(fake_client_class: Any) -
     assert first.initialize_calls == 1
 
 
-@pytest.mark.asyncio
 async def test_stdio_session_lifespan_owns_its_connection(fake_client_class: Any) -> None:
     mcp = server_mod.build_mcp(make_settings())
     async with mcp._lowlevel_server.lifespan(mcp._lowlevel_server) as ctx:
@@ -149,7 +143,6 @@ async def test_stdio_session_lifespan_owns_its_connection(fake_client_class: Any
     assert fake_client_class.instances[0].close_calls == 1
 
 
-@pytest.mark.asyncio
 async def test_tools_report_a_down_paperless_instead_of_crashing(
     fake_client_class: Any,
 ) -> None:

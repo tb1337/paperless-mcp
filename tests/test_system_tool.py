@@ -6,7 +6,6 @@ from types import SimpleNamespace
 from typing import Any
 
 import httpx
-import pytest
 from pypaperless.cache import PaperlessCache
 from pypaperless.exceptions import ForbiddenError, ItemNotFoundError
 from pypaperless.models.statistics import Statistic
@@ -15,10 +14,9 @@ from pypaperless.runtime import PaperlessRuntime
 from pypaperless.transport import PaperlessTransport
 
 from paperless_mcp import __version__
-from tests.conftest import FakeService, build_mcp, call_tool, make_settings
+from tests.conftest import FakeService, build_mcp, call_tool, make_settings, returns, rule
 
 
-@pytest.mark.asyncio
 async def test_get_paperless_info_returns_version_metadata(make_paperless: Any) -> None:
     paperless = make_paperless()
     mcp = build_mcp(make_settings(), paperless)
@@ -34,7 +32,6 @@ async def test_get_paperless_info_returns_version_metadata(make_paperless: Any) 
     }
 
 
-@pytest.mark.asyncio
 async def test_get_statistics_serializes_pydantic_model(make_paperless: Any) -> None:
     """Built from the real Statistic model, not a stand-in that only quacks.
 
@@ -57,7 +54,6 @@ async def test_get_statistics_serializes_pydantic_model(make_paperless: Any) -> 
     assert result["documents_inbox"] == 3
 
 
-@pytest.mark.asyncio
 async def test_get_saved_view_returns_rules(make_paperless: Any) -> None:
     view = SimpleNamespace(
         id=1,
@@ -99,10 +95,6 @@ def _view(
     )
 
 
-def _rule(rule_type: int, value: str | None) -> SimpleNamespace:
-    return SimpleNamespace(rule_type=rule_type, value=value)
-
-
 def _doc(doc_id: int) -> SimpleNamespace:
     return SimpleNamespace(id=doc_id, title=f"Doc {doc_id}", tags=[])
 
@@ -116,9 +108,8 @@ async def _run_view(make_paperless: Any, view: SimpleNamespace, **kwargs: Any) -
     return result, paperless
 
 
-@pytest.mark.asyncio
 async def test_run_saved_view_executes_the_view(make_paperless: Any) -> None:
-    view = _view([_rule(3, "42"), _rule(5, "true")])
+    view = _view([rule(3, "42"), rule(5, "true")])
 
     result, paperless = await _run_view(make_paperless, view)
 
@@ -130,28 +121,25 @@ async def test_run_saved_view_executes_the_view(make_paperless: Any) -> None:
     ]
 
 
-@pytest.mark.asyncio
 async def test_run_saved_view_reports_the_query_it_ran(make_paperless: Any) -> None:
     """The translation is only trustworthy if the caller can see its result."""
-    result, _ = await _run_view(make_paperless, _view([_rule(19, "invoice")]))
+    result, _ = await _run_view(make_paperless, _view([rule(19, "invoice")]))
 
     assert result["filters"] == {"title_content": "invoice", "ordering": "-created"}
 
 
-@pytest.mark.asyncio
 async def test_run_saved_view_joins_repeated_rules_of_one_type(make_paperless: Any) -> None:
     """Paperless stores ``tags__id__all=1,2,3`` as three separate rules."""
-    view = _view([_rule(6, "1"), _rule(6, "2"), _rule(6, "3")], sort_field=None)
+    view = _view([rule(6, "1"), rule(6, "2"), rule(6, "3")], sort_field=None)
 
     _, paperless = await _run_view(make_paperless, view)
 
     assert paperless.documents.filter_calls == [{"tags__id__all": "1,2,3"}]
 
 
-@pytest.mark.asyncio
 async def test_run_saved_view_translates_the_isnull_sentinels(make_paperless: Any) -> None:
     """A relation encodes "is (not) set" in the value: ``None`` / ``"-1"``."""
-    view = _view([_rule(3, None), _rule(25, "-1")], sort_field=None)
+    view = _view([rule(3, None), rule(25, "-1")], sort_field=None)
 
     _, paperless = await _run_view(make_paperless, view)
 
@@ -160,16 +148,14 @@ async def test_run_saved_view_translates_the_isnull_sentinels(make_paperless: An
     ]
 
 
-@pytest.mark.asyncio
 async def test_run_saved_view_sends_booleans_as_digits(make_paperless: Any) -> None:
-    view = _view([_rule(7, "true"), _rule(41, "false")], sort_field=None)
+    view = _view([rule(7, "true"), rule(41, "false")], sort_field=None)
 
     _, paperless = await _run_view(make_paperless, view)
 
     assert paperless.documents.filter_calls == [{"is_tagged": 1, "has_custom_fields": 0}]
 
 
-@pytest.mark.asyncio
 async def test_run_saved_view_honours_ascending_sort(make_paperless: Any) -> None:
     view = _view(sort_field="title", sort_reverse=False)
 
@@ -178,7 +164,6 @@ async def test_run_saved_view_honours_ascending_sort(make_paperless: Any) -> Non
     assert paperless.documents.filter_calls == [{"ordering": "title"}]
 
 
-@pytest.mark.asyncio
 async def test_run_saved_view_without_rules_matches_everything(make_paperless: Any) -> None:
     """A view can legitimately be nothing but a sort order."""
     result, paperless = await _run_view(make_paperless, _view(sort_field=None))
@@ -187,10 +172,9 @@ async def test_run_saved_view_without_rules_matches_everything(make_paperless: A
     assert result["total"] == 2
 
 
-@pytest.mark.asyncio
 async def test_run_saved_view_refuses_an_untranslatable_rule(make_paperless: Any) -> None:
     """Dropping a filter would answer with documents the view excludes."""
-    view = _view([_rule(3, "42"), _rule(999, "x")])
+    view = _view([rule(3, "42"), rule(999, "x")])
 
     result, paperless = await _run_view(make_paperless, view)
 
@@ -200,7 +184,6 @@ async def test_run_saved_view_refuses_an_untranslatable_rule(make_paperless: Any
     assert paperless.documents.filter_calls == []
 
 
-@pytest.mark.asyncio
 async def test_run_saved_view_paginates(make_paperless: Any) -> None:
     result, _ = await _run_view(make_paperless, _view(sort_field=None), limit=1)
 
@@ -208,7 +191,6 @@ async def test_run_saved_view_paginates(make_paperless: Any) -> None:
     assert result["has_more"] is True
 
 
-@pytest.mark.asyncio
 async def test_run_saved_view_reports_a_missing_view(make_paperless: Any) -> None:
     paperless = make_paperless()
     paperless.saved_views.get_raises = ItemNotFoundError("no such view")
@@ -239,7 +221,6 @@ def _task(task_id: int, status: str = "success") -> SimpleNamespace:
     )
 
 
-@pytest.mark.asyncio
 async def test_list_active_tasks_windows_the_plain_list(make_paperless: Any) -> None:
     paperless = make_paperless()
     paperless.tasks.active_results = [_task(i) for i in range(1, 4)]
@@ -251,7 +232,6 @@ async def test_list_active_tasks_windows_the_plain_list(make_paperless: Any) -> 
     assert result["has_more"] is True
 
 
-@pytest.mark.asyncio
 async def test_list_tasks_requests_newest_first(make_paperless: Any) -> None:
     paperless = make_paperless()
     paperless.tasks.filter_results = [_task(i) for i in range(1, 3)]
@@ -262,7 +242,6 @@ async def test_list_tasks_requests_newest_first(make_paperless: Any) -> None:
     assert paperless.tasks.filter_calls == [{"ordering": "-date_created", "status": "failure"}]
 
 
-@pytest.mark.asyncio
 async def test_get_task_accepts_a_uuid(make_paperless: Any) -> None:
     paperless = make_paperless()
     paperless.tasks.get_result = _task(9)
@@ -273,7 +252,6 @@ async def test_get_task_accepts_a_uuid(make_paperless: Any) -> None:
     assert paperless.tasks.get_calls == [("c0ffee-uuid", {})]
 
 
-@pytest.mark.asyncio
 async def test_get_task_accepts_a_numeric_pk(make_paperless: Any) -> None:
     paperless = make_paperless()
     paperless.tasks.get_result = _task(9)
@@ -294,11 +272,10 @@ def _link(link_id: int, document: int = 1) -> SimpleNamespace:
     )
 
 
-@pytest.mark.asyncio
 async def test_list_share_links_uses_the_document_scoped_endpoint(make_paperless: Any) -> None:
     """The share-links collection has no document filter in Paperless."""
     paperless = make_paperless()
-    paperless.documents.share_links = _returns([_link(1), _link(2)])
+    paperless.documents.share_links = returns([_link(1), _link(2)])
     mcp = build_mcp(make_settings(), paperless)
 
     result = await call_tool(mcp, "list_share_links", document_id=1)
@@ -306,7 +283,6 @@ async def test_list_share_links_uses_the_document_scoped_endpoint(make_paperless
     assert paperless.share_links.filter_calls == []
 
 
-@pytest.mark.asyncio
 async def test_list_share_links_pages_the_collection(make_paperless: Any) -> None:
     paperless = make_paperless()
     paperless.share_links.filter_results = [_link(i) for i in range(1, 4)]
@@ -317,7 +293,6 @@ async def test_list_share_links_pages_the_collection(make_paperless: Any) -> Non
     assert result["has_more"] is True
 
 
-@pytest.mark.asyncio
 async def test_create_share_link_defaults_to_the_archive_version(make_paperless: Any) -> None:
     """ShareLinkDraft requires file_version, so it cannot be left unset."""
     paperless = make_paperless()
@@ -332,7 +307,6 @@ async def test_create_share_link_defaults_to_the_archive_version(make_paperless:
     assert draft.expiration is None
 
 
-@pytest.mark.asyncio
 async def test_create_share_link_rejects_an_unknown_file_version(make_paperless: Any) -> None:
     paperless = make_paperless()
     mcp = build_mcp(make_settings(), paperless)
@@ -340,13 +314,6 @@ async def test_create_share_link_rejects_an_unknown_file_version(make_paperless:
     result = await call_tool(mcp, "create_share_link", document_id=1, file_version="thumbnail")
     assert result["error"] == "invalid_argument"
     assert paperless.share_links.save_calls == []
-
-
-def _returns(value: Any) -> Any:
-    async def _call(*_args: Any, **_kwargs: Any) -> Any:
-        return value
-
-    return _call
 
 
 def _status(**tasks: Any) -> Status:
@@ -360,10 +327,9 @@ def _status(**tasks: Any) -> Status:
     )
 
 
-@pytest.mark.asyncio
 async def test_get_system_status_reports_a_healthy_archive(make_paperless: Any) -> None:
     paperless = make_paperless()
-    paperless.status = _returns(_status(redis_status="OK"))
+    paperless.status = returns(_status(redis_status="OK"))
     mcp = build_mcp(make_settings(), paperless)
 
     result = await call_tool(mcp, "get_system_status")
@@ -375,10 +341,9 @@ async def test_get_system_status_reports_a_healthy_archive(make_paperless: Any) 
     assert result["storage"]["available"] == 40
 
 
-@pytest.mark.asyncio
 async def test_get_system_status_names_the_failing_subsystems(make_paperless: Any) -> None:
     paperless = make_paperless()
-    paperless.status = _returns(
+    paperless.status = returns(
         _status(
             redis_status="ERROR",
             redis_error="connection refused",
@@ -397,11 +362,10 @@ async def test_get_system_status_names_the_failing_subsystems(make_paperless: An
     ]
 
 
-@pytest.mark.asyncio
 async def test_get_system_status_reports_a_warning_without_an_error(make_paperless: Any) -> None:
     paperless = make_paperless()
     # sanity_check is one of the two subsystems Status.has_errors ignores.
-    paperless.status = _returns(_status(sanity_check_status="WARNING"))
+    paperless.status = returns(_status(sanity_check_status="WARNING"))
     mcp = build_mcp(make_settings(), paperless)
 
     result = await call_tool(mcp, "get_system_status")
@@ -410,7 +374,6 @@ async def test_get_system_status_reports_a_warning_without_an_error(make_paperle
     assert [p["subsystem"] for p in result["problems"]] == ["sanity_check"]
 
 
-@pytest.mark.asyncio
 async def test_get_system_status_turns_a_missing_permission_into_an_error(
     make_paperless: Any,
 ) -> None:

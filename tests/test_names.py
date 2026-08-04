@@ -15,18 +15,14 @@ from pypaperless.runtime import PaperlessRuntime
 
 from paperless_mcp import names as names_mod
 from paperless_mcp.names import NameCache, load_names, name_of, names_of
-from tests.conftest import FakeService
-
-
-def _named(pk: int, name: str) -> SimpleNamespace:
-    return SimpleNamespace(id=pk, name=name)
+from tests.conftest import FakeService, named
 
 
 def _populated(paperless: Any) -> Any:
-    paperless.correspondents.filter_results = [_named(1, "Utilities")]
-    paperless.document_types.filter_results = [_named(2, "Invoice")]
-    paperless.storage_paths.filter_results = [_named(3, "Archive")]
-    paperless.tags.filter_results = [_named(4, "paid"), _named(5, "urgent")]
+    paperless.correspondents.filter_results = named(**{"1": "Utilities"})
+    paperless.document_types.filter_results = named(**{"2": "Invoice"})
+    paperless.storage_paths.filter_results = named(**{"3": "Archive"})
+    paperless.tags.filter_results = named(**{"4": "paid", "5": "urgent"})
     paperless.users.filter_results = [SimpleNamespace(id=6, username="clerk")]
     paperless.custom_fields.filter_results = [
         SimpleNamespace(id=7, name="Contract status", data_type="string", extra_data=None)
@@ -46,7 +42,6 @@ def test_names_of_keeps_unknown_ids_positional() -> None:
     assert names_of({1: "a"}, None) == []
 
 
-@pytest.mark.asyncio
 async def test_load_names_indexes_every_resource(make_paperless: Any) -> None:
     paperless = _populated(make_paperless())
 
@@ -59,7 +54,6 @@ async def test_load_names_indexes_every_resource(make_paperless: Any) -> None:
     assert names.users == {6: "clerk"}
 
 
-@pytest.mark.asyncio
 async def test_load_names_fills_the_pypaperless_custom_field_cache(make_paperless: Any) -> None:
     """That cache is what makes a Document carry its custom field names."""
     paperless = _populated(make_paperless())
@@ -69,7 +63,6 @@ async def test_load_names_fills_the_pypaperless_custom_field_cache(make_paperles
     assert list(paperless.runtime.cache.custom_fields) == [7]
 
 
-@pytest.mark.asyncio
 async def test_load_names_survives_an_endpoint_it_may_not_read(make_paperless: Any) -> None:
     """A token without user permissions still gets every other name."""
     paperless = _populated(make_paperless())
@@ -90,7 +83,6 @@ def _raising(exc: BaseException) -> Any:
     return pages
 
 
-@pytest.mark.asyncio
 async def test_cache_loads_once_and_reloads_after_invalidation(make_paperless: Any) -> None:
     paperless = _populated(make_paperless())
     cache = NameCache(ttl=0)
@@ -104,7 +96,6 @@ async def test_cache_loads_once_and_reloads_after_invalidation(make_paperless: A
     assert len(paperless.tags.page_calls) == 2
 
 
-@pytest.mark.asyncio
 async def test_concurrent_readers_share_one_load(make_paperless: Any) -> None:
     """Six master-data requests per waiting tool call is what the lock prevents."""
     paperless = _populated(make_paperless())
@@ -116,7 +107,6 @@ async def test_concurrent_readers_share_one_load(make_paperless: Any) -> None:
     assert len(paperless.tags.page_calls) == 1
 
 
-@pytest.mark.asyncio
 async def test_an_invalidation_during_a_load_is_not_lost(
     monkeypatch: pytest.MonkeyPatch, make_paperless: Any
 ) -> None:
@@ -152,7 +142,6 @@ async def test_an_invalidation_during_a_load_is_not_lost(
     assert await cache.get(paperless) is not stale
 
 
-@pytest.mark.asyncio
 async def test_cache_reloads_once_its_ttl_has_passed(make_paperless: Any) -> None:
     paperless = _populated(make_paperless())
     # A snapshot that expires immediately: the second read has to fetch again.
@@ -162,7 +151,6 @@ async def test_cache_reloads_once_its_ttl_has_passed(make_paperless: Any) -> Non
     assert await cache.get(paperless) is not first
 
 
-@pytest.mark.asyncio
 async def test_a_select_custom_field_resolves_to_its_label(make_paperless: Any) -> None:
     """Paperless stores the option ID; only the cached definition holds the label."""
     runtime = PaperlessRuntime(SimpleNamespace(), SimpleNamespace(custom_fields=None))

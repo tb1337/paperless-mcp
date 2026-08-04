@@ -101,7 +101,6 @@ def _stored(document: Document, custom_field_id: int) -> Any:
         (10, "Closed", "opt-2"),
     ],
 )
-@pytest.mark.asyncio
 async def test_set_stores_each_data_type(
     make_paperless: Any, custom_field_id: int, value: Any, expected: Any
 ) -> None:
@@ -123,7 +122,6 @@ async def test_set_stores_each_data_type(
     assert paperless.documents.update_calls == [document]
 
 
-@pytest.mark.asyncio
 async def test_set_reports_the_field_definition(make_paperless: Any) -> None:
     mcp, _paperless, _document = _setup(make_paperless)
 
@@ -137,7 +135,6 @@ async def test_set_reports_the_field_definition(make_paperless: Any) -> None:
     assert result["data_type"] == "monetary"
 
 
-@pytest.mark.asyncio
 async def test_set_replaces_an_existing_value_instead_of_appending(make_paperless: Any) -> None:
     """pypaperless' ``add()`` appends: a second entry for the field would be silent."""
     mcp, paperless, document = _setup(make_paperless, [{"field": 1, "value": "old"}])
@@ -153,7 +150,6 @@ async def test_set_replaces_an_existing_value_instead_of_appending(make_paperles
     assert paperless.documents.update_calls == [document]
 
 
-@pytest.mark.asyncio
 async def test_set_leaves_the_other_fields_alone(make_paperless: Any) -> None:
     mcp, _paperless, document = _setup(
         make_paperless, [{"field": 1, "value": "keep"}, {"field": 6, "value": 1}]
@@ -165,7 +161,6 @@ async def test_set_leaves_the_other_fields_alone(make_paperless: Any) -> None:
     assert _stored(document, 6) == 2
 
 
-@pytest.mark.asyncio
 async def test_set_is_a_no_op_when_the_value_already_matches(make_paperless: Any) -> None:
     mcp, paperless, _document = _setup(make_paperless, [{"field": 8, "value": "EUR10.00"}])
 
@@ -180,7 +175,6 @@ async def test_set_is_a_no_op_when_the_value_already_matches(make_paperless: Any
     assert paperless.documents.update_calls == []
 
 
-@pytest.mark.asyncio
 async def test_set_starts_the_array_on_a_document_without_custom_fields(
     make_paperless: Any,
 ) -> None:
@@ -195,7 +189,6 @@ async def test_set_starts_the_array_on_a_document_without_custom_fields(
     assert paperless.documents.update_calls == [document]
 
 
-@pytest.mark.asyncio
 async def test_set_reads_the_definition_from_the_shared_snapshot(make_paperless: Any) -> None:
     """One master-data pass per snapshot, not one custom-field fetch per call."""
     mcp, paperless, _document = _setup(make_paperless)
@@ -222,7 +215,6 @@ async def test_set_reads_the_definition_from_the_shared_snapshot(make_paperless:
         (11, [1, "2"]),  # documentlink field, non-numeric member
     ],
 )
-@pytest.mark.asyncio
 async def test_set_rejects_a_value_that_does_not_fit_the_data_type(
     make_paperless: Any, custom_field_id: int, value: Any
 ) -> None:
@@ -240,7 +232,6 @@ async def test_set_rejects_a_value_that_does_not_fit_the_data_type(
     assert paperless.documents.update_calls == []
 
 
-@pytest.mark.asyncio
 async def test_set_rejects_an_unknown_select_label_and_names_the_valid_ones(
     make_paperless: Any,
 ) -> None:
@@ -256,7 +247,6 @@ async def test_set_rejects_an_unknown_select_label_and_names_the_valid_ones(
     assert paperless.documents.update_calls == []
 
 
-@pytest.mark.asyncio
 async def test_set_skips_select_options_without_an_id(make_paperless: Any) -> None:
     """Both halves of a ``select_options`` entry are optional in the API schema."""
     incomplete = {
@@ -277,7 +267,6 @@ async def test_set_skips_select_options_without_an_id(make_paperless: Any) -> No
     assert _stored(document, 12) == "opt-9"
 
 
-@pytest.mark.asyncio
 async def test_set_passes_a_data_type_this_library_does_not_know_through(
     make_paperless: Any,
 ) -> None:
@@ -294,7 +283,6 @@ async def test_set_passes_a_data_type_this_library_does_not_know_through(
     assert _stored(document, 12) == {"lat": 1}
 
 
-@pytest.mark.asyncio
 async def test_set_reports_an_unknown_custom_field_as_such(make_paperless: Any) -> None:
     mcp, paperless, _document = _setup(make_paperless)
 
@@ -308,7 +296,6 @@ async def test_set_reports_an_unknown_custom_field_as_such(make_paperless: Any) 
     assert paperless.documents.update_calls == []
 
 
-@pytest.mark.asyncio
 async def test_set_reports_an_unknown_document(make_paperless: Any) -> None:
     mcp, paperless, _document = _setup(make_paperless)
     paperless.documents.get_raises = ItemNotFoundError("no such document")
@@ -321,7 +308,6 @@ async def test_set_reports_an_unknown_document(make_paperless: Any) -> None:
     assert paperless.documents.update_calls == []
 
 
-@pytest.mark.asyncio
 async def test_set_takes_an_explicit_currency(make_paperless: Any) -> None:
     mcp, _paperless, document = _setup(make_paperless)
 
@@ -338,7 +324,6 @@ async def test_set_takes_an_explicit_currency(make_paperless: Any) -> None:
     assert _stored(document, 8) == "USD100.00"
 
 
-@pytest.mark.asyncio
 async def test_set_rejects_a_currency_that_contradicts_the_value(make_paperless: Any) -> None:
     mcp, paperless, _document = _setup(make_paperless)
 
@@ -355,7 +340,6 @@ async def test_set_rejects_a_currency_that_contradicts_the_value(make_paperless:
     assert paperless.documents.update_calls == []
 
 
-@pytest.mark.asyncio
 async def test_set_rejects_a_currency_that_is_not_a_code(make_paperless: Any) -> None:
     mcp, _paperless, _document = _setup(make_paperless)
 
@@ -371,7 +355,6 @@ async def test_set_rejects_a_currency_that_is_not_a_code(make_paperless: Any) ->
     assert result["error"] == "invalid_argument"
 
 
-@pytest.mark.asyncio
 async def test_set_rejects_a_currency_on_a_field_that_is_not_monetary(make_paperless: Any) -> None:
     mcp, paperless, _document = _setup(make_paperless)
 
@@ -388,7 +371,6 @@ async def test_set_rejects_a_currency_on_a_field_that_is_not_monetary(make_paper
     assert paperless.documents.update_calls == []
 
 
-@pytest.mark.asyncio
 async def test_set_replaces_the_whole_documentlink_list(make_paperless: Any) -> None:
     mcp, paperless, document = _setup(make_paperless, [{"field": 11, "value": [2070]}])
     # What ``id__in=2109`` matches server-side.
@@ -404,7 +386,6 @@ async def test_set_replaces_the_whole_documentlink_list(make_paperless: Any) -> 
     assert paperless.documents.filter_calls == [{"id__in": "2109"}]
 
 
-@pytest.mark.asyncio
 async def test_set_refuses_a_link_to_a_document_that_does_not_exist(make_paperless: Any) -> None:
     mcp, paperless, document = _setup(make_paperless, [{"field": 11, "value": [2070]}])
     paperless.documents.filter_results = [SimpleNamespace(id=2070)]
@@ -420,7 +401,6 @@ async def test_set_refuses_a_link_to_a_document_that_does_not_exist(make_paperle
     assert paperless.documents.update_calls == []
 
 
-@pytest.mark.asyncio
 async def test_set_accepts_an_empty_documentlink_list(make_paperless: Any) -> None:
     """Clearing the links needs no existence check - and must not do one."""
     mcp, paperless, document = _setup(make_paperless, [{"field": 11, "value": [2070]}])
@@ -445,7 +425,6 @@ class _RecordingTransport:
         return {"id": 1, "title": "Doc", **json}
 
 
-@pytest.mark.asyncio
 async def test_the_write_goes_out_as_a_patch_of_the_whole_array(make_paperless: Any) -> None:
     """Paperless has no per-field endpoint, which is why the tools read first.
 
@@ -471,7 +450,6 @@ async def test_the_write_goes_out_as_a_patch_of_the_whole_array(make_paperless: 
     ]
 
 
-@pytest.mark.asyncio
 async def test_remove_drops_the_value_from_the_document(make_paperless: Any) -> None:
     mcp, paperless, document = _setup(
         make_paperless, [{"field": 1, "value": "gone"}, {"field": 6, "value": 3}]
@@ -490,7 +468,6 @@ async def test_remove_drops_the_value_from_the_document(make_paperless: Any) -> 
     assert paperless.documents.update_calls == [document]
 
 
-@pytest.mark.asyncio
 async def test_remove_is_a_no_op_when_the_field_is_not_set(make_paperless: Any) -> None:
     """The end state is what the caller wanted; an error would read as a bug."""
     mcp, paperless, _document = _setup(make_paperless, [{"field": 1, "value": "other"}])
@@ -507,7 +484,6 @@ async def test_remove_is_a_no_op_when_the_field_is_not_set(make_paperless: Any) 
     assert paperless.documents.update_calls == []
 
 
-@pytest.mark.asyncio
 async def test_remove_is_a_no_op_on_a_document_without_custom_fields(make_paperless: Any) -> None:
     mcp, paperless, _document = _setup(make_paperless, with_custom_fields=False)
 
@@ -517,7 +493,6 @@ async def test_remove_is_a_no_op_on_a_document_without_custom_fields(make_paperl
     assert paperless.documents.update_calls == []
 
 
-@pytest.mark.asyncio
 async def test_remove_reports_an_unknown_document(make_paperless: Any) -> None:
     mcp, paperless, _document = _setup(make_paperless)
     paperless.documents.get_raises = ItemNotFoundError("no such document")
@@ -528,7 +503,6 @@ async def test_remove_reports_an_unknown_document(make_paperless: Any) -> None:
     assert paperless.documents.update_calls == []
 
 
-@pytest.mark.asyncio
 async def test_readonly_hides_both_tools(make_paperless: Any) -> None:
     mcp, _paperless, _document = _setup(make_paperless, readonly=True)
 

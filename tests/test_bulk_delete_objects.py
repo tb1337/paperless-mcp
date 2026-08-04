@@ -2,33 +2,25 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from pypaperless.const import EndpointPath
 
-from tests.conftest import build_mcp, call_tool, make_settings, tool_session
+from tests.conftest import build_mcp, call_tool, make_settings, named, tool_session
 
 _ENDPOINT = EndpointPath.BULK_EDIT_OBJECTS
-
-
-def _named(**by_id: str) -> list[SimpleNamespace]:
-    """Build master-data stubs from ``id="name"`` pairs."""
-    return [SimpleNamespace(id=int(pk), name=name) for pk, name in by_id.items()]
 
 
 def _posts(paperless: Any) -> list[dict[str, Any]]:
     return paperless.runtime.transport.post_calls
 
 
-@pytest.mark.asyncio
 async def test_hidden_without_enable_delete(make_paperless: Any) -> None:
     mcp = build_mcp(make_settings(enable_delete=False), make_paperless())
     assert "bulk_delete_objects" not in mcp._tool_manager._tools
 
 
-@pytest.mark.asyncio
 async def test_an_id_list_goes_out_as_objects(make_paperless: Any) -> None:
     paperless = make_paperless()
     mcp = build_mcp(make_settings(), paperless)
@@ -54,10 +46,9 @@ async def test_an_id_list_goes_out_as_objects(make_paperless: Any) -> None:
     ]
 
 
-@pytest.mark.asyncio
 async def test_names_resolve_to_ids(make_paperless: Any) -> None:
     paperless = make_paperless()
-    paperless.tags.filter_results = _named(**{"7": "Temp", "8": "Keep"})
+    paperless.tags.filter_results = named(**{"7": "Temp", "8": "Keep"})
     mcp = build_mcp(make_settings(), paperless)
 
     result = await call_tool(mcp, "bulk_delete_objects", object_type="tags", object_names=["Temp"])
@@ -66,10 +57,9 @@ async def test_names_resolve_to_ids(make_paperless: Any) -> None:
     assert _posts(paperless)[0]["json"]["objects"] == [7]
 
 
-@pytest.mark.asyncio
 async def test_an_unknown_name_is_refused_before_the_delete(make_paperless: Any) -> None:
     paperless = make_paperless()
-    paperless.tags.filter_results = _named(**{"7": "Temp"})
+    paperless.tags.filter_results = named(**{"7": "Temp"})
     mcp = build_mcp(make_settings(), paperless)
 
     result = await call_tool(mcp, "bulk_delete_objects", object_type="tags", object_names=["Nope"])
@@ -78,11 +68,10 @@ async def test_an_unknown_name_is_refused_before_the_delete(make_paperless: Any)
     assert _posts(paperless) == []
 
 
-@pytest.mark.asyncio
 async def test_a_filter_replaces_the_id_list(make_paperless: Any) -> None:
     """The whole point: the selection travels as a filter, not as N ids."""
     paperless = make_paperless()
-    paperless.tags.filter_results = _named(**{"1": "temp-a", "2": "temp-b", "3": "temp-c"})
+    paperless.tags.filter_results = named(**{"1": "temp-a", "2": "temp-b", "3": "temp-c"})
     mcp = build_mcp(make_settings(), paperless)
 
     result = await call_tool(mcp, "bulk_delete_objects", object_type="tags", name_contains="temp-")
@@ -105,10 +94,9 @@ async def test_a_filter_replaces_the_id_list(make_paperless: Any) -> None:
     ]
 
 
-@pytest.mark.asyncio
 async def test_the_match_count_costs_one_request_and_no_items(make_paperless: Any) -> None:
     paperless = make_paperless()
-    paperless.tags.filter_results = _named(**{"1": "a", "2": "b"})
+    paperless.tags.filter_results = named(**{"1": "a", "2": "b"})
     mcp = build_mcp(make_settings(), paperless)
 
     await call_tool(mcp, "bulk_delete_objects", object_type="tags", name_exact="a")
@@ -117,10 +105,9 @@ async def test_the_match_count_costs_one_request_and_no_items(make_paperless: An
     assert paperless.tags.page_calls == [{"page": 1, "page_size": 1}]
 
 
-@pytest.mark.asyncio
 async def test_every_name_lookup_has_its_argument(make_paperless: Any) -> None:
     paperless = make_paperless()
-    paperless.storage_paths.filter_results = _named(**{"1": "Archive"})
+    paperless.storage_paths.filter_results = named(**{"1": "Archive"})
     mcp = build_mcp(make_settings(), paperless)
 
     await call_tool(
@@ -143,10 +130,9 @@ async def test_every_name_lookup_has_its_argument(make_paperless: Any) -> None:
     }
 
 
-@pytest.mark.asyncio
 async def test_is_root_selects_root_tags(make_paperless: Any) -> None:
     paperless = make_paperless()
-    paperless.tags.filter_results = _named(**{"1": "Contract"})
+    paperless.tags.filter_results = named(**{"1": "Contract"})
     mcp = build_mcp(make_settings(), paperless)
 
     await call_tool(mcp, "bulk_delete_objects", object_type="tags", is_root=True)
@@ -154,7 +140,6 @@ async def test_is_root_selects_root_tags(make_paperless: Any) -> None:
     assert _posts(paperless)[0]["json"]["filters"] == {"is_root": True}
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("object_type", "kwargs"),
     [
@@ -175,7 +160,6 @@ async def test_a_filter_the_type_ignores_is_refused(
     assert _posts(paperless) == []
 
 
-@pytest.mark.asyncio
 async def test_ids_and_filters_together_are_refused(make_paperless: Any) -> None:
     """Paperless ignores `objects` once `all` is set, so this cannot mean AND."""
     paperless = make_paperless()
@@ -189,7 +173,6 @@ async def test_ids_and_filters_together_are_refused(make_paperless: Any) -> None
     assert _posts(paperless) == []
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("kwargs", [{}, {"object_ids": []}, {"object_names": []}])
 async def test_an_empty_selection_is_refused(make_paperless: Any, kwargs: dict[str, Any]) -> None:
     """Without a selection the endpoint would take `all` to mean every tag."""
@@ -202,7 +185,6 @@ async def test_an_empty_selection_is_refused(make_paperless: Any, kwargs: dict[s
     assert _posts(paperless) == []
 
 
-@pytest.mark.asyncio
 async def test_a_filter_matching_nothing_is_refused(make_paperless: Any) -> None:
     paperless = make_paperless()
     paperless.tags.filter_results = []
@@ -214,7 +196,6 @@ async def test_a_filter_matching_nothing_is_refused(make_paperless: Any) -> None
     assert _posts(paperless) == []
 
 
-@pytest.mark.asyncio
 async def test_an_unknown_object_type_is_refused(make_paperless: Any) -> None:
     paperless = make_paperless()
     mcp = build_mcp(make_settings(), paperless)
@@ -227,7 +208,6 @@ async def test_an_unknown_object_type_is_refused(make_paperless: Any) -> None:
     assert _posts(paperless) == []
 
 
-@pytest.mark.asyncio
 async def test_a_result_other_than_ok_is_an_error(make_paperless: Any) -> None:
     paperless = make_paperless()
     paperless.runtime.transport.post_result = {"result": "NOT OK"}
@@ -238,11 +218,10 @@ async def test_a_result_other_than_ok_is_an_error(make_paperless: Any) -> None:
     assert result["error"] == "bulk_edit_failed"
 
 
-@pytest.mark.asyncio
 async def test_the_name_snapshot_is_invalidated(make_paperless: Any) -> None:
     """The deleted objects must not keep resolving until the TTL runs out."""
     paperless = make_paperless()
-    paperless.tags.filter_results = _named(**{"1": "Temp"})
+    paperless.tags.filter_results = named(**{"1": "Temp"})
     mcp = build_mcp(make_settings(), paperless)
 
     async with tool_session(mcp) as call:
