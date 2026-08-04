@@ -28,6 +28,10 @@ in-process it is `build_mcp(settings)` / `serve(settings)` in `server.py`.
   - `prompts/` — one module per workflow (`triage`, `review`, `duplicates`), same
     `register(mcp, settings)` / `register_all()` shape as `tools/`;
     `prompts/_helpers.py` holds `sections()` and `capability_note()`
+  - `resources.py` — the master-data registry (`Resource`, `RESOURCES`, `RELATIONS`,
+    `BULK_OBJECTS`), sitting above `tools/` and `names`/`formatting` so a resource is
+    declared once. Five tables used to enumerate the same list; adding one meant five
+    edits, four of them failing silently when missed
   - top-level: `server.py` (MCPServer wiring, lifespans, stdio + Streamable HTTP transports),
     `client.py` (`PaperlessConnection`, lazy connect, `get_client` / `get_names` /
     `invalidate_names` / `get_settings` / `ToolContext`), `config.py` (env-driven `Settings`

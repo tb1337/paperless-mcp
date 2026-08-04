@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import Any
+from collections.abc import Callable, Mapping
+from typing import Any, Final
 
 from mcp.server.mcpserver import MCPServer
 
@@ -19,6 +19,7 @@ from ..formatting import (
     format_tag,
 )
 from ..names import NameMap
+from ..resources import RESOURCES
 from ._errors import ToolInputError
 from ._registry import read_tool, register_tools
 
@@ -28,17 +29,25 @@ def _custom_field(cf: Any, _names: NameMap) -> dict[str, Any]:
     return format_custom_field(cf)
 
 
-#: The result categories this server exposes, paired with their formatter.
+#: Formatter per master-data resource, keyed the way the registry keys them.
+_MASTER_DATA_FORMATTERS: Final[Mapping[str, Callable[[Any, NameMap], dict[str, Any]]]] = {
+    "tags": format_tag,
+    "correspondents": format_correspondent,
+    "document_types": format_document_type,
+    "storage_paths": format_storage_path,
+    "custom_fields": _custom_field,
+}
+
+#: The result categories this server exposes, paired with their formatter. The
+#: master-data ones come from the resource registry, so a new resource is reported
+#: here as soon as it has a formatter.
+#:
 #: Users, groups, mail rules and accounts, and workflows are deliberately left
 #: out: they are the admin-tier resources the tool surface does not carry, and
 #: none of them resolves to something a document filter accepts.
-_CATEGORIES: tuple[tuple[str, Callable[[Any, NameMap], dict[str, Any]]], ...] = (
+_CATEGORIES: Final[tuple[tuple[str, Callable[[Any, NameMap], dict[str, Any]]], ...]] = (
     ("documents", format_document),
-    ("tags", format_tag),
-    ("correspondents", format_correspondent),
-    ("document_types", format_document_type),
-    ("storage_paths", format_storage_path),
-    ("custom_fields", _custom_field),
+    *((resource.key, _MASTER_DATA_FORMATTERS[resource.key]) for resource in RESOURCES),
     ("saved_views", format_saved_view),
 )
 
