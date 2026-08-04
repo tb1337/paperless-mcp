@@ -226,8 +226,10 @@ subtract_omit = "*/__main__.py"
 # covdefaults defaults this to 100, which is a suppression generator: every
 # defensive line then needs a pragma, and those are forbidden here. The real
 # figure is tracked instead, and it is ratcheted deliberately - never lowered to
-# accommodate a change.
-fail_under = 93
+# accommodate a change. 99 leaves room for exactly what is left: the one branch
+# where two callers race into PaperlessConnection's handshake lock, which no test
+# can force deterministically.
+fail_under = 99
 show_missing = true
 
 [tool.pytest.ini_options]
