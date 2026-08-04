@@ -40,7 +40,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any
 
-from ._helpers import normalize_csv_filters
+from ._paging import normalize_csv_filters
 
 #: What a rule of the three relations that have an "is unset" variant stores in
 #: place of an ID to mean *is not null*. ``None`` is the *is null* counterpart.

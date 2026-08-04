@@ -10,7 +10,8 @@ from pypaperless.models import Document
 
 from ..client import ToolContext, get_client
 from ..config import Settings
-from ._helpers import ToolInputError, safe_tool, write_tool
+from ._errors import ToolInputError, safe_tool
+from ._registry import write_tool
 from ._relations import resolve_relation, resolve_tags
 
 

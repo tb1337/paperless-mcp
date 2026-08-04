@@ -10,17 +10,10 @@ from pypaperless.models.types import ShareLinkFileVersion
 from ..client import ToolContext, get_client
 from ..config import Settings
 from ..formatting import format_share_link
-from ._helpers import (
-    ToolInputError,
-    delete_tool,
-    page_result,
-    paginate,
-    parse_datetime,
-    read_tool,
-    safe_tool,
-    window,
-    write_tool,
-)
+from ._dates import parse_datetime
+from ._errors import ToolInputError, safe_tool
+from ._paging import page_result, paginate, window
+from ._registry import delete_tool, read_tool, write_tool
 
 _FILE_VERSIONS = ("archive", "original")
 

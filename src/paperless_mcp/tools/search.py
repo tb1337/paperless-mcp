@@ -19,7 +19,8 @@ from ..formatting import (
     format_tag,
 )
 from ..names import NameMap
-from ._helpers import ToolInputError, read_tool, safe_tool
+from ._errors import ToolInputError, safe_tool
+from ._registry import read_tool
 
 
 def _custom_field(cf: Any, _names: NameMap) -> dict[str, Any]:

@@ -10,15 +10,9 @@ from mcp.server.mcpserver import MCPServer
 from ..client import ToolContext, get_client, get_names
 from ..config import Settings
 from ..formatting import format_task
-from ._helpers import (
-    ToolInputError,
-    page_result,
-    paginate,
-    read_tool,
-    safe_tool,
-    window,
-    write_tool,
-)
+from ._errors import ToolInputError, safe_tool
+from ._paging import page_result, paginate, window
+from ._registry import read_tool, write_tool
 
 
 def register(mcp: MCPServer, settings: Settings) -> None:

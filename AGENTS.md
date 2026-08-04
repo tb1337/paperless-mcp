@@ -15,9 +15,13 @@ in-process it is `build_mcp(settings)` / `serve(settings)` in `server.py`.
     `bulk`, `trash`, `tasks`, `system`, `ai`, `share_links`), each exposing a
     `register(mcp, settings)` function;
     `tools/__init__.py` calls them all from `register_all()`
-  - `tools/_helpers.py` — registration decorators (`read_tool`, `write_tool`, `delete_tool`),
-    `safe_tool` (exception → structured error), `paginate` / `page_result` (offset/limit →
-    Paperless pages), `ToolInputError`
+  - `tools/_errors.py` — `safe_tool` (exception → structured error), the ordered `_ERROR_MAP`,
+    `ToolInputError`, `ToolResultError`
+  - `tools/_registry.py` — registration decorators (`read_tool`, `write_tool`, `delete_tool`)
+    and the `humanize()` that derives each display title
+  - `tools/_dates.py` — `parse_date` / `parse_datetime` for the ISO arguments
+  - `tools/_paging.py` — `paginate` / `page_result` (offset/limit → Paperless pages), `window`
+    for the endpoints that answer with a bare list, and the `Page` / `Filterable` protocols
   - `tools/_relations.py` — `<field>_name` → ID for the relation arguments (`resolve_relation`,
     `resolve_tags`)
   - `prompts/` — one module per workflow (`triage`, `review`, `duplicates`), same

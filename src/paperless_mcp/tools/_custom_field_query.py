@@ -26,7 +26,7 @@ from pypaperless.builders import CustomFieldQuery
 from pypaperless.models import CustomField
 from pypaperless.models.types import CustomFieldType
 
-from ._helpers import ToolInputError
+from ._errors import ToolInputError
 
 _OPS_BY_CATEGORY: dict[str, tuple[str, ...]] = {
     "basic": ("exact", "in", "isnull", "exists"),
