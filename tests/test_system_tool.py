@@ -6,15 +6,20 @@ from types import SimpleNamespace
 from typing import Any
 
 import httpx
-from pypaperless.cache import PaperlessCache
 from pypaperless.exceptions import ForbiddenError, ItemNotFoundError
 from pypaperless.models.statistics import Statistic
 from pypaperless.models.status import Status
-from pypaperless.runtime import PaperlessRuntime
-from pypaperless.transport import PaperlessTransport
 
 from paperless_mcp import __version__
-from tests.conftest import FakeService, build_mcp, call_tool, make_settings, returns, rule
+from tests.conftest import (
+    FakeService,
+    build_mcp,
+    call_tool,
+    make_runtime,
+    make_settings,
+    returns,
+    rule,
+)
 
 
 async def test_get_paperless_info_returns_version_metadata(make_paperless: Any) -> None:
@@ -40,7 +45,7 @@ async def test_get_statistics_serializes_pydantic_model(make_paperless: Any) -> 
     nothing about the endpoint this tool actually calls.
     """
     paperless = make_paperless()
-    runtime = PaperlessRuntime(PaperlessTransport("http://test", "t"), PaperlessCache())
+    runtime = make_runtime()
     stats = Statistic.from_data(runtime, {"documents_total": 42, "documents_inbox": 3})
 
     async def _stats() -> Any:

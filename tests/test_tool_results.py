@@ -68,7 +68,9 @@ async def test_a_thumbnail_arrives_as_image_content(make_paperless: Any) -> None
 
     assert result.is_error is False
     assert [type(block) for block in result.content] == [ImageContent]
-    assert result.content[0].mime_type == "image/png"
+    image = result.content[0]
+    assert isinstance(image, ImageContent)
+    assert image.mime_type == "image/png"
     # No output schema is generated for a bare content type, so there is nothing
     # structured to send - and that is the reason ToolResultError exists.
     assert result.structured_content is None

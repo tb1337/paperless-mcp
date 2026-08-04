@@ -11,12 +11,10 @@ import datetime as dt
 from typing import Any
 
 import pytest
-from pypaperless.cache import PaperlessCache
 from pypaperless.models import Document, SavedView, Tag, Task
 from pypaperless.models.status import Status
 from pypaperless.models.types import MatchingAlgorithm
 from pypaperless.runtime import PaperlessRuntime
-from pypaperless.transport import PaperlessTransport
 
 from paperless_mcp.formatting import (
     CONTENT_PREVIEW_CHARS,
@@ -31,11 +29,12 @@ from paperless_mcp.formatting import (
     summarize_status,
 )
 from paperless_mcp.names import NameMap
+from tests.conftest import make_runtime
 
 
 @pytest.fixture
 def runtime() -> PaperlessRuntime:
-    return PaperlessRuntime(PaperlessTransport("http://test", "token"), PaperlessCache())
+    return make_runtime()
 
 
 def test_format_document_detail_reads_embedded_notes(runtime: PaperlessRuntime) -> None:

@@ -18,13 +18,15 @@ from typing import TYPE_CHECKING, Any, Final, cast
 
 import httpx
 import pytest
-from mcp.server.lowlevel.server import ServerRequestContext
+from mcp.server.context import ServerRequestContext
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.types import LATEST_PROTOCOL_VERSION, CallToolResult, TextContent
 from pypaperless import PaperlessClient
 from pypaperless.cache import PaperlessCache
 from pypaperless.const import EndpointPath
 from pypaperless.exceptions import NotFoundError
+from pypaperless.runtime import PaperlessRuntime
+from pypaperless.transport import PaperlessTransport
 
 if TYPE_CHECKING:
     from mcp.server.session import ServerSession
@@ -232,6 +234,16 @@ def make_client(stub: PaperlessStub | None = None) -> PaperlessClient:
     """Build a real PaperlessClient whose only fake part is the transport."""
     http = httpx.AsyncClient(transport=httpx.MockTransport((stub or PaperlessStub()).handle))
     return PaperlessClient("http://test", "t", client=http)
+
+
+def make_runtime() -> PaperlessRuntime:
+    """Build a real runtime for tests that construct models by hand.
+
+    A ``SimpleNamespace`` in either slot would validate every model against a
+    shape production never sees, and it is not what the library would build.
+    Constructing the transport performs no I/O.
+    """
+    return PaperlessRuntime(PaperlessTransport("http://test", "t"), PaperlessCache())
 
 
 class FakePage:
@@ -509,7 +521,10 @@ async def invoke_tool(mcp: MCPServer, tool_name: str, /, **kwargs: Any) -> CallT
             method="tools/call",
         )
         context: Any = Context(request_context=request_context, mcp_server=mcp)
-        return await mcp.call_tool(tool_name, kwargs, context)
+        result = await mcp.call_tool(tool_name, kwargs, context)
+    # The union's other arm is an elicitation request, which no tool here makes.
+    assert isinstance(result, CallToolResult), result
+    return result
 
 
 @pytest.fixture
@@ -518,7 +533,7 @@ def settings() -> Settings:
 
 
 @pytest.fixture
-def make_paperless():
+def make_paperless() -> Callable[[], FakePaperless]:
     """Factory: build a fresh FakePaperless with default empty services."""
 
     def _factory() -> FakePaperless:

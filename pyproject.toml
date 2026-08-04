@@ -246,5 +246,11 @@ filterwarnings = ["error"]
 [tool.mypy]
 python_version = "3.13"
 strict = true
-packages = ["paperless_mcp"]
+# tests/ is checked too, at the same strictness. The fakes exist to catch
+# pypaperless drift, and a fake mypy cannot see through is exactly the drift they
+# were meant to catch: before this, test_lifespan.py asserted on three attributes
+# the real PaperlessClient does not have. No per-module relaxation - that is a
+# suppression with an extra step. run/ stays out for the same reason it carries
+# the F401/F841 exemption: it is a scratch pad, not code.
+files = ["src/paperless_mcp", "tests"]
 mypy_path = "src"

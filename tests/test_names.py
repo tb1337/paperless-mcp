@@ -9,13 +9,12 @@ from typing import Any
 import httpx
 import pytest
 from pypaperless.exceptions import ForbiddenError
-from pypaperless.models.custom_fields import CustomField
+from pypaperless.models.custom_fields import CustomField, CustomFieldSelectValue
 from pypaperless.models.documents.document import Document
-from pypaperless.runtime import PaperlessRuntime
 
 from paperless_mcp import names as names_mod
 from paperless_mcp.names import NameCache, load_names, name_of, names_of
-from tests.conftest import FakeService, named
+from tests.conftest import FakeService, make_runtime, named
 
 
 def _populated(paperless: Any) -> Any:
@@ -153,7 +152,7 @@ async def test_cache_reloads_once_its_ttl_has_passed(make_paperless: Any) -> Non
 
 async def test_a_select_custom_field_resolves_to_its_label(make_paperless: Any) -> None:
     """Paperless stores the option ID; only the cached definition holds the label."""
-    runtime = PaperlessRuntime(SimpleNamespace(), SimpleNamespace(custom_fields=None))
+    runtime = make_runtime()
     payload = {
         "id": 8,
         "name": "Contract status",
@@ -164,6 +163,10 @@ async def test_a_select_custom_field_resolves_to_its_label(make_paperless: Any) 
 
     doc = Document.from_data(runtime, {"id": 1, "custom_fields": [{"field": 8, "value": "abc-1"}]})
 
+    assert doc.custom_fields is not None
     value = doc.custom_fields.root[0]
+    # The select arm of the discriminated union: `label` is a property there,
+    # resolving the stored option ID against the cached definition.
+    assert isinstance(value, CustomFieldSelectValue)
     assert value.name == "Contract status"
     assert value.label == "Active"

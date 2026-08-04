@@ -46,17 +46,28 @@ def test_a_valid_token_is_passed_through() -> None:
         # refuses to compare a str outside ASCII. So a str comparison raised
         # TypeError out of the middleware - a 500 with a traceback, from an
         # unauthenticated request.
-        ({"Authorization": "Bearer ü".encode()}, "non-ASCII token"),
     ],
 )
-def test_an_unusable_authorization_header_is_a_401(
-    headers: dict[str, str | bytes], case: str
-) -> None:
+def test_an_unusable_authorization_header_is_a_401(headers: dict[str, str], case: str) -> None:
     with _client() as client:
         response = client.get("/mcp", headers=headers)
     assert response.status_code == 401, case
     assert response.json()["error"] == "unauthorized"
     assert response.headers["WWW-Authenticate"].startswith("Bearer ")
+
+
+def test_a_non_ascii_token_is_a_401_rather_than_a_500() -> None:
+    """The regression: compare_digest refuses to compare a str outside ASCII.
+
+    Sent as raw bytes because that is the only way it can reach a server -
+    Starlette then decodes the header as latin-1, and comparing that str raised
+    TypeError out of the middleware: a 500 with a traceback, unauthenticated.
+    """
+    with _client() as client:
+        response = client.get("/mcp", headers={b"authorization": "Bearer \u00fc".encode()})
+
+    assert response.status_code == 401
+    assert response.json()["error"] == "unauthorized"
 
 
 def test_an_exempt_path_needs_no_token() -> None:

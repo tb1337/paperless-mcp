@@ -12,11 +12,14 @@ Three invariants matter here:
 
 from __future__ import annotations
 
+import inspect
+from collections.abc import Iterator
 from dataclasses import replace
 from typing import Any, ClassVar
 from unittest.mock import patch
 
 import pytest
+from pypaperless import PaperlessClient
 from pypaperless.exceptions import PaperlessConnectionError
 from starlette.testclient import TestClient
 
@@ -55,15 +58,47 @@ class _FakePaperlessClient:
 
 
 @pytest.fixture
-def fake_client_class() -> Any:
+def fake_client_class() -> Iterator[type[_FakePaperlessClient]]:
     _FakePaperlessClient.instances = []
     with patch("paperless_mcp.client.PaperlessClient", _FakePaperlessClient):
         yield _FakePaperlessClient
 
 
+def _as_fake(client: object) -> _FakePaperlessClient:
+    """Narrow what ``connection.client()`` returns to the patched class.
+
+    An assert rather than a cast, so it also proves the patch took effect - the
+    recorder attributes below are meaningless if the real client slipped through.
+    """
+    assert isinstance(client, _FakePaperlessClient)
+    return client
+
+
+def test_the_fake_client_matches_the_surface_the_connection_uses() -> None:
+    """The fake stands in for PaperlessClient, so it has to answer the same calls.
+
+    It cannot subclass: `is_initialized`, `host_version` and `base_url` are
+    read-only properties upstream, and the fake has to set them. So the agreement
+    is asserted instead - without this, a renamed member would leave every test
+    below green and the connection broken.
+    """
+    # Against instances, not the classes: the real client exposes these as
+    # properties while the fake assigns them in __init__, and only the instance
+    # view is what `PaperlessConnection` actually reads.
+    fake = _FakePaperlessClient("http://test", "t")
+    real = PaperlessClient("http://test", "t")
+    for member in ("initialize", "close", "is_initialized", "host_version", "host_api_version"):
+        assert hasattr(real, member), member
+        assert hasattr(fake, member), member
+    for method in ("initialize", "close"):
+        assert list(inspect.signature(getattr(real, method)).parameters) == list(
+            inspect.signature(getattr(fake, method)).parameters
+        ), method
+
+
 async def test_connection_opens_and_closes_both_halves(fake_client_class: Any) -> None:
     async with PaperlessConnection(make_settings()) as connection:
-        client = await connection.client()
+        client = _as_fake(await connection.client())
         assert client.initialize_calls == 1
         # The httpx client is ours, so pypaperless will not close it for us.
         assert client.http is not None
@@ -127,8 +162,8 @@ def _fail_once() -> Any:
 
 async def test_connection_reuses_an_initialized_client(fake_client_class: Any) -> None:
     async with PaperlessConnection(make_settings()) as connection:
-        first = await connection.client()
-        second = await connection.client()
+        first = _as_fake(await connection.client())
+        second = _as_fake(await connection.client())
     assert first is second
     assert first.initialize_calls == 1
 
