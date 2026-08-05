@@ -14,7 +14,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Iterable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any, Final, cast
+from typing import TYPE_CHECKING, Any, Final, cast, get_args
 
 import httpx
 import pytest
@@ -54,6 +54,16 @@ def make_settings(*, readonly: bool = False, enable_delete: bool = True) -> Sett
         enable_delete=enable_delete,
         max_file_bytes=1024 * 1024,
     )
+
+
+def literal_values(alias: Any) -> set[str]:
+    """The values behind one of ``tools._arguments``' PEP 695 ``Literal`` aliases.
+
+    ``get_args`` on a ``TypeAliasType`` returns ``()`` — the arguments sit on its
+    ``__value__``. That indirection is also why the values do not reach a client until
+    ``_registry.inline_aliases`` expands them, so both halves are asserted against this.
+    """
+    return set(get_args(alias.__value__))
 
 
 def named(**by_id: str) -> list[SimpleNamespace]:

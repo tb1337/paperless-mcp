@@ -9,7 +9,7 @@ minus `UNKNOWN`.
 
 from __future__ import annotations
 
-from typing import Any, get_args
+from typing import Any
 
 import pytest
 from pypaperless.models.share_links.share_link import ShareLinkFileVersion
@@ -27,15 +27,7 @@ from paperless_mcp.tools._arguments import (
     TaskStatusName,
     TaskTypeName,
 )
-
-
-def _values(alias: Any) -> set[str]:
-    """The literals an alias publishes.
-
-    ``get_args`` on a PEP 695 alias returns ``()``; the arguments are on its
-    ``__value__``.
-    """
-    return set(get_args(alias.__value__))
+from tests.conftest import literal_values
 
 
 @pytest.mark.parametrize(
@@ -52,20 +44,20 @@ def test_the_published_values_are_the_library_values_minus_unknown(
     alias: Any, enum: type[Any]
 ) -> None:
     """A member added or removed upstream shows up here, not against a live server."""
-    assert _values(alias) == {member.value for member in enum} - {enum.UNKNOWN.value}
+    assert literal_values(alias) == {member.value for member in enum} - {enum.UNKNOWN.value}
 
 
 def test_the_algorithm_names_cover_every_real_matching_algorithm() -> None:
     """Named rather than numbered, so the mapping is what has to stay complete."""
     assert set(MATCHING_ALGORITHMS.values()) == set(MatchingAlgorithm) - {MatchingAlgorithm.UNKNOWN}
-    assert set(MATCHING_ALGORITHMS) == _values(MatchingAlgorithmName)
+    assert set(MATCHING_ALGORITHMS) == literal_values(MatchingAlgorithmName)
 
 
 def test_the_custom_field_type_mapping_covers_every_published_name() -> None:
-    assert set(CUSTOM_FIELD_TYPES) == _values(CustomFieldDataType)
+    assert set(CUSTOM_FIELD_TYPES) == literal_values(CustomFieldDataType)
     assert CustomFieldType.UNKNOWN not in CUSTOM_FIELD_TYPES.values()
 
 
 def test_the_bulk_object_types_are_the_registry_ones() -> None:
     """One list of bulk-editable resources, published as the enum a model reads."""
-    assert _values(BulkObjectType) == set(BULK_OBJECTS)
+    assert literal_values(BulkObjectType) == set(BULK_OBJECTS)

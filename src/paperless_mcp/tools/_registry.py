@@ -9,13 +9,30 @@ and the declarations gather into one table per module. That table is where an
 inconsistency between the twenty CRUD tools is visible; scattered across 700 lines
 of nested definitions it is not. It also means :func:`safe_tool` is applied in one
 place instead of 64, so a tool cannot reach a client unwrapped.
+
+:func:`register_tools` also resolves each signature's annotations before handing the
+function over, which is what makes the ``Literal`` aliases in ``_arguments`` visible
+to a model rather than merely correct. See :func:`inline_aliases`.
 """
 
 from __future__ import annotations
 
+import operator
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Final, Literal
+from functools import reduce
+from types import UnionType
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Final,
+    ForwardRef,
+    Literal,
+    TypeAliasType,
+    get_args,
+    get_origin,
+    get_type_hints,
+)
 
 from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
@@ -124,11 +141,73 @@ def delete_tool(fn: ToolFunc) -> ToolSpec:
     )
 
 
+#: Returned by :func:`_expand` for a subtree that names a type by string. Not an error
+#: and not a value: it means "this cannot be rebuilt", which is a different answer from
+#: "this expanded to nothing".
+_FORWARD: Final = object()
+
+
+def _expand(annotation: Any) -> Any:
+    """Expand the aliases in one annotation, or report a forward reference."""
+    if isinstance(annotation, str | ForwardRef):
+        return _FORWARD
+    if isinstance(annotation, TypeAliasType):
+        expanded = _expand(annotation.__value__)
+        # A recursive alias refers to itself by name, because the name does not exist
+        # yet while its body is being written. Rebuilding it would hand pydantic an
+        # unresolved reference, and it has to stay a `$ref` regardless: that is the
+        # only way to write a recursive schema.
+        return annotation if expanded is _FORWARD else expanded
+    args = get_args(annotation)
+    # Nothing to walk into, or a `Literal` — whose arguments are values rather than
+    # types. Without that second half every enum here would read as a forward
+    # reference and none of them would expand.
+    if not args or get_origin(annotation) is Literal:
+        return annotation
+    expanded = tuple(_expand(arg) for arg in args)
+    if any(arg is _FORWARD for arg in expanded):
+        return _FORWARD
+    if expanded == args:
+        return annotation
+    # `X | None` has to be rebuilt through the operator; everything else — including the
+    # `Optional[X]` that `get_type_hints` produces — is subscriptable by its origin.
+    origin = get_origin(annotation)
+    return reduce(operator.or_, expanded) if origin is UnionType else origin[expanded]
+
+
+def inline_aliases(annotation: Any) -> Any:
+    """Return *annotation* with every PEP 695 alias replaced by the type it stands for.
+
+    A ``type X = Literal[...]`` alias is a *named* type, and pydantic publishes a named
+    type as an entry in ``$defs`` plus a ``$ref`` to it. That is valid JSON Schema and it
+    is also how the enums in ``_arguments`` went missing: a live check found all fifteen
+    constrained arguments arriving at the model as a bare ``{}``, because the client never
+    followed the reference. Expanded, the values sit inline in the property a client reads.
+
+    An alias that names a type by string — every recursive one does — is returned as it
+    came in, so pydantic still resolves it in the namespace where it is defined.
+    """
+    expanded = _expand(annotation)
+    return annotation if expanded is _FORWARD else expanded
+
+
 def register_tools(mcp: MCPServer, settings: Settings, specs: Iterable[ToolSpec]) -> None:
     """Register the specs this deployment exposes, annotated, titled and wrapped.
 
     The gate is checked here rather than at call time, so a read-only deployment
     simply does not advertise the tool.
+
+    The expanded annotations go on both the tool function and its wrapper, and both
+    halves are load-bearing. The SDK builds the schema from the signature, which it
+    reads through ``__wrapped__``, so the function has to carry them; it looks for the
+    ``Context`` parameter on the object it was handed, so the wrapper has to as well.
+    ``functools.wraps`` cannot bridge that: on Python 3.14 it copies ``__annotate__``
+    instead of ``__annotations__``, and assigning ``__annotations__`` sets
+    ``__annotate__`` to ``None`` — which leaves the wrapper with no annotations at all,
+    and a tool that advertises ``ctx`` as an argument for the client to fill.
+
+    Resolving here also means an annotation that cannot be evaluated fails at startup
+    rather than on the first call.
     """
     exposed: Mapping[Gate, bool] = {
         "read": True,
@@ -136,7 +215,10 @@ def register_tools(mcp: MCPServer, settings: Settings, specs: Iterable[ToolSpec]
         "delete": settings.expose_deletes,
     }
     for spec in specs:
-        if exposed[spec.gate]:
-            mcp.tool(title=humanize(spec.fn.__name__), annotations=spec.annotations)(
-                safe_tool(spec.fn)
-            )
+        if not exposed[spec.gate]:
+            continue
+        expanded = {name: inline_aliases(hint) for name, hint in get_type_hints(spec.fn).items()}
+        spec.fn.__annotations__ = expanded
+        wrapped = safe_tool(spec.fn)
+        wrapped.__annotations__ = expanded
+        mcp.tool(title=humanize(spec.fn.__name__), annotations=spec.annotations)(wrapped)

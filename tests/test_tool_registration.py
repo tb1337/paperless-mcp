@@ -5,10 +5,22 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import pytest
+
 from paperless_mcp import __version__
 from paperless_mcp.config import Settings
 from paperless_mcp.server import build_mcp
-from tests.conftest import make_settings
+from paperless_mcp.tools._arguments import (
+    BulkObjectType,
+    ClearableDocumentField,
+    CustomFieldDataType,
+    DocumentOrderField,
+    MatchingAlgorithmName,
+    ShareLinkVersion,
+    TaskStatusName,
+    TaskTypeName,
+)
+from tests.conftest import literal_values, make_settings
 
 _READ_TOOLS = frozenset(
     {
@@ -267,3 +279,80 @@ def test_every_tool_receives_the_lifespan_context() -> None:
     for name, tool in registered.items():
         assert tool.context_kwarg == "ctx", f"{name} would not receive a Context"
         assert "ctx" not in tool.parameters.get("properties", {})
+
+
+#: Every argument whose allowed values the schema has to carry, with the alias that
+#: defines them. The chain is library -> alias (`tests/test_arguments.py`) -> published
+#: schema (here), so a value still exists in exactly one place.
+_CONSTRAINED_ARGUMENTS = (
+    ("create_tag", "matching_algorithm", MatchingAlgorithmName),
+    ("update_tag", "matching_algorithm", MatchingAlgorithmName),
+    ("create_correspondent", "matching_algorithm", MatchingAlgorithmName),
+    ("update_correspondent", "matching_algorithm", MatchingAlgorithmName),
+    ("create_document_type", "matching_algorithm", MatchingAlgorithmName),
+    ("update_document_type", "matching_algorithm", MatchingAlgorithmName),
+    ("create_storage_path", "matching_algorithm", MatchingAlgorithmName),
+    ("update_storage_path", "matching_algorithm", MatchingAlgorithmName),
+    ("create_custom_field", "data_type", CustomFieldDataType),
+    ("create_share_link", "file_version", ShareLinkVersion),
+    ("list_tasks", "status", TaskStatusName),
+    ("list_tasks", "task_type", TaskTypeName),
+    ("search_documents", "order_by", DocumentOrderField),
+    ("update_document", "clear_fields", ClearableDocumentField),
+    ("bulk_delete_objects", "object_type", BulkObjectType),
+)
+
+
+def _published_enum(schema: dict[str, Any]) -> set[str]:
+    """The values a client can read off one property, however it is wrapped.
+
+    An optional argument arrives as ``anyOf[..., null]`` and a list argument as
+    ``items``, so the enum sits one or two levels down.
+    """
+    if "enum" in schema:
+        return set(schema["enum"])
+    for nested in (*schema.get("anyOf", []), schema.get("items", {})):
+        if found := _published_enum(nested):
+            return found
+    return set()
+
+
+@pytest.mark.parametrize(
+    ("tool_name", "argument", "alias"),
+    _CONSTRAINED_ARGUMENTS,
+    ids=[f"{tool}.{argument}" for tool, argument, _ in _CONSTRAINED_ARGUMENTS],
+)
+async def test_a_constrained_argument_publishes_its_values_inline(
+    tool_name: str, argument: str, alias: Any
+) -> None:
+    """Inline or invisible: a live check found all of these arriving as a bare ``{}``.
+
+    The values were correct and unreachable — a PEP 695 alias publishes as a ``$ref``
+    into ``$defs``, and the client never dereferenced it. This is the assertion that
+    keeps the values where a client actually reads them.
+    """
+    tools = await _full_surface()
+    published = tools[tool_name].input_schema["properties"][argument]
+    assert _published_enum(published) == literal_values(alias)
+
+
+async def test_no_published_schema_defers_a_value_to_defs() -> None:
+    """One ``$ref`` anywhere means one argument a client may render as ``{}``."""
+    tools = await _full_surface()
+    deferred = [name for name, tool in tools.items() if "$ref" in json.dumps(tool.input_schema)]
+    assert deferred == []
+
+
+async def test_no_tool_advertises_the_context_parameter() -> None:
+    """`ctx` is injected by the server, so a client must never be asked to fill it.
+
+    It leaks the moment the wrapper the SDK receives loses its annotations, and then
+    every call fails validation on a missing argument. Python 3.14 got there by a route
+    3.13 does not have: `functools.wraps` copies `__annotate__` rather than
+    `__annotations__` there, so assigning one clears the other.
+    """
+    tools = await _full_surface()
+    leaked = [
+        name for name, tool in tools.items() if "ctx" in tool.input_schema.get("properties", {})
+    ]
+    assert leaked == []

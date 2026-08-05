@@ -18,8 +18,9 @@ in-process it is `build_mcp(settings)` / `serve(settings)` in `server.py`.
   - `tools/_errors.py` — `safe_tool` (exception → structured error), the ordered `_ERROR_MAP`,
     `ToolInputError`, `ToolResultError`
   - `tools/_registry.py` — `ToolSpec` plus the three factories that build one (`read_tool`,
-    `write_tool`, `delete_tool`), `register_tools()` which applies `safe_tool` and the
-    visibility gate, and the `humanize()` that derives each display title
+    `write_tool`, `delete_tool`), `register_tools()` which applies `safe_tool`, the
+    visibility gate and `inline_aliases()` (without which a `Literal` alias reaches the
+    model as `{}`), and the `humanize()` that derives each display title
   - `tools/_arguments.py` — the `Literal` aliases the constrained arguments publish as schema
     enums, plus the name → pypaperless-enum mappings
   - `tools/_dates.py` — `parse_date` / `parse_datetime` for the ISO arguments
@@ -117,10 +118,17 @@ breaking change and gets the `breaking-change` label.
   rest — never in a module constant checked by hand and re-listed in the docstring, which is three
   copies of one list. Two consequences worth knowing: a rejected value comes back as a
   protocol-level error rather than `{"error": "invalid_argument"}`, because pydantic runs before
-  `safe_tool`; and a named alias publishes as a `$ref` into `$defs` rather than an inline enum, which
-  is valid JSON Schema and what keeps ten call sites from restating the same list. The aliases mirror
-  pypaperless enums minus their `UNKNOWN` member, and `tests/test_arguments.py` ties each one back to
-  the library so it cannot go stale.
+  `safe_tool`; and **an alias is not published by itself**. A PEP 695 alias is a `TypeAliasType`,
+  which pydantic renders as a named `$defs` entry plus a `$ref` — valid JSON Schema, and invisible: a
+  live check against a real client showed all fifteen of these arguments arriving at the model as a
+  bare `{}`, values correct and unreachable. `_registry.inline_aliases` therefore expands every alias
+  in a tool's annotations at registration, so the values land inline in the property a client reads.
+  Adding an alias needs nothing extra; adding a *recursive* one does not work at all, since a
+  recursive schema can only be a `$ref` — which is why `custom_field_query` types just its outer
+  shape and leaves the nesting to its own validator. The aliases mirror pypaperless enums minus their
+  `UNKNOWN` member; `tests/test_arguments.py` ties each list back to the library and
+  `tests/test_tool_registration.py` asserts the values reach the published schema, so neither half
+  can go stale.
 - **Tools live at module level and are declared in one table per module.** A module's
   `register()` is a single `register_tools(mcp, settings, (...))` call over `read_tool(fn)` /
   `write_tool(fn, destructive=…, idempotent=…)` / `delete_tool(fn)` — never a bare
