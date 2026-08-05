@@ -12,7 +12,7 @@ from ..config import Settings
 from ..formatting import format_task
 from ._arguments import TaskStatusName, TaskTypeName
 from ._errors import ToolInputError
-from ._paging import page_result, paginate, window
+from ._paging import local_page, named_page
 from ._registry import read_tool, register_tools, write_tool
 
 
@@ -25,15 +25,7 @@ async def list_active_tasks(ctx: ToolContext, offset: int = 0, limit: int = 50) 
     paperless = await get_client(ctx)
     names = await get_names(ctx)
     tasks = [task async for task in paperless.tasks.active()]
-    items, total = window(tasks, offset=offset, limit=limit)
-    return page_result(
-        "tasks",
-        items,
-        offset=offset,
-        limit=limit,
-        total=total,
-        formatter=partial(format_task, names=names),
-    )
+    return local_page("tasks", tasks, partial(format_task, names=names), offset=offset, limit=limit)
 
 
 async def list_tasks(
@@ -46,15 +38,10 @@ async def list_tasks(
 ) -> dict[str, Any]:
     """List tasks from the full task history.
 
-    ``status`` is one of ``pending``, ``started``, ``success``,
-    ``failure``, ``revoked``. ``task_type`` is e.g. ``consume_file``,
-    ``train_classifier``, ``sanity_check``, ``index_optimize``,
-    ``mail_fetch``, ``empty_trash``. Newest tasks come first where
-    Paperless supports ordering on this endpoint; check ``date_created``
-    rather than relying on position.
+    The accepted ``status`` and ``task_type`` values are in this tool's schema.
+    Newest tasks come first where Paperless supports ordering on this endpoint;
+    check ``date_created`` rather than relying on position.
     """
-    paperless = await get_client(ctx)
-    names = await get_names(ctx)
     # `ordering` is a DRF OrderingFilter parameter rather than a FilterSet
     # field — pypaperless 6.0.0rc2 dropped it from TaskFilters for that
     # reason. Whether /api/tasks/ honours it is version-dependent; Paperless
@@ -66,14 +53,14 @@ async def list_tasks(
         filters["task_type"] = task_type
     if acknowledged is not None:
         filters["acknowledged"] = acknowledged
-    items, total = await paginate(paperless.tasks, filters, offset=offset, limit=limit)
-    return page_result(
+    return await named_page(
+        ctx,
         "tasks",
-        items,
+        lambda paperless: paperless.tasks,
+        format_task,
+        filters=filters,
         offset=offset,
         limit=limit,
-        total=total,
-        formatter=partial(format_task, names=names),
     )
 
 

@@ -11,7 +11,7 @@ from .. import __version__
 from ..client import ToolContext, get_client, get_names, get_settings
 from ..config import Settings
 from ..formatting import dump_mapping, format_document, format_saved_view, summarize_status
-from ._paging import page_result, paginate
+from ._paging import named_page, page_result, paginate
 from ._registry import read_tool, register_tools
 from ._saved_view_filters import translate_filter_rules, view_ordering
 
@@ -56,16 +56,13 @@ async def get_system_status(ctx: ToolContext) -> dict[str, Any]:
 
 async def list_saved_views(ctx: ToolContext, offset: int = 0, limit: int = 50) -> dict[str, Any]:
     """List all saved views (the user's stored document filters)."""
-    paperless = await get_client(ctx)
-    names = await get_names(ctx)
-    items, total = await paginate(paperless.saved_views, offset=offset, limit=limit)
-    return page_result(
+    return await named_page(
+        ctx,
         "saved_views",
-        items,
+        lambda paperless: paperless.saved_views,
+        format_saved_view,
         offset=offset,
         limit=limit,
-        total=total,
-        formatter=partial(format_saved_view, names=names),
     )
 
 
