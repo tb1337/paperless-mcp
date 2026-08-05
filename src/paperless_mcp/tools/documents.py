@@ -31,9 +31,9 @@ from ._custom_field_query import build_custom_field_query
 from ._dates import parse_date, parse_datetime
 from ._errors import ToolInputError, ToolResultError, translate_error
 from ._master_data import apply_values
-from ._paging import page_result, paginate, window
+from ._paging import local_page, page_result, paginate
 from ._registry import delete_tool, read_tool, register_tools, write_tool
-from ._relations import resolve_relation, resolve_tags
+from ._relations import resolve_assignment, resolve_tags
 from ._task_polling import (
     MAX_POLL_TIMEOUT_SECONDS,
     task_document_id,
@@ -222,14 +222,14 @@ async def search_documents(
         id_field="tags_none",
         name_field="tags_none_names",
     )
-    correspondent_id = await resolve_relation(
-        ctx, field="correspondent", pk=correspondent_id, name=correspondent_name
-    )
-    document_type_id = await resolve_relation(
-        ctx, field="document_type", pk=document_type_id, name=document_type_name
-    )
-    storage_path_id = await resolve_relation(
-        ctx, field="storage_path", pk=storage_path_id, name=storage_path_name
+    assigned = await resolve_assignment(
+        ctx,
+        correspondent_id=correspondent_id,
+        correspondent_name=correspondent_name,
+        document_type_id=document_type_id,
+        document_type_name=document_type_name,
+        storage_path_id=storage_path_id,
+        storage_path_name=storage_path_name,
     )
     names = await get_names(ctx)
     filters = _build_doc_filters(
@@ -239,9 +239,9 @@ async def search_documents(
         tags_all=tags_all,
         tags_any=tags_any,
         tags_none=tags_none,
-        correspondent_id=correspondent_id,
-        document_type_id=document_type_id,
-        storage_path_id=storage_path_id,
+        correspondent_id=assigned.correspondent,
+        document_type_id=assigned.document_type,
+        storage_path_id=assigned.storage_path,
         archive_serial_number=archive_serial_number,
         is_in_inbox=is_in_inbox,
         is_tagged=is_tagged,
@@ -322,14 +322,12 @@ async def get_document_notes(
     paperless = await get_client(ctx)
     names = await get_names(ctx)
     notes = await paperless.documents.notes(document_id)
-    items, total = window(list(notes), offset=offset, limit=limit)
-    return page_result(
+    return local_page(
         "notes",
-        items,
+        list(notes),
+        partial(format_note, names=names),
         offset=offset,
         limit=limit,
-        total=total,
-        formatter=partial(format_note, names=names),
         document_id=document_id,
     )
 
@@ -340,14 +338,12 @@ async def get_document_history(
     """Return the audit history (who changed what, when) of a document."""
     paperless = await get_client(ctx)
     entries = await paperless.documents.history(document_id)
-    items, total = window(list(entries), offset=offset, limit=limit)
-    return page_result(
+    return local_page(
         "history",
-        items,
+        list(entries),
+        format_history_entry,
         offset=offset,
         limit=limit,
-        total=total,
-        formatter=format_history_entry,
         document_id=document_id,
     )
 
@@ -515,14 +511,14 @@ async def upload_document(
     if not content:
         raise ToolInputError("content_base64 decoded to an empty file")
 
-    correspondent_id = await resolve_relation(
-        ctx, field="correspondent", pk=correspondent_id, name=correspondent_name
-    )
-    document_type_id = await resolve_relation(
-        ctx, field="document_type", pk=document_type_id, name=document_type_name
-    )
-    storage_path_id = await resolve_relation(
-        ctx, field="storage_path", pk=storage_path_id, name=storage_path_name
+    assigned = await resolve_assignment(
+        ctx,
+        correspondent_id=correspondent_id,
+        correspondent_name=correspondent_name,
+        document_type_id=document_type_id,
+        document_type_name=document_type_name,
+        storage_path_id=storage_path_id,
+        storage_path_name=storage_path_name,
     )
     tag_ids = await resolve_tags(
         ctx, pks=tag_ids, names=tag_names, id_field="tag_ids", name_field="tag_names"
@@ -532,9 +528,9 @@ async def upload_document(
         document=content,
         filename=filename,
         title=title,
-        correspondent=correspondent_id,
-        document_type=document_type_id,
-        storage_path=storage_path_id,
+        correspondent=assigned.correspondent,
+        document_type=assigned.document_type,
+        storage_path=assigned.storage_path,
         tags=tag_ids,
         archive_serial_number=archive_serial_number,
         created=parse_datetime(created, field="created") if created else None,
@@ -598,14 +594,14 @@ async def update_document(
     same field in one call is rejected.
     """
     paperless = await get_client(ctx)
-    correspondent_id = await resolve_relation(
-        ctx, field="correspondent", pk=correspondent_id, name=correspondent_name
-    )
-    document_type_id = await resolve_relation(
-        ctx, field="document_type", pk=document_type_id, name=document_type_name
-    )
-    storage_path_id = await resolve_relation(
-        ctx, field="storage_path", pk=storage_path_id, name=storage_path_name
+    assigned = await resolve_assignment(
+        ctx,
+        correspondent_id=correspondent_id,
+        correspondent_name=correspondent_name,
+        document_type_id=document_type_id,
+        document_type_name=document_type_name,
+        storage_path_id=storage_path_id,
+        storage_path_name=storage_path_name,
     )
     tag_ids = await resolve_tags(
         ctx, pks=tag_ids, names=tag_names, id_field="tag_ids", name_field="tag_names"
@@ -614,9 +610,9 @@ async def update_document(
 
     values: dict[str, Any] = {
         "title": title,
-        "correspondent": correspondent_id,
-        "document_type": document_type_id,
-        "storage_path": storage_path_id,
+        "correspondent": assigned.correspondent,
+        "document_type": assigned.document_type,
+        "storage_path": assigned.storage_path,
         "archive_serial_number": archive_serial_number,
         "tags": tag_ids,
         "content": content,

@@ -15,6 +15,8 @@ works as a checksum rather than hiding a disagreement.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from ..client import ToolContext, get_names, invalidate_names
 from ..names import NameLookup
 from ..resources import RELATIONS
@@ -195,4 +197,43 @@ async def resolve_tags(
         names=names,
         id_field=id_field,
         name_field=name_field,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class Assignment:
+    """The three single-valued document relations, resolved to the IDs to write."""
+
+    correspondent: int | None = None
+    document_type: int | None = None
+    storage_path: int | None = None
+
+
+async def resolve_assignment(
+    ctx: ToolContext,
+    *,
+    correspondent_id: int | None,
+    correspondent_name: str | None,
+    document_type_id: int | None,
+    document_type_name: str | None,
+    storage_path_id: int | None,
+    storage_path_name: str | None,
+) -> Assignment:
+    """Resolve the correspondent, document type and storage path in one pass.
+
+    Exists for the guarantee rather than for the lines: **every name is resolved
+    before the first write request goes out**, so a typo cannot leave one field
+    assigned and the next refused. Three tools make this call, and each of them
+    used to restate the ordering.
+    """
+    return Assignment(
+        correspondent=await resolve_relation(
+            ctx, field="correspondent", pk=correspondent_id, name=correspondent_name
+        ),
+        document_type=await resolve_relation(
+            ctx, field="document_type", pk=document_type_id, name=document_type_name
+        ),
+        storage_path=await resolve_relation(
+            ctx, field="storage_path", pk=storage_path_id, name=storage_path_name
+        ),
     )

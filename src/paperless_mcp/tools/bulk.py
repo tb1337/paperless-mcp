@@ -12,7 +12,7 @@ from ..client import ToolContext, get_client
 from ..config import Settings
 from ._errors import ToolInputError
 from ._registry import register_tools, write_tool
-from ._relations import resolve_relation, resolve_tags
+from ._relations import resolve_assignment, resolve_tags
 
 
 async def _resolve_page_count(
@@ -64,14 +64,14 @@ async def bulk_edit_documents(
     if not document_ids:
         raise ToolInputError("document_ids must not be empty")
     paperless = await get_client(ctx)
-    correspondent_id = await resolve_relation(
-        ctx, field="correspondent", pk=correspondent_id, name=correspondent_name
-    )
-    document_type_id = await resolve_relation(
-        ctx, field="document_type", pk=document_type_id, name=document_type_name
-    )
-    storage_path_id = await resolve_relation(
-        ctx, field="storage_path", pk=storage_path_id, name=storage_path_name
+    assigned = await resolve_assignment(
+        ctx,
+        correspondent_id=correspondent_id,
+        correspondent_name=correspondent_name,
+        document_type_id=document_type_id,
+        document_type_name=document_type_name,
+        storage_path_id=storage_path_id,
+        storage_path_name=storage_path_name,
     )
     add_tag_ids = await resolve_tags(
         ctx,
@@ -88,14 +88,14 @@ async def bulk_edit_documents(
         name_field="remove_tag_names",
     )
     applied: list[str] = []
-    if correspondent_id is not None:
-        await paperless.documents.bulk_edit.set_correspondent(document_ids, correspondent_id)
+    if assigned.correspondent is not None:
+        await paperless.documents.bulk_edit.set_correspondent(document_ids, assigned.correspondent)
         applied.append("correspondent")
-    if document_type_id is not None:
-        await paperless.documents.bulk_edit.set_document_type(document_ids, document_type_id)
+    if assigned.document_type is not None:
+        await paperless.documents.bulk_edit.set_document_type(document_ids, assigned.document_type)
         applied.append("document_type")
-    if storage_path_id is not None:
-        await paperless.documents.bulk_edit.set_storage_path(document_ids, storage_path_id)
+    if assigned.storage_path is not None:
+        await paperless.documents.bulk_edit.set_storage_path(document_ids, assigned.storage_path)
         applied.append("storage_path")
     if add_tag_ids or remove_tag_ids:
         await paperless.documents.bulk_edit.modify_tags(

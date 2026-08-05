@@ -9,11 +9,16 @@ thing everywhere.
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Callable, Iterator, Mapping
-from typing import Any, Protocol
+from functools import partial
+from typing import TYPE_CHECKING, Any, Protocol
 
 from pypaperless.exceptions import NotFoundError
 
+from ..client import ToolContext, get_client, get_names
 from ._errors import ToolInputError
+
+if TYPE_CHECKING:
+    from pypaperless import PaperlessClient
 
 
 class Page[ItemT](Protocol):
@@ -169,3 +174,56 @@ def page_result[ItemT](
         "has_more": has_more,
         **extra,
     }
+
+
+async def named_page(
+    ctx: ToolContext,
+    key: str,
+    service: Callable[[PaperlessClient], Filterable],
+    formatter: Callable[..., dict[str, Any]],
+    *,
+    filters: Mapping[str, Any] | None = None,
+    offset: int,
+    limit: int,
+    **extra: Any,
+) -> dict[str, Any]:
+    """Fetch one window and format it against the shared name snapshot.
+
+    Exists for one rule rather than for the lines it saves: **the snapshot is
+    awaited before the fetch, never after.** The same call fills the custom-field
+    cache pypaperless enriches an object from *while parsing it*, so a snapshot
+    taken afterwards is too late — and that ordering was a thing every list tool
+    was individually trusted to remember.
+    """
+    paperless = await get_client(ctx)
+    names = await get_names(ctx)
+    items, total = await paginate(service(paperless), filters, offset=offset, limit=limit)
+    return page_result(
+        key,
+        items,
+        offset=offset,
+        limit=limit,
+        total=total,
+        formatter=partial(formatter, names=names),
+        **extra,
+    )
+
+
+def local_page(
+    key: str,
+    items: list[Any],
+    formatter: Callable[..., dict[str, Any]],
+    *,
+    offset: int,
+    limit: int,
+    **extra: Any,
+) -> dict[str, Any]:
+    """Window an already-materialized list into the same envelope.
+
+    For the endpoints that answer with a bare array rather than a paginated
+    envelope: a document's notes, its history, its share links, the active tasks.
+    """
+    windowed, total = window(items, offset=offset, limit=limit)
+    return page_result(
+        key, windowed, offset=offset, limit=limit, total=total, formatter=formatter, **extra
+    )
