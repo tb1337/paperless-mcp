@@ -15,7 +15,13 @@ from ._registry import delete_tool, read_tool, register_tools, write_tool
 
 
 async def list_trash(ctx: ToolContext, offset: int = 0, limit: int = 50) -> dict[str, Any]:
-    """List documents currently in the trash, newest deletion first."""
+    """List documents currently in the trash.
+
+    In whatever order Paperless sends them: ``/api/trash/`` declares no ordering
+    parameter and no filters, so the order cannot be asked for and is not
+    ``deleted_at`` — on a real archive it follows the document ID. Read each item's
+    ``deleted_at`` when the age matters rather than trusting the position.
+    """
     return await named_page(
         ctx,
         "trashed",
