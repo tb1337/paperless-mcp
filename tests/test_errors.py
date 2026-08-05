@@ -7,7 +7,12 @@ from typing import Any
 
 import httpx
 import pytest
-from pypaperless.exceptions import ItemNotFoundError, NotFoundError, PaperlessTimeoutError
+from pypaperless.exceptions import (
+    DeletionError,
+    ItemNotFoundError,
+    NotFoundError,
+    PaperlessTimeoutError,
+)
 
 from paperless_mcp.tools._errors import (
     ToolInputError,
@@ -101,3 +106,19 @@ def test_safe_tool_preserves_the_wrapped_signature() -> None:
 def _not_found() -> NotFoundError:
     request = httpx.Request("GET", "http://test/api/documents/")
     return NotFoundError(httpx.Response(404, request=request))
+
+
+def test_a_deletion_error_without_an_http_cause_stays_a_refusal() -> None:
+    """The `DeletionError` entry in the table is still what answers.
+
+    `transport.delete()` always chains an `httpx.HTTPStatusError` today, which is what
+    lets the 404 be recognized. A future path that raises the same exception without
+    one must still be reported rather than fall through to the catch-all.
+    """
+    translated = translate_error(DeletionError("Paperless said no"))
+
+    assert translated == {
+        "error": "delete_failed",
+        "detail": "Paperless refused the delete.",
+        "cause": "Paperless said no",
+    }

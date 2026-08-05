@@ -146,6 +146,38 @@ async def test_deleting_removes_the_object(resource: Resource) -> None:
 
 
 @pytest.mark.parametrize("resource", RESOURCES, ids=_IDS)
+async def test_deleting_a_missing_object_reads_as_not_found(resource: Resource) -> None:
+    """The same status has to carry the same code, whichever verb met it.
+
+    `transport.delete()` is the one verb that skips pypaperless' own
+    `raise_for_status`, so a 404 arrives as `DeletionError` rather than
+    `NotFoundError`. Uncorrected, a model checking for `not_found` misses the
+    already-deleted case entirely - and the cause it does get is httpx' raw message
+    with a link to MDN in it.
+    """
+    mcp, _ = _server(resource, enable_delete=True)
+
+    result = await call_tool(mcp, f"delete_{resource.singular}", **{resource.id_arg: 99})
+
+    assert result["error"] == "not_found"
+    assert f"{resource.path}99/" in result["cause"]
+    assert "mozilla" not in result["cause"]
+
+
+async def test_a_delete_refused_for_another_reason_still_reads_as_delete_failed() -> None:
+    """Only the code for 404 moves; anything else Paperless refuses stays a refusal."""
+    stub = PaperlessStub(collections={"/api/tags/": [{"id": 1, "name": "tag1", **_MATCHING}]})
+    stub.status["/api/tags/1/"] = 500
+    mcp = build_mcp(make_settings(enable_delete=True), make_client(stub))
+
+    result = await call_tool(mcp, "delete_tag", tag_id=1)
+
+    assert result["error"] == "delete_failed"
+    assert "HTTP 500" in result["cause"]
+    assert "mozilla" not in result["cause"]
+
+
+@pytest.mark.parametrize("resource", RESOURCES, ids=_IDS)
 async def test_delete_is_hidden_without_enable_delete(resource: Resource) -> None:
     mcp, _ = _server(resource, enable_delete=False)
     assert f"delete_{resource.singular}" not in mcp._tool_manager._tools
