@@ -7,7 +7,13 @@ from typing import Any
 
 import pytest
 
-from tests.conftest import FakeService, build_mcp, call_tool, make_settings
+from tests.conftest import (
+    FakeService,
+    build_mcp,
+    call_tool,
+    document,
+    make_settings,
+)
 
 _CATEGORY_KEYS = {
     "documents",
@@ -18,10 +24,6 @@ _CATEGORY_KEYS = {
     "custom_fields",
     "saved_views",
 }
-
-
-def _document(pk: int, **extra: Any) -> SimpleNamespace:
-    return SimpleNamespace(id=pk, title=f"Doc {pk}", **{"tags": [], **extra})
 
 
 def _result(**categories: Any) -> SimpleNamespace:
@@ -52,7 +54,7 @@ async def test_search_everywhere_formats_hits_and_resolves_names(make_paperless:
         paperless,
         _result(
             total=1,
-            documents=[_document(1, tags=[7])],
+            documents=[document(1, title=f"Doc {1}", tags=[7])],
             tags=[SimpleNamespace(id=7, name="Invoice")],
         ),
     )
@@ -89,7 +91,7 @@ async def test_search_everywhere_caps_each_category_and_flags_it(make_paperless:
     paperless = _with_search(
         make_paperless(),
         _result(
-            documents=[_document(pk) for pk in range(5)],
+            documents=[document(pk, title=f"Doc {pk}") for pk in range(5)],
             tags=[SimpleNamespace(id=1, name="one")],
         ),
     )

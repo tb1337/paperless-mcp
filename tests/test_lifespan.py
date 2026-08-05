@@ -25,7 +25,7 @@ from starlette.testclient import TestClient
 
 from paperless_mcp import server as server_mod
 from paperless_mcp.client import PaperlessConnection
-from paperless_mcp.config import Settings
+from paperless_mcp.config import Settings, Transport
 from tests.conftest import call_tool, make_settings
 
 
@@ -229,4 +229,4 @@ def test_bearer_auth_guards_the_mcp_endpoint(fake_client_class: Any) -> None:
 
 
 def _secured(settings: Settings, token: str) -> Settings:
-    return replace(settings, auth_token=token, transport="http")
+    return replace(settings, auth_token=token, transport=Transport.HTTP)

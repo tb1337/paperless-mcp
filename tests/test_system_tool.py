@@ -17,6 +17,7 @@ from tests.conftest import (
     FakeService,
     build_mcp,
     call_tool,
+    document,
     invoke_tool,
     make_runtime,
     make_settings,
@@ -103,14 +104,10 @@ def _view(
     )
 
 
-def _doc(doc_id: int) -> SimpleNamespace:
-    return SimpleNamespace(id=doc_id, title=f"Doc {doc_id}", tags=[])
-
-
 async def _run_view(make_paperless: Any, view: SimpleNamespace, **kwargs: Any) -> Any:
     paperless = make_paperless()
     paperless.saved_views.get_result = view
-    paperless.documents.filter_results = [_doc(1), _doc(2)]
+    paperless.documents.filter_results = [document(1, title="Doc 1"), document(2, title="Doc 2")]
     mcp = build_mcp(make_settings(), paperless)
     result = await call_tool(mcp, "run_saved_view", view_id=7, **kwargs)
     return result, paperless

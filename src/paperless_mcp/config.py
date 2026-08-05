@@ -15,19 +15,38 @@ from __future__ import annotations
 import os
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, fields
-from typing import Any, Final, Literal
+from enum import StrEnum
+from typing import Any, Final
 
-Transport = Literal["stdio", "http"]
 
-#: Accepted spellings mapped to their literal. Looking a raw string up here is
-#: what narrows it to ``Transport``; ``TRANSPORTS`` is derived from the same
-#: mapping so the accepted set and the error message cannot drift apart.
-_TRANSPORT_LITERALS: Final[Mapping[str, Transport]] = {"stdio": "stdio", "http": "http"}
+class Transport(StrEnum):
+    """The transports this server can speak.
 
-#: Ordered by severity rather than alphabetically, so ``--help`` reads sensibly.
-LOG_LEVELS: Final[tuple[str, ...]] = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
+    A ``StrEnum`` rather than a ``Literal`` plus a lookup table: ``Transport(raw)``
+    narrows on its own, so the accepted set, the ``--help`` choices and the error
+    message all come from the members. It is also pypaperless' house style for a
+    closed string set, and being a ``str`` means a comparison against ``"http"``
+    and ``logging``'s level names keep working.
+    """
 
-TRANSPORTS: Final[tuple[str, ...]] = tuple(_TRANSPORT_LITERALS)
+    STDIO = "stdio"
+    HTTP = "http"
+
+
+class LogLevel(StrEnum):
+    """Accepted values of ``PAPERLESS_MCP_LOG_LEVEL``, most verbose first."""
+
+    DEBUG = "DEBUG"
+    INFO = "INFO"
+    WARNING = "WARNING"
+    ERROR = "ERROR"
+    CRITICAL = "CRITICAL"
+
+
+#: Declaration order, so ``--help`` lists them by severity rather than
+#: alphabetically. Derived from the members, so nothing can drift.
+TRANSPORTS: Final[tuple[str, ...]] = tuple(Transport)
+LOG_LEVELS: Final[tuple[str, ...]] = tuple(LogLevel)
 
 #: Referenced by both the :class:`Settings` field and its :data:`_ENV_SETTINGS`
 #: entry, so the default exists once. ``healthcheck.py`` reads the same two.
@@ -96,18 +115,23 @@ def _parse_float(name: str, value: object) -> float:
 def _parse_transport(name: str, value: object) -> Transport:
     del name
     raw = _parse_str("", value).lower()
-    transport = _TRANSPORT_LITERALS.get(raw)
-    if transport is None:
-        raise ConfigError(f"Unknown transport {raw!r}; expected one of {sorted(TRANSPORTS)}.")
-    return transport
+    try:
+        return Transport(raw)
+    except ValueError as exc:
+        raise ConfigError(
+            f"Unknown transport {raw!r}; expected one of {sorted(TRANSPORTS)}."
+        ) from exc
 
 
-def _parse_log_level(name: str, value: object) -> str:
+def _parse_log_level(name: str, value: object) -> LogLevel:
     del name
     level = _parse_str("", value).upper()
-    if level not in LOG_LEVELS:
-        raise ConfigError(f"Unknown log level {level!r}; expected one of {sorted(LOG_LEVELS)}.")
-    return level
+    try:
+        return LogLevel(level)
+    except ValueError as exc:
+        raise ConfigError(
+            f"Unknown log level {level!r}; expected one of {sorted(LOG_LEVELS)}."
+        ) from exc
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,7 +140,7 @@ class Settings:
 
     paperless_url: str
     paperless_token: str
-    transport: Transport = "stdio"
+    transport: Transport = Transport.STDIO
     auth_token: str | None = None
     host: str = DEFAULT_HOST
     port: int = DEFAULT_PORT
@@ -126,7 +150,7 @@ class Settings:
     verify_ssl: bool = True
     request_timeout: float = 30.0
     name_cache_ttl: float = 300.0
-    log_level: str = "INFO"
+    log_level: LogLevel = LogLevel.INFO
 
     @property
     def expose_writes(self) -> bool:
@@ -168,10 +192,8 @@ class _EnvSetting[T]:
         return self.default if raw is None else self.parse(self.env, raw)
 
 
-#: Explicitly parameterized: inferring the type variable from the default would
-#: widen it to ``str`` and lose the ``Transport`` narrowing the parser performs.
-_TRANSPORT: Final = _EnvSetting[Transport](
-    "transport", "PAPERLESS_MCP_TRANSPORT", _parse_transport, "stdio"
+_TRANSPORT: Final = _EnvSetting(
+    "transport", "PAPERLESS_MCP_TRANSPORT", _parse_transport, Transport.STDIO
 )
 _AUTH_TOKEN: Final = _EnvSetting(
     "auth_token", "PAPERLESS_MCP_AUTH_TOKEN", _parse_optional_str, None
@@ -194,7 +216,9 @@ _REQUEST_TIMEOUT: Final = _EnvSetting(
 _NAME_CACHE_TTL: Final = _EnvSetting(
     "name_cache_ttl", "PAPERLESS_MCP_NAME_CACHE_TTL", _parse_float, 300.0
 )
-_LOG_LEVEL: Final = _EnvSetting("log_level", "PAPERLESS_MCP_LOG_LEVEL", _parse_log_level, "INFO")
+_LOG_LEVEL: Final = _EnvSetting(
+    "log_level", "PAPERLESS_MCP_LOG_LEVEL", _parse_log_level, LogLevel.INFO
+)
 
 #: Every optional setting. Only enumerated here for ``ENV_VARS`` and the test
 #: that pins the list against :class:`Settings`; resolution goes through the
