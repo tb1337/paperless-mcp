@@ -114,6 +114,42 @@ async def test_creating_satisfies_the_real_draft(resource: Resource) -> None:
 
 
 @pytest.mark.parametrize("resource", RESOURCES, ids=_IDS)
+async def test_creating_reports_the_object_as_stored(resource: Resource) -> None:
+    """A create answers with what a list would answer, not with `{id, name}`.
+
+    Two ids and a name cannot confirm that the colour, the path or the matching
+    algorithm arrived as intended, so confirming meant a second call - which is the
+    call this now makes itself, once, instead of leaving it to the model.
+    """
+    mcp, stub = _server(resource)
+
+    created = await call_tool(mcp, f"create_{resource.singular}", name="Neu", **resource.create)
+    listed = await call_tool(mcp, f"list_{resource.key}", limit=10)
+
+    assert created[resource.singular] == listed[resource.key][0]
+    # One POST for the create, one GET to read it back, and nothing else: `save()`
+    # reads the new id out of Paperless' response and drops the rest, so the object
+    # itself has to be fetched - once. (The collection sees further GETs from the name
+    # snapshot, which every master-data tool already pays.)
+    posted = [r for r in stub.requests if r.path == resource.path and r.method == "POST"]
+    assert len(posted) == 1
+    assert [r.method for r in stub.requests if r.path == f"{resource.path}1/"] == ["GET"]
+
+
+async def test_creating_a_tag_reports_the_algorithm_it_stored() -> None:
+    """The exact check a live run needed a second call for."""
+    mcp, _ = _server(RESOURCES[0])
+
+    created = await call_tool(
+        mcp, "create_tag", name="Regex", match="Rechnung", matching_algorithm="regex"
+    )
+
+    assert created["tag"]["matching_algorithm"] == 4
+    assert created["tag"]["matching_algorithm_name"] == "regex"
+    assert created["tag"]["match"] == "Rechnung"
+
+
+@pytest.mark.parametrize("resource", RESOURCES, ids=_IDS)
 async def test_updating_only_sends_what_changed(resource: Resource) -> None:
     """`changed` is the server's answer, not an assumption: an empty diff is False."""
     mcp, stub = _server(resource, count=1)

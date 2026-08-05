@@ -101,16 +101,25 @@ async def list_resource(
     )
 
 
-async def create_resource(ctx: ToolContext, resource: Resource, **values: Any) -> Any:
-    """Create one object and drop the now-stale name snapshot.
+async def create_resource(ctx: ToolContext, resource: Resource, **values: Any) -> dict[str, Any]:
+    """Create one object and report it the way an update reports one.
 
-    Returns the new primary key; what a create *reports* differs per resource, so
-    the caller builds that itself.
+    Costs one request more than the create: ``save()`` reads the new ID out of
+    Paperless' response and discards the rest, so the object has to be read back. It
+    is the request the model made anyway — ``{"id": ..., "name": ...}`` was not enough
+    to confirm that the matching algorithm, the colour or the path arrived as intended,
+    and confirming meant a second call either way.
+
+    The snapshot is taken before the write, as in :func:`update_resource`: it is only
+    read for the relations the new object points *at*, and those existed already.
     """
-    service = resource.service(await get_client(ctx))
+    paperless = await get_client(ctx)
+    names = await _snapshot(ctx, resource)
+    service = resource.service(paperless)
     new_id = await service.save(service.create(**values))
+    created = await service(new_id)
     invalidate_names(ctx)
-    return new_id
+    return {resource.singular: FORMATTERS[resource.key](created, names=names)}
 
 
 async def update_resource(
