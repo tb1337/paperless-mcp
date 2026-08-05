@@ -95,6 +95,23 @@ async def test_get_document_notes_resolves_the_author(stub: PaperlessStub) -> No
     assert result["notes"][0]["user_name"] == "clerk"
 
 
+async def test_get_document_notes_pages(stub: PaperlessStub) -> None:
+    """A 300-note document used to come back whole: no offset, limit or total."""
+    stub.routes[("GET", f"/api/documents/{_DOC_ID}/notes/")] = [
+        {"id": pk, "note": f"n{pk}", "document": _DOC_ID} for pk in (1, 2, 3, 4, 5)
+    ]
+
+    result = await call_tool(
+        _server(stub), "get_document_notes", document_id=_DOC_ID, offset=1, limit=2
+    )
+
+    assert [note["id"] for note in result["notes"]] == [2, 3]
+    assert result["total"] == 5
+    assert result["has_more"] is True
+    # The keys the older shape carried are still there, so this is additive.
+    assert result["document_id"] == _DOC_ID
+
+
 async def test_get_document_history_pages(stub: PaperlessStub) -> None:
     stub.routes[("GET", f"/api/documents/{_DOC_ID}/history/")] = [
         {"id": pk, "action": "update", "changes": {}, "actor": None} for pk in (1, 2, 3)
