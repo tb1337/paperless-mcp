@@ -42,7 +42,7 @@ dependencies = [
     # `tools/_errors` maps ValidationError to `invalid_argument`, and
     # `formatting.safe_dump` dispatches on BaseModel. Both are v2 APIs, and the
     # major is capped because a v3 would move them.
-    "pydantic>=2.13,<3",
+    "pydantic>=2.13.4,<3",
     "python-dotenv>=1.2.2",
     "uvicorn>=0.52.1",
     "starlette>=1.3.1,<2",
