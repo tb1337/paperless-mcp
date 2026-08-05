@@ -36,7 +36,7 @@ from ._errors import ToolInputError
 from ._master_data import create_resource, delete_resource, list_resource, update_resource
 from ._paging import paginate
 from ._registry import delete_tool, read_tool, register_tools, write_tool
-from ._relations import resolve_relations
+from ._relations import resolve_relation, resolve_relations
 
 #: Paperless requires the full matching triple on create; these are the
 #: "no automatic matching" defaults, which is the safe choice for objects an
@@ -137,6 +137,17 @@ async def _delete_objects(
         raise BulkEditError(f"Paperless answered {data!r}")
 
 
+async def _parent(ctx: ToolContext, parent_id: int | None, parent_name: str | None) -> int | None:
+    """Resolve a tag's parent, which is a tag under a different pair of argument names.
+
+    ``format_tag`` reports ``parent_name``, so the name is what a model reads back and
+    has to be able to send: an ID-only argument makes the readable half a dead end.
+    """
+    return await resolve_relation(
+        ctx, field="tag", pk=parent_id, name=parent_name, argument="parent"
+    )
+
+
 async def list_tags(
     ctx: ToolContext,
     name_contains: str | None = None,
@@ -153,6 +164,7 @@ async def create_tag(
     color: str | None = None,
     is_inbox_tag: bool = False,
     parent_id: int | None = None,
+    parent_name: str | None = None,
     match: str | None = None,
     matching_algorithm: MatchingAlgorithmName | None = None,
     is_insensitive: bool | None = None,
@@ -161,6 +173,10 @@ async def create_tag(
 
     ``color`` is a hex string like ``#cccccc``; when omitted Paperless gets a
     neutral default.
+
+    Nesting: pass ``parent_name`` when the parent tag comes from the conversation,
+    ``parent_id`` only when you have it verbatim from a tool result. Passing both is
+    allowed but they must agree.
 
     ``matching_algorithm`` decides when Paperless applies this tag by itself:
     ``any``/``all`` on the words in ``match``, ``literal`` on the whole phrase,
@@ -174,7 +190,7 @@ async def create_tag(
         name=name,
         color=color or _DEFAULT_TAG_COLOR,
         is_inbox_tag=is_inbox_tag,
-        parent=parent_id,
+        parent=await _parent(ctx, parent_id, parent_name),
         **_matching_kwargs(match, matching_algorithm, is_insensitive, for_create=True),
     )
 
@@ -186,11 +202,17 @@ async def update_tag(
     color: str | None = None,
     is_inbox_tag: bool | None = None,
     parent_id: int | None = None,
+    parent_name: str | None = None,
     match: str | None = None,
     matching_algorithm: MatchingAlgorithmName | None = None,
     is_insensitive: bool | None = None,
 ) -> dict[str, Any]:
-    """Update an existing tag. Pass only the fields you want to change."""
+    """Update an existing tag. Pass only the fields you want to change.
+
+    Nesting: pass ``parent_name`` when the parent tag comes from the conversation,
+    ``parent_id`` only when you have it verbatim from a tool result. Passing both is
+    allowed but they must agree.
+    """
     return await update_resource(
         ctx,
         TAGS,
@@ -199,7 +221,7 @@ async def update_tag(
             "name": name,
             "color": color,
             "is_inbox_tag": is_inbox_tag,
-            "parent": parent_id,
+            "parent": await _parent(ctx, parent_id, parent_name),
             **_matching_kwargs(match, matching_algorithm, is_insensitive, for_create=False),
         },
     )
