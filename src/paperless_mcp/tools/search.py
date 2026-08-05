@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from typing import Any, Final
 
 from mcp.server.mcpserver import MCPServer
@@ -10,33 +10,14 @@ from mcp.server.mcpserver import MCPServer
 from ..client import ToolContext, get_client, get_names
 from ..config import Settings
 from ..formatting import (
-    format_correspondent,
-    format_custom_field,
     format_document,
-    format_document_type,
     format_saved_view,
-    format_storage_path,
-    format_tag,
 )
 from ..names import NameMap
 from ..resources import RESOURCES
 from ._errors import ToolInputError
+from ._master_data import FORMATTERS
 from ._registry import read_tool, register_tools
-
-
-def _custom_field(cf: Any, _names: NameMap) -> dict[str, Any]:
-    """Adapt the names-free custom field formatter to the table's signature."""
-    return format_custom_field(cf)
-
-
-#: Formatter per master-data resource, keyed the way the registry keys them.
-_MASTER_DATA_FORMATTERS: Final[Mapping[str, Callable[[Any, NameMap], dict[str, Any]]]] = {
-    "tags": format_tag,
-    "correspondents": format_correspondent,
-    "document_types": format_document_type,
-    "storage_paths": format_storage_path,
-    "custom_fields": _custom_field,
-}
 
 #: The result categories this server exposes, paired with their formatter. The
 #: master-data ones come from the resource registry, so a new resource is reported
@@ -47,7 +28,7 @@ _MASTER_DATA_FORMATTERS: Final[Mapping[str, Callable[[Any, NameMap], dict[str, A
 #: none of them resolves to something a document filter accepts.
 _CATEGORIES: Final[tuple[tuple[str, Callable[[Any, NameMap], dict[str, Any]]], ...]] = (
     ("documents", format_document),
-    *((resource.key, _MASTER_DATA_FORMATTERS[resource.key]) for resource in RESOURCES),
+    *((resource.key, FORMATTERS[resource.key]) for resource in RESOURCES),
     ("saved_views", format_saved_view),
 )
 

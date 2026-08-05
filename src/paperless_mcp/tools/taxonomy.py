@@ -7,7 +7,6 @@ signatures, so the MCP JSON schemas stay tight and LLM-friendly.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from functools import partial
 from typing import Any
 
 from mcp.server.mcpserver import MCPServer
@@ -16,18 +15,19 @@ from pypaperless.const import EndpointPath
 from pypaperless.exceptions import BulkEditError
 from pypaperless.models.types import CustomFieldType, MatchingAlgorithm
 
-from ..client import ToolContext, get_client, get_names, invalidate_names
+from ..client import ToolContext, get_client, invalidate_names
 from ..config import Settings
-from ..formatting import (
-    format_correspondent,
-    format_custom_field,
-    format_document_type,
-    format_storage_path,
-    format_tag,
+from ..resources import (
+    BULK_OBJECTS,
+    CORRESPONDENTS,
+    CUSTOM_FIELDS,
+    DOCUMENT_TYPES,
+    STORAGE_PATHS,
+    TAGS,
 )
-from ..resources import BULK_OBJECTS
 from ._errors import ToolInputError
-from ._paging import page_result, paginate
+from ._master_data import create_resource, delete_resource, list_resource, update_resource
+from ._paging import paginate
 from ._registry import delete_tool, read_tool, register_tools, write_tool
 from ._relations import resolve_relations
 
@@ -79,17 +79,6 @@ def _matching_algorithm(value: int) -> MatchingAlgorithm:
     if algorithm is MatchingAlgorithm.UNKNOWN:
         raise ToolInputError(f"Unknown matching_algorithm {value!r}. {_MATCHING_HELP}")
     return algorithm
-
-
-def _apply(obj: Any, values: dict[str, Any]) -> None:
-    """Assign every non-``None`` value onto the model instance."""
-    for name, value in values.items():
-        if value is not None:
-            setattr(obj, name, value)
-
-
-def _name_filters(name_contains: str | None) -> dict[str, Any]:
-    return {"name__icontains": name_contains} if name_contains else {}
 
 
 #: Filter argument -> lookup, for the ones every object type understands. All
@@ -162,19 +151,7 @@ async def list_tags(
     limit: int = 100,
 ) -> dict[str, Any]:
     """List tags, optionally filtered by a case-insensitive name substring."""
-    paperless = await get_client(ctx)
-    names = await get_names(ctx)
-    items, total = await paginate(
-        paperless.tags, _name_filters(name_contains), offset=offset, limit=limit
-    )
-    return page_result(
-        "tags",
-        items,
-        offset=offset,
-        limit=limit,
-        total=total,
-        formatter=partial(format_tag, names=names),
-    )
+    return await list_resource(ctx, TAGS, name_contains=name_contains, offset=offset, limit=limit)
 
 
 async def create_tag(
@@ -194,16 +171,15 @@ async def create_tag(
     2=all words, 3=literal, 4=regex, 5=fuzzy, 6=auto — defaults to 0,
     i.e. the tag is only ever applied explicitly.
     """
-    paperless = await get_client(ctx)
-    draft = paperless.tags.create(
+    new_id = await create_resource(
+        ctx,
+        TAGS,
         name=name,
         color=color or _DEFAULT_TAG_COLOR,
         is_inbox_tag=is_inbox_tag,
         parent=parent_id,
         **_matching_kwargs(match, matching_algorithm, is_insensitive, for_create=True),
     )
-    new_id = await paperless.tags.save(draft)
-    invalidate_names(ctx)
     return {"tag": {"id": new_id, "name": name}}
 
 
@@ -219,11 +195,10 @@ async def update_tag(
     is_insensitive: bool | None = None,
 ) -> dict[str, Any]:
     """Update an existing tag. Pass only the fields you want to change."""
-    paperless = await get_client(ctx)
-    names = await get_names(ctx)
-    obj = await paperless.tags(tag_id)
-    _apply(
-        obj,
+    return await update_resource(
+        ctx,
+        TAGS,
+        tag_id,
         {
             "name": name,
             "color": color,
@@ -232,18 +207,11 @@ async def update_tag(
             **_matching_kwargs(match, matching_algorithm, is_insensitive, for_create=False),
         },
     )
-    changed = await paperless.tags.update(obj)
-    invalidate_names(ctx)
-    return {"changed": changed, **format_tag(obj, names)}
 
 
 async def delete_tag(ctx: ToolContext, tag_id: int) -> dict[str, Any]:
     """Delete a tag. It is removed from every document that carries it."""
-    paperless = await get_client(ctx)
-    obj = await paperless.tags(tag_id, lazy=True)
-    await paperless.tags.delete(obj)
-    invalidate_names(ctx)
-    return {"tag_id": tag_id, "deleted": True}
+    return await delete_resource(ctx, TAGS, tag_id)
 
 
 async def list_correspondents(
@@ -253,18 +221,8 @@ async def list_correspondents(
     limit: int = 100,
 ) -> dict[str, Any]:
     """List correspondents, optionally filtered by a name substring."""
-    paperless = await get_client(ctx)
-    names = await get_names(ctx)
-    items, total = await paginate(
-        paperless.correspondents, _name_filters(name_contains), offset=offset, limit=limit
-    )
-    return page_result(
-        "correspondents",
-        items,
-        offset=offset,
-        limit=limit,
-        total=total,
-        formatter=partial(format_correspondent, names=names),
+    return await list_resource(
+        ctx, CORRESPONDENTS, name_contains=name_contains, offset=offset, limit=limit
     )
 
 
@@ -276,13 +234,12 @@ async def create_correspondent(
     is_insensitive: bool | None = None,
 ) -> dict[str, Any]:
     """Create a new correspondent (the sender or recipient of documents)."""
-    paperless = await get_client(ctx)
-    draft = paperless.correspondents.create(
+    new_id = await create_resource(
+        ctx,
+        CORRESPONDENTS,
         name=name,
         **_matching_kwargs(match, matching_algorithm, is_insensitive, for_create=True),
     )
-    new_id = await paperless.correspondents.save(draft)
-    invalidate_names(ctx)
     return {"correspondent": {"id": new_id, "name": name}}
 
 
@@ -295,28 +252,20 @@ async def update_correspondent(
     is_insensitive: bool | None = None,
 ) -> dict[str, Any]:
     """Update an existing correspondent."""
-    paperless = await get_client(ctx)
-    names = await get_names(ctx)
-    obj = await paperless.correspondents(correspondent_id)
-    _apply(
-        obj,
+    return await update_resource(
+        ctx,
+        CORRESPONDENTS,
+        correspondent_id,
         {
             "name": name,
             **_matching_kwargs(match, matching_algorithm, is_insensitive, for_create=False),
         },
     )
-    changed = await paperless.correspondents.update(obj)
-    invalidate_names(ctx)
-    return {"changed": changed, **format_correspondent(obj, names)}
 
 
 async def delete_correspondent(ctx: ToolContext, correspondent_id: int) -> dict[str, Any]:
     """Delete a correspondent."""
-    paperless = await get_client(ctx)
-    obj = await paperless.correspondents(correspondent_id, lazy=True)
-    await paperless.correspondents.delete(obj)
-    invalidate_names(ctx)
-    return {"correspondent_id": correspondent_id, "deleted": True}
+    return await delete_resource(ctx, CORRESPONDENTS, correspondent_id)
 
 
 async def list_document_types(
@@ -326,18 +275,8 @@ async def list_document_types(
     limit: int = 100,
 ) -> dict[str, Any]:
     """List document types, optionally filtered by a name substring."""
-    paperless = await get_client(ctx)
-    names = await get_names(ctx)
-    items, total = await paginate(
-        paperless.document_types, _name_filters(name_contains), offset=offset, limit=limit
-    )
-    return page_result(
-        "document_types",
-        items,
-        offset=offset,
-        limit=limit,
-        total=total,
-        formatter=partial(format_document_type, names=names),
+    return await list_resource(
+        ctx, DOCUMENT_TYPES, name_contains=name_contains, offset=offset, limit=limit
     )
 
 
@@ -349,13 +288,12 @@ async def create_document_type(
     is_insensitive: bool | None = None,
 ) -> dict[str, Any]:
     """Create a new document type (invoice, contract, ...)."""
-    paperless = await get_client(ctx)
-    draft = paperless.document_types.create(
+    new_id = await create_resource(
+        ctx,
+        DOCUMENT_TYPES,
         name=name,
         **_matching_kwargs(match, matching_algorithm, is_insensitive, for_create=True),
     )
-    new_id = await paperless.document_types.save(draft)
-    invalidate_names(ctx)
     return {"document_type": {"id": new_id, "name": name}}
 
 
@@ -368,28 +306,20 @@ async def update_document_type(
     is_insensitive: bool | None = None,
 ) -> dict[str, Any]:
     """Update an existing document type."""
-    paperless = await get_client(ctx)
-    names = await get_names(ctx)
-    obj = await paperless.document_types(document_type_id)
-    _apply(
-        obj,
+    return await update_resource(
+        ctx,
+        DOCUMENT_TYPES,
+        document_type_id,
         {
             "name": name,
             **_matching_kwargs(match, matching_algorithm, is_insensitive, for_create=False),
         },
     )
-    changed = await paperless.document_types.update(obj)
-    invalidate_names(ctx)
-    return {"changed": changed, **format_document_type(obj, names)}
 
 
 async def delete_document_type(ctx: ToolContext, document_type_id: int) -> dict[str, Any]:
     """Delete a document type."""
-    paperless = await get_client(ctx)
-    obj = await paperless.document_types(document_type_id, lazy=True)
-    await paperless.document_types.delete(obj)
-    invalidate_names(ctx)
-    return {"document_type_id": document_type_id, "deleted": True}
+    return await delete_resource(ctx, DOCUMENT_TYPES, document_type_id)
 
 
 async def list_storage_paths(
@@ -399,18 +329,8 @@ async def list_storage_paths(
     limit: int = 100,
 ) -> dict[str, Any]:
     """List storage paths, optionally filtered by a name substring."""
-    paperless = await get_client(ctx)
-    names = await get_names(ctx)
-    items, total = await paginate(
-        paperless.storage_paths, _name_filters(name_contains), offset=offset, limit=limit
-    )
-    return page_result(
-        "storage_paths",
-        items,
-        offset=offset,
-        limit=limit,
-        total=total,
-        formatter=partial(format_storage_path, names=names),
+    return await list_resource(
+        ctx, STORAGE_PATHS, name_contains=name_contains, offset=offset, limit=limit
     )
 
 
@@ -427,14 +347,13 @@ async def create_storage_path(
     ``path`` is a Paperless path template, e.g.
     ``{{ created_year }}/{{ correspondent }}/{{ title }}``.
     """
-    paperless = await get_client(ctx)
-    draft = paperless.storage_paths.create(
+    new_id = await create_resource(
+        ctx,
+        STORAGE_PATHS,
         name=name,
         path=path,
         **_matching_kwargs(match, matching_algorithm, is_insensitive, for_create=True),
     )
-    new_id = await paperless.storage_paths.save(draft)
-    invalidate_names(ctx)
     return {"storage_path": {"id": new_id, "name": name, "path": path}}
 
 
@@ -448,29 +367,21 @@ async def update_storage_path(
     is_insensitive: bool | None = None,
 ) -> dict[str, Any]:
     """Update an existing storage path."""
-    paperless = await get_client(ctx)
-    names = await get_names(ctx)
-    obj = await paperless.storage_paths(storage_path_id)
-    _apply(
-        obj,
+    return await update_resource(
+        ctx,
+        STORAGE_PATHS,
+        storage_path_id,
         {
             "name": name,
             "path": path,
             **_matching_kwargs(match, matching_algorithm, is_insensitive, for_create=False),
         },
     )
-    changed = await paperless.storage_paths.update(obj)
-    invalidate_names(ctx)
-    return {"changed": changed, **format_storage_path(obj, names)}
 
 
 async def delete_storage_path(ctx: ToolContext, storage_path_id: int) -> dict[str, Any]:
     """Delete a storage path."""
-    paperless = await get_client(ctx)
-    obj = await paperless.storage_paths(storage_path_id, lazy=True)
-    await paperless.storage_paths.delete(obj)
-    invalidate_names(ctx)
-    return {"storage_path_id": storage_path_id, "deleted": True}
+    return await delete_resource(ctx, STORAGE_PATHS, storage_path_id)
 
 
 async def list_custom_fields(
@@ -480,17 +391,8 @@ async def list_custom_fields(
     limit: int = 100,
 ) -> dict[str, Any]:
     """List custom field definitions."""
-    paperless = await get_client(ctx)
-    items, total = await paginate(
-        paperless.custom_fields, _name_filters(name_contains), offset=offset, limit=limit
-    )
-    return page_result(
-        "custom_fields",
-        items,
-        offset=offset,
-        limit=limit,
-        total=total,
-        formatter=format_custom_field,
+    return await list_resource(
+        ctx, CUSTOM_FIELDS, name_contains=name_contains, offset=offset, limit=limit
     )
 
 
@@ -507,17 +409,12 @@ async def create_custom_field(
     fields pass ``extra_data={"select_options": [{"label": "Open"}]}``;
     for ``monetary`` you may pass ``{"default_currency": "EUR"}``.
     """
-    paperless = await get_client(ctx)
     field_type = CustomFieldType(data_type)
     if field_type is CustomFieldType.UNKNOWN:
         raise ToolInputError(f"Unknown data_type {data_type!r}. Allowed: {_CUSTOM_FIELD_TYPES}.")
-    draft = paperless.custom_fields.create(
-        name=name,
-        data_type=field_type,
-        extra_data=extra_data,
+    new_id = await create_resource(
+        ctx, CUSTOM_FIELDS, name=name, data_type=field_type, extra_data=extra_data
     )
-    new_id = await paperless.custom_fields.save(draft)
-    invalidate_names(ctx)
     return {"custom_field": {"id": new_id, "name": name, "data_type": field_type.value}}
 
 
@@ -528,21 +425,14 @@ async def update_custom_field(
     extra_data: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Update a custom field definition. ``data_type`` cannot be changed."""
-    paperless = await get_client(ctx)
-    obj = await paperless.custom_fields(custom_field_id)
-    _apply(obj, {"name": name, "extra_data": extra_data})
-    changed = await paperless.custom_fields.update(obj)
-    invalidate_names(ctx)
-    return {"changed": changed, **format_custom_field(obj)}
+    return await update_resource(
+        ctx, CUSTOM_FIELDS, custom_field_id, {"name": name, "extra_data": extra_data}
+    )
 
 
 async def delete_custom_field(ctx: ToolContext, custom_field_id: int) -> dict[str, Any]:
     """Delete a custom field definition and all of its stored values."""
-    paperless = await get_client(ctx)
-    obj = await paperless.custom_fields(custom_field_id, lazy=True)
-    await paperless.custom_fields.delete(obj)
-    invalidate_names(ctx)
-    return {"custom_field_id": custom_field_id, "deleted": True}
+    return await delete_resource(ctx, CUSTOM_FIELDS, custom_field_id)
 
 
 async def bulk_delete_objects(
