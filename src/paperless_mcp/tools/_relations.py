@@ -108,14 +108,19 @@ async def resolve_relation(
     field: str,
     pk: int | None,
     name: str | None,
+    argument: str | None = None,
 ) -> int | None:
     """Resolve one relation supplied as an ID, as a name, or as both.
 
     Args:
         ctx: The tool context, for the shared name snapshot.
-        field: The relation as the tool spells it, e.g. ``document_type``.
-        pk: The ``<field>_id`` argument.
-        name: The ``<field>_name`` argument.
+        field: The relation as the registry knows it, e.g. ``document_type``. Selects
+            the lookup and the list tool named in an error.
+        pk: The ``<argument>_id`` argument.
+        name: The ``<argument>_name`` argument.
+        argument: How the calling tool spells the pair, when that is not *field*
+            itself. A tag's parent is `parent_id` / `parent_name` while the names it
+            resolves against are the tags'.
 
     Returns:
         The ID to write, or ``None`` when neither half was supplied.
@@ -124,13 +129,14 @@ async def resolve_relation(
         ToolInputError: When the name is unknown or ambiguous, or when both
             halves were supplied and name different objects.
     """
+    spelling = argument or field
     if name is None:
         return pk
-    resolved = await _resolve_name(ctx, field=field, name=name, id_arg=f"{field}_id")
+    resolved = await _resolve_name(ctx, field=field, name=name, id_arg=f"{spelling}_id")
     if pk is not None and pk != resolved:
         raise ToolInputError(
-            f"{field}_id={pk} and {field}_name={name!r} (ID {resolved}) are different objects. "
-            f"Pass only the one you mean."
+            f"{spelling}_id={pk} and {spelling}_name={name!r} (ID {resolved}) are different "
+            f"objects. Pass only the one you mean."
         )
     return resolved
 

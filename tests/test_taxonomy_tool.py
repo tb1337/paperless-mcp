@@ -136,6 +136,44 @@ async def test_creating_reports_the_object_as_stored(resource: Resource) -> None
     assert [r.method for r in stub.requests if r.path == f"{resource.path}1/"] == ["GET"]
 
 
+async def test_a_tag_takes_its_parent_by_name() -> None:
+    """`format_tag` reports `parent_name`, so the name has to be sendable too.
+
+    An ID-only argument makes the readable half a dead end: the model reads
+    `parent_name: "Ausgang"` off a tag and has no way to put it back.
+    """
+    tags = Resource("tags", "tag", row=_MATCHING)
+    stub = PaperlessStub(collections={"/api/tags/": [{"id": 7, "name": "Ausgang", **_MATCHING}]})
+    mcp = build_mcp(make_settings(), make_client(stub))
+
+    created = await call_tool(mcp, "create_tag", name="Rechnungen", parent_name="Ausgang")
+
+    assert created["tag"]["parent"] == 7
+    assert created["tag"]["parent_name"] == "Ausgang"
+    posted = [r for r in stub.requests if r.method == "POST" and r.path == tags.path]
+    assert posted[0].json["parent"] == 7
+
+
+async def test_a_parent_name_that_disagrees_with_its_id_is_rejected() -> None:
+    """And the message names `parent_id`, not the `tag_id` the relation is called."""
+    stub = PaperlessStub(
+        collections={
+            "/api/tags/": [
+                {"id": 7, "name": "Ausgang", **_MATCHING},
+                {"id": 8, "name": "Eingang", **_MATCHING},
+            ]
+        }
+    )
+    mcp = build_mcp(make_settings(), make_client(stub))
+
+    result = await call_tool(mcp, "create_tag", name="X", parent_id=8, parent_name="Ausgang")
+
+    assert result["error"] == "invalid_argument"
+    assert "parent_id=8" in result["cause"]
+    assert "parent_name='Ausgang'" in result["cause"]
+    assert not [r for r in stub.requests if r.method == "POST"]
+
+
 async def test_creating_a_tag_reports_the_algorithm_it_stored() -> None:
     """The exact check a live run needed a second call for."""
     mcp, _ = _server(RESOURCES[0])

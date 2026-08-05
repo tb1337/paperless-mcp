@@ -361,7 +361,9 @@ Notes on semantics:
   path and tags can be given as `document_type_name: "Kündigung"` instead of
   `document_type_id: 11`, and as `tag_names` instead of `tag_ids`, on
   `search_documents`, `update_document`, `upload_document`,
-  `bulk_edit_documents` and `bulk_delete_objects`. Names are what every result
+  `bulk_edit_documents` and `bulk_delete_objects`. A tag's parent likewise:
+  `create_tag` and `update_tag` take `parent_name` beside `parent_id`, which is
+  the name `format_tag` reports back. Names are what every result
   already reports back, and
   what a human reading the call along can veto — a wrong ID hits another valid
   object and relabels a document without an error anywhere. Matching is exact,
