@@ -116,6 +116,7 @@ select = [
     "PTH",           # pathlib over os.path
     "RET",           # return simplification
     "RSE",           # raise
+    "C901",          # cyclomatic complexity, see [tool.ruff.lint.mccabe]
     "S",             # bandit
     "SLF",           # private-member access
     "SLOT",          # __slots__ on str/tuple subclasses
@@ -138,7 +139,6 @@ select = [
 #   CPY     (51) this project carries no per-file copyright header
 #   Q        (0) `ruff format` already owns quoting, and one decision wants one
 #                owner - two is how the COM812 conflict starts
-#   C901         see the mccabe note below
 ignore = [
     "D203",          # one-blank-line-before-class (conflicts with D211)
     "D213",          # multi-line-summary-second-line (conflicts with D212)
@@ -159,11 +159,17 @@ ignore = [
     # purpose - `search_documents` takes 30 arguments because the model needs to
     # see all 30 filters.
     "PLR0913", "PLR0917",
-    # Complexity limits, held back rather than dropped: their current findings are
-    # the `register()` closures and two table-driven functions, which the tools
-    # restructuring removes. They land together with C901 once it does.
-    "PLR0911", "PLR0912", "PLR0915",
+    # Statement count. Its only findings were the `register()` closures, which are
+    # gone; what is left in reach of it is a tool signature's worth of arguments
+    # being unpacked, where the count is the schema rather than complexity.
+    "PLR0915",
 ]
+
+[tool.ruff.lint.mccabe]
+# Paired with "C901" in `select`. The findings that made this unenforceable were
+# the `register()` closures and two argument-to-lookup ladders, and both are gone -
+# so the limit can be the default rather than a number chosen to fit them.
+max-complexity = 10
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = [
@@ -190,6 +196,19 @@ ignore = [
     # S104 fires on the "0.0.0.0" literal, which sits in a deny-list that rewrites
     # a bind-all host *to* loopback - the opposite of binding to all interfaces.
     "S104",
+]
+"src/paperless_mcp/formatting.py" = [
+    # `safe_dump` dispatches on eight types and returns from each. The branch count
+    # is the number of shapes JSON has to be reached from, not complexity - a
+    # `singledispatch` would hide the one ordering that is load-bearing (a pydantic
+    # model has to be tried before Mapping).
+    "PLR0911",
+]
+"src/paperless_mcp/tools/custom_field_values.py" = [
+    # `_plain_value` is a `match` over the ten custom field data types. Splitting it
+    # would put five of them behind a helper and leave the reader chasing which type
+    # goes where; the ten arms in one place are the point.
+    "C901", "PLR0911", "PLR0912",
 ]
 "src/paperless_mcp/names.py" = [
     # `_collect` catches Exception deliberately: its six calls are siblings under
