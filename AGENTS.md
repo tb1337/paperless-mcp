@@ -19,8 +19,10 @@ in-process it is `build_mcp(settings)` / `serve(settings)` in `server.py`.
     `ToolInputError`, `ToolResultError`
   - `tools/_registry.py` — `ToolSpec` plus the three factories that build one (`read_tool`,
     `write_tool`, `delete_tool`), `register_tools()` which applies `safe_tool`, the
-    visibility gate and `inline_aliases()` (without which a `Literal` alias reaches the
-    model as `{}`), and the `humanize()` that derives each display title
+    visibility gate, the two passes over a signature's annotations without which an
+    argument reaches the model as `{}` (`inline_aliases()` for the `$ref`,
+    `flatten_optionals()` for the `anyOf`), and the `humanize()` that derives each
+    display title
   - `tools/_arguments.py` — the `Literal` aliases the constrained arguments publish as schema
     enums, plus the name → pypaperless-enum mappings
   - `tools/_dates.py` — `parse_date` / `parse_datetime` for the ISO arguments
@@ -129,6 +131,21 @@ breaking change and gets the `breaking-change` label.
   `UNKNOWN` member; `tests/test_arguments.py` ties each list back to the library and
   `tests/test_tool_registration.py` asserts the values reach the published schema, so neither half
   can go stale.
+- **A published property carries its own `type`, never an `anyOf`.** Inlining the aliases only got
+  the values out of `$defs`; the follow-up check found twelve of the fifteen still arriving as `{}`,
+  and this time it was not an enum problem at all. `X | None` renders as
+  `anyOf: [<X>, {"type": "null"}]` — a property with no `type` of its own — and 123 of the 222
+  arguments here were in that shape, `title` and `color` and `tag_ids` along with the enums. The
+  three that did arrive were exactly the three non-optional ones; `create_tag.is_inbox_tag` (`bool`)
+  against `update_tag.is_inbox_tag` (`bool | None`) is the controlled pair. `_registry`
+  `flatten_optionals` therefore attaches a `WithJsonSchema` that publishes the branch type inline,
+  dropping the `null` a client can read back off `required` and `default`. It replaces what a tool
+  *advertises* and not what it *accepts* — the signature stays `X | None`, so an explicit `null`
+  still validates and the enums are still enforced by pydantic. Signatures need nothing extra; what
+  they must not do is give an argument a union of two types that would claim the same JSON Schema
+  keyword, which is a bail-out back to `anyOf`. Two assertions guard it: no published schema
+  contains an `anyOf`, and every property has a `type` — bar `set_document_custom_field.value`,
+  which is `Any`, where the empty schema is the correct answer rather than a lost one.
 - **Tools live at module level and are declared in one table per module.** A module's
   `register()` is a single `register_tools(mcp, settings, (...))` call over `read_tool(fn)` /
   `write_tool(fn, destructive=…, idempotent=…)` / `delete_tool(fn)` — never a bare

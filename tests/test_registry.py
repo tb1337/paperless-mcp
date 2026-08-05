@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Literal, get_args, get_origin, get_type_hints
 
 import pytest
+from pydantic import TypeAdapter
 
 from paperless_mcp.formatting import JsonValue
 from paperless_mcp.tools._arguments import (
@@ -12,7 +13,7 @@ from paperless_mcp.tools._arguments import (
     CustomFieldQuery,
     MatchingAlgorithmName,
 )
-from paperless_mcp.tools._registry import humanize, inline_aliases
+from paperless_mcp.tools._registry import flatten_optionals, humanize, inline_aliases
 from tests.conftest import literal_values
 
 
@@ -95,3 +96,43 @@ def test_the_query_alias_expands_because_it_is_not_recursive() -> None:
     """`custom_field_query` gave up its recursion precisely so it could be published."""
     assert inline_aliases(CustomFieldQuery) == CustomFieldQuery.__value__
     assert get_args(inline_aliases(CustomFieldQuery))
+
+
+def _published_schema(annotation: Any) -> dict[str, Any]:
+    """The property schema a client reads for one argument of that annotation."""
+    return TypeAdapter(flatten_optionals(annotation)).json_schema()
+
+
+def test_an_optional_publishes_the_type_of_what_it_wraps() -> None:
+    """`X | None` renders as `anyOf[X, null]`, a property with no `type` to read."""
+    assert _published_schema(bool | None) == {"type": "boolean"}
+    assert _published_schema(list[int] | None) == {"items": {"type": "integer"}, "type": "array"}
+
+
+def test_an_optional_enum_publishes_its_values_beside_the_type() -> None:
+    published = _published_schema(inline_aliases(MatchingAlgorithmName | None))
+    assert published["type"] == "string"
+    assert set(published["enum"]) == literal_values(MatchingAlgorithmName)
+
+
+def test_several_branches_collapse_into_a_list_of_types() -> None:
+    """The only flat way to say "a list or the JSON text of one" is a `type` list."""
+    assert _published_schema(inline_aliases(CustomFieldQuery)) == {
+        "items": {},
+        "type": ["array", "string"],
+    }
+
+
+@pytest.mark.parametrize(
+    "annotation",
+    [int, int | str, Any | None, list[JsonValue] | None, list[int] | list[str] | None],
+    ids=["not-a-union", "no-null-branch", "untyped-branch", "needs-defs", "clashing-keys"],
+)
+def test_an_annotation_that_cannot_be_flattened_is_left_as_it_was(annotation: Any) -> None:
+    """Bailing out restores pydantic's `anyOf`: harder to read, but never wrong.
+
+    The last two are the ones worth guarding. A branch that needs `$defs` would leave a
+    `$ref` in a property with no definitions beside it, and two branches both claiming
+    `items` with different values would silently publish one of them.
+    """
+    assert flatten_optionals(annotation) is annotation

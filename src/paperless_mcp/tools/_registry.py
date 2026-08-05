@@ -12,7 +12,10 @@ place instead of 64, so a tool cannot reach a client unwrapped.
 
 :func:`register_tools` also resolves each signature's annotations before handing the
 function over, which is what makes the ``Literal`` aliases in ``_arguments`` visible
-to a model rather than merely correct. See :func:`inline_aliases`.
+to a model rather than merely correct. It takes two passes, because a value can go
+missing at either of two layers: :func:`inline_aliases` removes the ``$ref`` into
+``$defs``, and :func:`flatten_optionals` removes the ``anyOf`` that wraps whatever the
+first pass produced. Both are about what a client *reads*, never what a tool accepts.
 """
 
 from __future__ import annotations
@@ -21,14 +24,16 @@ import operator
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass
 from functools import reduce
-from types import UnionType
+from types import NoneType, UnionType
 from typing import (
     TYPE_CHECKING,
+    Annotated,
     Any,
     Final,
     ForwardRef,
     Literal,
     TypeAliasType,
+    Union,
     get_args,
     get_origin,
     get_type_hints,
@@ -36,6 +41,7 @@ from typing import (
 
 from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
+from pydantic import TypeAdapter, WithJsonSchema
 
 from ._errors import safe_tool
 
@@ -191,6 +197,79 @@ def inline_aliases(annotation: Any) -> Any:
     return annotation if expanded is _FORWARD else expanded
 
 
+def _optional_branches(annotation: Any) -> tuple[Any, ...] | None:
+    """The non-``None`` members of ``X | None``, or ``None`` for anything else."""
+    if get_origin(annotation) not in (UnionType, Union):
+        return None
+    args = get_args(annotation)
+    if NoneType not in args:
+        return None
+    return tuple(arg for arg in args if arg is not NoneType)
+
+
+def _flat_schema(branches: tuple[Any, ...]) -> dict[str, Any] | None:
+    """Merge the branches of an optional into one schema carrying a top-level ``type``.
+
+    Returns ``None`` when they cannot be merged without losing something: a branch
+    pydantic renders without a ``type`` of its own (``Any``), one that needs ``$defs``
+    to be understood, or two that would claim the same keyword with different values.
+    Bailing out leaves pydantic's ``anyOf``, which is worse to read but never wrong.
+    """
+    merged: dict[str, Any] = {}
+    kinds: list[str] = []
+    for branch in branches:
+        schema = TypeAdapter(branch).json_schema()
+        kind = schema.pop("type", None)
+        if not isinstance(kind, str) or "$defs" in schema:
+            return None
+        if merged.keys() & schema.keys():
+            return None
+        merged |= schema
+        kinds.append(kind)
+    # A single type stays a string: that is the shape the three arguments which did
+    # arrive were already published as, so it is the one form known to survive.
+    merged["type"] = kinds[0] if len(kinds) == 1 else kinds
+    return merged
+
+
+def flatten_optionals(annotation: Any) -> Any:
+    """Return *annotation* publishing its type inline rather than as an ``anyOf``.
+
+    An optional argument is ``X | None``, which pydantic renders as
+    ``anyOf: [<X>, {"type": "null"}]`` — a property with no ``type`` of its own. Every
+    argument a live check found arriving as a bare ``{}`` was in that shape, and 123 of
+    the 222 arguments on this surface were: the twelve constrained ones, and ``title``,
+    ``color`` and ``tag_ids`` with them. Everything that did arrive had a ``type``, so
+    the union wrapper is what gets dropped — and :func:`inline_aliases` alone cannot
+    help, because it lifts the values out of ``$defs`` and the ``anyOf`` then swallows
+    them one layer further out. The controlled pair sits inside one tool pair:
+    ``create_tag.is_inbox_tag`` (``bool``) came through, ``update_tag.is_inbox_tag``
+    (``bool | None``) did not.
+
+    ``WithJsonSchema`` replaces what an argument *publishes* and leaves what it
+    *accepts* on ``X | None``, so an explicit ``null`` still validates and no tool
+    changes behaviour. What the published type no longer says is that ``null`` is
+    allowed; a client reads that off the argument's absence from ``required`` and its
+    ``default`` instead.
+    """
+    branches = _optional_branches(annotation)
+    if branches is None:
+        return annotation
+    flat = _flat_schema(branches)
+    return annotation if flat is None else Annotated[annotation, WithJsonSchema(flat)]
+
+
+def _publishable(name: str, hint: Any) -> Any:
+    """Resolve one annotation into the form the schema should be built from.
+
+    ``return`` only gets the aliases inlined. It feeds the *output* schema, which the
+    SDK reads itself rather than handing to a client, so flattening it would change a
+    contract this is not about.
+    """
+    inlined = inline_aliases(hint)
+    return inlined if name == "return" else flatten_optionals(inlined)
+
+
 def register_tools(mcp: MCPServer, settings: Settings, specs: Iterable[ToolSpec]) -> None:
     """Register the specs this deployment exposes, annotated, titled and wrapped.
 
@@ -217,7 +296,9 @@ def register_tools(mcp: MCPServer, settings: Settings, specs: Iterable[ToolSpec]
     for spec in specs:
         if not exposed[spec.gate]:
             continue
-        expanded = {name: inline_aliases(hint) for name, hint in get_type_hints(spec.fn).items()}
+        expanded = {
+            name: _publishable(name, hint) for name, hint in get_type_hints(spec.fn).items()
+        }
         spec.fn.__annotations__ = expanded
         wrapped = safe_tool(spec.fn)
         wrapped.__annotations__ = expanded

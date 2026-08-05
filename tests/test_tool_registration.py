@@ -20,7 +20,8 @@ from paperless_mcp.tools._arguments import (
     TaskStatusName,
     TaskTypeName,
 )
-from tests.conftest import literal_values, make_settings
+from tests.conftest import build_mcp as build_faked_mcp
+from tests.conftest import invoke_tool, literal_values, make_settings
 
 _READ_TOOLS = frozenset(
     {
@@ -304,17 +305,16 @@ _CONSTRAINED_ARGUMENTS = (
 
 
 def _published_enum(schema: dict[str, Any]) -> set[str]:
-    """The values a client can read off one property, however it is wrapped.
+    """The values a client can read off one property.
 
-    An optional argument arrives as ``anyOf[..., null]`` and a list argument as
-    ``items``, so the enum sits one or two levels down.
+    Deliberately does not look inside ``anyOf``. It used to, and that is how this
+    assertion passed for a year while the client saw a bare ``{}``: an optional
+    argument publishes as ``anyOf[..., null]``, and the union wrapper is precisely
+    what does not arrive. Only ``items`` is followed, for the one list-shaped enum.
     """
     if "enum" in schema:
         return set(schema["enum"])
-    for nested in (*schema.get("anyOf", []), schema.get("items", {})):
-        if found := _published_enum(nested):
-            return found
-    return set()
+    return _published_enum(schema["items"]) if "items" in schema else set()
 
 
 @pytest.mark.parametrize(
@@ -341,6 +341,82 @@ async def test_no_published_schema_defers_a_value_to_defs() -> None:
     tools = await _full_surface()
     deferred = [name for name, tool in tools.items() if "$ref" in json.dumps(tool.input_schema)]
     assert deferred == []
+
+
+#: The one argument whose published ``{}`` is correct rather than lost:
+#: ``set_document_custom_field`` takes whatever the field's data type accepts, and the
+#: empty schema is what JSON Schema says for "any value".
+_UNTYPED_BY_DESIGN: frozenset[tuple[str, str]] = frozenset({("set_document_custom_field", "value")})
+
+
+async def test_every_argument_publishes_a_top_level_type() -> None:
+    """A property with no ``type`` of its own is a property a client renders as ``{}``.
+
+    This is the assertion the ``$ref`` one was missing. Removing the ``$defs``
+    indirection left the enums behind an ``anyOf`` instead, which is the same problem
+    one layer out: 123 of these 222 arguments published no ``type``, and a live check
+    found every one of them arriving empty — ``matching_algorithm`` and ``order_by``
+    along with ``title``, ``color`` and ``tag_ids``.
+    """
+    tools = await _full_surface()
+    untyped = {
+        (name, argument)
+        for name, tool in tools.items()
+        for argument, published in tool.input_schema.get("properties", {}).items()
+        if "type" not in published
+    }
+    assert untyped == _UNTYPED_BY_DESIGN
+
+
+async def test_no_published_schema_wraps_an_argument_in_a_union() -> None:
+    """``anyOf`` is how the type went missing, so nothing may publish one."""
+    tools = await _full_surface()
+    unions = [name for name, tool in tools.items() if "anyOf" in json.dumps(tool.input_schema)]
+    assert unions == []
+
+
+async def test_an_optional_argument_publishes_the_type_its_required_twin_does() -> None:
+    """The controlled pair that isolated the defect: same type, same tool pair.
+
+    ``create_tag.is_inbox_tag`` is ``bool`` and arrived; ``update_tag.is_inbox_tag`` is
+    ``bool | None`` and did not. Nothing but the optional wrapper differs, which is why
+    this is not an enum bug — it is every optional argument on the surface.
+    """
+    tools = await _full_surface()
+    required = tools["create_tag"].input_schema["properties"]["is_inbox_tag"]
+    optional = tools["update_tag"].input_schema["properties"]["is_inbox_tag"]
+    assert required["type"] == "boolean"
+    assert optional["type"] == "boolean"
+
+
+async def test_a_multi_type_argument_publishes_every_form_it_accepts() -> None:
+    """``custom_field_query`` takes an expression list or the JSON text of one.
+
+    Flattened rather than left as an ``anyOf``, because the ``anyOf`` is what gets
+    dropped. Both forms stay visible; the nesting is still untyped on purpose.
+    """
+    tools = await _full_surface()
+    published = tools["search_documents"].input_schema["properties"]["custom_field_query"]
+    assert published["type"] == ["array", "string"]
+
+
+async def test_an_explicit_null_still_validates_against_the_flattened_type(
+    make_paperless: Any,
+) -> None:
+    """Dropping ``null`` from the published type must not stop ``null`` being accepted.
+
+    The flattening replaces what a tool *advertises*, never what it *accepts*: the
+    signature stays ``X | None``, so a client that fills its form with explicit nulls
+    still gets through. Going through ``invoke_tool`` is the point — that is the path
+    where a schema rejection would surface, as ``order_by`` outside its enum still does.
+    """
+    mcp = build_faked_mcp(make_settings(), make_paperless())
+
+    result = await invoke_tool(
+        mcp, "search_documents", query=None, order_by=None, tags_all=None, is_in_inbox=None
+    )
+
+    assert result.is_error is False
 
 
 async def test_no_tool_advertises_the_context_parameter() -> None:
