@@ -334,12 +334,29 @@ async def get_document_metadata(ctx: ToolContext, document_id: int) -> dict[str,
     return dump_mapping(meta, key="metadata")
 
 
-async def get_document_notes(ctx: ToolContext, document_id: int) -> dict[str, Any]:
-    """List all notes attached to a document."""
+async def get_document_notes(
+    ctx: ToolContext, document_id: int, offset: int = 0, limit: int = 100
+) -> dict[str, Any]:
+    """List the notes attached to a document, in the order Paperless returns them.
+
+    Paged like every other list-shaped tool: ``total`` is how many the document
+    carries and ``has_more`` says whether this window reached the end. The
+    endpoint answers with the whole array and declares no ordering, so the window
+    is applied here rather than server-side.
+    """
     paperless = await get_client(ctx)
     names = await get_names(ctx)
     notes = await paperless.documents.notes(document_id)
-    return {"document_id": document_id, "notes": [format_note(n, names) for n in notes]}
+    items, total = window(list(notes), offset=offset, limit=limit)
+    return page_result(
+        "notes",
+        items,
+        offset=offset,
+        limit=limit,
+        total=total,
+        formatter=partial(format_note, names=names),
+        document_id=document_id,
+    )
 
 
 async def get_document_history(
