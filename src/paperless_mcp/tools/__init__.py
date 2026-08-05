@@ -10,6 +10,7 @@ from . import (
     bulk,
     custom_field_values,
     documents,
+    saved_views,
     search,
     share_links,
     system,
@@ -29,5 +30,6 @@ def register_all(mcp: MCPServer, settings: Settings) -> None:
     trash.register(mcp, settings)
     tasks.register(mcp, settings)
     system.register(mcp, settings)
+    saved_views.register(mcp, settings)
     ai.register(mcp, settings)
     share_links.register(mcp, settings)

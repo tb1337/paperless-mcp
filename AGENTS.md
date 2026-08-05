@@ -12,7 +12,7 @@ in-process it is `build_mcp(settings)` / `serve(settings)` in `server.py`.
 
 - `src/paperless_mcp/` — server source
   - `tools/` — one module per resource area (`documents`, `taxonomy`, `custom_field_values`,
-    `bulk`, `trash`, `tasks`, `system`, `ai`, `share_links`), each exposing a
+    `bulk`, `trash`, `tasks`, `system`, `saved_views`, `ai`, `share_links`), each exposing a
     `register(mcp, settings)` function;
     `tools/__init__.py` calls them all from `register_all()`
   - `tools/_errors.py` — `safe_tool` (exception → structured error), the ordered `_ERROR_MAP`,
