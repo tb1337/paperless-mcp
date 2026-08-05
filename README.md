@@ -76,7 +76,33 @@ the caller, not a human clicking through a UI:
   `has_more`.
 - **Structured errors**: pypaperless exceptions become results like
   `{"error": "not_found", "detail": "...", "cause": "..."}` instead of
-  protocol-level failures, so the model can recover rather than give up.
+  protocol-level failures, so the model can recover rather than give up. The `error`
+  code is one of a closed set, so a client can branch on it:
+
+  | Code | Means |
+  |---|---|
+  | `invalid_argument` | An argument was rejected before anything was written — a bad name, an impossible page selection, a malformed query. |
+  | `not_found` | Paperless has no such object (HTTP 404), including one that was already deleted. |
+  | `forbidden` | The Paperless user may not touch this resource. |
+  | `auth_failed` | Paperless rejected the API token. |
+  | `connection_error` | The server was unreachable, or the connection could not be initialized. |
+  | `timeout` | Paperless did not answer within `PAPERLESS_MCP_TIMEOUT`. |
+  | `missing_field` | A required field was not supplied when creating something. |
+  | `draft_invalid` | Paperless refused the new object. |
+  | `delete_failed` | Paperless refused the delete for a reason other than a missing object. |
+  | `bulk_edit_failed` | Paperless rejected the bulk edit. |
+  | `asn_failed` | No archive serial number could be assigned. |
+  | `email_failed` | Paperless rejected the email request. |
+  | `unsupported` | The operation does not exist on this Paperless, or the resource cannot be created through the API. |
+  | `paperless_error` | Paperless answered with an error payload of its own; `cause` carries its message. |
+  | `upstream_error` | Paperless answered with something unexpected: a non-JSON body, invalid JSON, or an unhandled status. |
+  | `file_too_large` | The file exceeds `PAPERLESS_MCP_MAX_FILE_BYTES`; the result also reports `size_bytes` and `max_bytes`. |
+  | `unsupported_media_type` | Paperless answered a thumbnail request with something that is not an image. |
+  | `unsupported_filter_rule` | A saved view filters on rule types this server cannot translate, so running it would return more documents than the view selects. |
+
+  An argument the JSON schema itself rejects — an enum value that does not exist — is
+  the one failure that arrives as a protocol error instead, because pydantic validates
+  before the tool body runs. The message names the allowed values.
 - **Constrained arguments are published as enums**, not as bare strings: the
   allowed values for `order_by`, `data_type`, `file_version`, `object_type`,
   `matching_algorithm` and the task filters are in the tool's JSON schema, so a

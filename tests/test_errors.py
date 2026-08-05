@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -15,6 +16,7 @@ from pypaperless.exceptions import (
 )
 
 from paperless_mcp.tools._errors import (
+    _ERROR_MAP,
     ToolInputError,
     ToolResultError,
     safe_tool,
@@ -122,3 +124,20 @@ def test_a_deletion_error_without_an_http_cause_stays_a_refusal() -> None:
         "detail": "Paperless refused the delete.",
         "cause": "Paperless said no",
     }
+
+
+def test_every_error_code_is_documented() -> None:
+    """A code a client cannot look up is a code it cannot branch on.
+
+    The README table is the only place the closed set is written down, so it is tied to
+    the map here rather than maintained beside it. The three codes built inline are
+    listed by hand because they are raised at their call site rather than mapped from an
+    exception type — if a fourth one appears, add it here too.
+    """
+    readme = (Path(__file__).resolve().parents[1] / "README.md").read_text()
+    inline = ("file_too_large", "unsupported_media_type", "unsupported_filter_rule")
+    codes = {code for _, code, _ in _ERROR_MAP} | set(inline)
+
+    undocumented = sorted(code for code in codes if f"`{code}`" not in readme)
+
+    assert undocumented == []
