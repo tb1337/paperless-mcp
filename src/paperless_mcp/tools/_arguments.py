@@ -6,10 +6,21 @@ check, and a model that guesses wrong pays a round trip to find out. A ``Literal
 publishes ``{"enum": [...]}``, so the schema *is* the documentation and pydantic
 rejects the rest before the tool body runs.
 
+Publishing them is not automatic, and that is worth knowing before adding one. These
+are PEP 695 aliases, so each is a ``TypeAliasType`` — a *named* type, which pydantic
+renders as an entry in ``$defs`` plus a ``$ref`` pointing at it. Valid JSON Schema,
+and invisible in practice: a live check against a real client showed all fifteen of
+these arguments reaching the model as a bare ``{}``, values correct and unreachable,
+because the client never dereferenced. ``_registry.inline_aliases`` therefore expands
+every alias in a tool's annotations before the tool is registered, so what the client
+receives carries the values inline. Nothing else is needed here — a new alias is
+picked up by that step automatically.
+
 Spelled as ``Literal`` rather than as the pypaperless enums these mirror: every one
 of those carries an ``UNKNOWN`` member that is a parsing fallback for a value
 Paperless sent, never a value to send back. ``tests/test_arguments.py`` is what ties
-each list to the library, so it cannot become a stale copy.
+each list to the library, and ``tests/test_tool_registration.py`` pins that the
+published schema really carries the values inline, so neither can go stale.
 
 The trade this makes deliberately: a value the schema rejects comes back as a
 protocol-level error rather than as ``{"error": "invalid_argument"}``, because
@@ -21,7 +32,7 @@ values — which the schema now does too, so the model should not reach that poi
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Final, Literal
+from typing import Any, Final, Literal
 
 from pypaperless.models.types import CustomFieldType, MatchingAlgorithm
 
@@ -110,7 +121,12 @@ type TaskTypeName = Literal[
     "bulk_delete",
 ]
 
-#: One ``custom_field_query`` expression: an atom ``[field, operator, value]``, a
-#: logical group ``["AND", [...]]``, or the JSON text of either. Only an object is
-#: ruled out, which this query language never accepts.
-type CustomFieldQuery = str | int | float | bool | list["CustomFieldQuery"] | None
+#: One ``custom_field_query``: an expression list — an atom ``[field, operator,
+#: value]`` or a logical group ``["AND", [...]]`` — or the JSON text of one.
+#:
+#: Only the outer shape is typed, and this is the one alias where that is a decision
+#: rather than an omission. The expression nests arbitrarily deep, a self-referential
+#: alias can only be published as a ``$ref``, and a ``$ref`` is exactly what does not
+#: arrive. ``_custom_field_query`` validates the nesting instead, and its rejection
+#: names the four accepted forms — a better message than a recursive schema.
+type CustomFieldQuery = list[Any] | str | None
