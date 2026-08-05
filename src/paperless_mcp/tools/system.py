@@ -14,7 +14,14 @@ from ._registry import read_tool, register_tools
 
 
 async def get_paperless_info(ctx: ToolContext) -> dict[str, Any]:
-    """Return Paperless-ngx version info and this MCP server's configuration."""
+    """Return Paperless-ngx version info and this MCP server's configuration.
+
+    The four limits are reported because each one changes what a call does:
+    ``max_file_bytes`` is the size a download refuses at, ``name_cache_ttl`` how
+    long a rename made in the web UI stays invisible here, ``request_timeout`` when a slow
+    request comes back as ``{"error": "timeout"}``, and the two visibility flags
+    which tools exist at all.
+    """
     paperless = await get_client(ctx)
     cfg = get_settings(ctx)
     return {
@@ -24,6 +31,9 @@ async def get_paperless_info(ctx: ToolContext) -> dict[str, Any]:
         "mcp_server_version": __version__,
         "readonly": cfg.readonly,
         "deletes_enabled": cfg.expose_deletes,
+        "max_file_bytes": cfg.max_file_bytes,
+        "name_cache_ttl": cfg.name_cache_ttl,
+        "request_timeout": cfg.request_timeout,
     }
 
 

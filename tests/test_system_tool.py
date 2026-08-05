@@ -27,6 +27,12 @@ from tests.conftest import (
 
 
 async def test_get_paperless_info_returns_version_metadata(make_paperless: Any) -> None:
+    """Every setting that changes what a call does, so it can be read rather than probed.
+
+    Without the three limits, a model cannot tell why a download was refused, why a
+    rename made in the web UI is still invisible, or when a slow call will give up -
+    and a live check has no way to test those paths at all.
+    """
     paperless = make_paperless()
     mcp = build_mcp(make_settings(), paperless)
 
@@ -38,6 +44,9 @@ async def test_get_paperless_info_returns_version_metadata(make_paperless: Any) 
         "mcp_server_version": __version__,
         "readonly": False,
         "deletes_enabled": True,
+        "max_file_bytes": 1024 * 1024,
+        "name_cache_ttl": 300.0,
+        "request_timeout": 30.0,
     }
 
 
