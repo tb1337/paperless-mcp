@@ -9,8 +9,10 @@ from __future__ import annotations
 import functools
 import logging
 from collections.abc import Awaitable, Callable
+from http import HTTPStatus
 from typing import Any, cast
 
+import httpx
 from pydantic import ValidationError
 from pypaperless.exceptions import (
     AsnRequestError,
@@ -112,12 +114,48 @@ _ERROR_MAP: tuple[tuple[type[BaseException], str, str], ...] = (
 )
 
 
+def _translate_delete(exc: DeletionError) -> dict[str, Any] | None:
+    """Report a failed delete the way the same status reads on any other verb.
+
+    ``PaperlessTransport`` maps 404 to ``NotFoundError`` in its own
+    ``raise_for_status``, but ``delete()`` is the one verb that does not call it: it
+    hands the response to httpx and wraps whatever comes out in ``DeletionError``. So
+    the *same* missing object answers ``not_found`` when read and ``delete_failed``
+    when deleted, and a model branching on the code has to know both spellings.
+
+    The cause is rebuilt from the status and URL rather than passed through, because
+    httpx' message ends in a link to MDN — noise in a payload meant for a model.
+    """
+    failure = exc.__cause__
+    if not isinstance(failure, httpx.HTTPStatusError):
+        return _mapped(exc)
+    status = failure.response.status_code
+    if status == HTTPStatus.NOT_FOUND:
+        return {
+            "error": "not_found",
+            "detail": "Paperless has no such object (HTTP 404).",
+            "cause": f"Requested resource does not exist: {failure.request.url}",
+        }
+    return {
+        "error": "delete_failed",
+        "detail": "Paperless refused the delete.",
+        "cause": f"Paperless answered HTTP {status} for DELETE {failure.request.url}.",
+    }
+
+
 def translate_error(exc: BaseException) -> dict[str, Any] | None:
     """Return an LLM-friendly error dict for *exc*, or ``None`` when unmapped."""
     # Not an _ERROR_MAP entry: the code and detail travel with the exception
     # rather than being fixed per type.
     if isinstance(exc, ToolResultError):
         return exc.payload
+    if isinstance(exc, DeletionError):
+        return _translate_delete(exc)
+    return _mapped(exc)
+
+
+def _mapped(exc: BaseException) -> dict[str, Any] | None:
+    """Look *exc* up in the ordered table."""
     for exc_type, code, message in _ERROR_MAP:
         if isinstance(exc, exc_type):
             return {
