@@ -8,10 +8,17 @@ is asserted one argument at a time, on the request the stub actually received.
 
 from __future__ import annotations
 
+import inspect
 from typing import Any
 
 import pytest
 
+from paperless_mcp.tools.documents import (
+    _DATE_FILTERS,
+    _FILTERS,
+    _build_doc_filters,
+    search_documents,
+)
 from tests.conftest import PaperlessStub, build_mcp, call_tool, make_client, make_settings
 
 
@@ -173,3 +180,22 @@ async def test_a_full_text_hit_carries_its_relevance_data() -> None:
     result = await call_tool(mcp, "get_document", document_id=4)
 
     assert result["search_hit"]["score"] == 1.5
+
+
+def test_the_filter_table_covers_every_argument_search_documents_forwards() -> None:
+    """`**supplied` is the loose end: a table entry missing means a dropped filter.
+
+    `_build_doc_filters` raises rather than ignoring a name it has no lookup for, so
+    an argument added to `search_documents` without a row here fails loudly instead
+    of being silently discarded - which is the failure mode that widens a selection
+    to everything.
+    """
+    with pytest.raises(TypeError, match="not a document filter"):
+        _build_doc_filters(invented_filter="x")
+
+
+def test_every_table_argument_is_a_search_documents_parameter() -> None:
+    """The other direction: a row for an argument no tool passes is dead weight."""
+    parameters = set(inspect.signature(search_documents).parameters)
+    assert {argument for argument, _ in _FILTERS} <= parameters
+    assert parameters >= _DATE_FILTERS

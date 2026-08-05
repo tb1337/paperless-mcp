@@ -5,7 +5,7 @@ from __future__ import annotations
 import base64
 import binascii
 from functools import partial
-from typing import Any
+from typing import Any, Final
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.utilities.types import Image
@@ -25,6 +25,7 @@ from ..names import cached_custom_fields
 from ._custom_field_query import build_custom_field_query
 from ._dates import parse_date, parse_datetime
 from ._errors import ToolInputError, ToolResultError, translate_error
+from ._master_data import apply_values
 from ._paging import page_result, paginate, window
 from ._registry import delete_tool, read_tool, register_tools, write_tool
 from ._relations import resolve_relation, resolve_tags
@@ -67,66 +68,62 @@ _IMAGE_FORMATS: dict[str, str] = {
 }
 
 
+#: Argument -> the Django lookup Paperless filters on. A lookup Paperless does not
+#: recognise is *dropped* by its FilterSet, and a dropped filter does not narrow a
+#: selection - it widens it to everything. So the pairing lives in one table rather
+#: than in seventeen hand-written branches.
+_FILTERS: Final[tuple[tuple[str, str], ...]] = (
+    ("title_contains", "title__icontains"),
+    ("content_contains", "content__icontains"),
+    ("title_or_content", "title_content"),
+    ("tags_all", "tags__id__all"),
+    ("tags_any", "tags__id__in"),
+    ("tags_none", "tags__id__none"),
+    ("correspondent_id", "correspondent__id"),
+    ("document_type_id", "document_type__id"),
+    ("storage_path_id", "storage_path__id"),
+    ("archive_serial_number", "archive_serial_number"),
+    ("is_in_inbox", "is_in_inbox"),
+    ("is_tagged", "is_tagged"),
+    ("mime_type", "mime_type"),
+    ("created_after", "created__date__gte"),
+    ("created_before", "created__date__lte"),
+    ("added_after", "added__date__gte"),
+    ("added_before", "added__date__lte"),
+)
+
+#: The arguments that take an ISO date or datetime and go out as a plain date.
+_DATE_FILTERS: Final[frozenset[str]] = frozenset(
+    {"created_after", "created_before", "added_after", "added_before"}
+)
+
+
 def _build_doc_filters(
     *,
-    title_contains: str | None = None,
-    content_contains: str | None = None,
-    title_or_content: str | None = None,
-    tags_all: list[int] | None = None,
-    tags_any: list[int] | None = None,
-    tags_none: list[int] | None = None,
-    correspondent_id: int | None = None,
-    document_type_id: int | None = None,
-    storage_path_id: int | None = None,
-    archive_serial_number: int | None = None,
-    is_in_inbox: bool | None = None,
-    is_tagged: bool | None = None,
-    mime_type: str | None = None,
-    created_after: str | None = None,
-    created_before: str | None = None,
-    added_after: str | None = None,
-    added_before: str | None = None,
     order_by: str | None = None,
     descending: bool = False,
+    **supplied: Any,
 ) -> dict[str, Any]:
-    """Translate the tool's flat arguments into Paperless' Django-style lookups."""
+    """Translate the tool's flat arguments into Paperless' Django-style lookups.
+
+    ``**supplied`` is the one place in the package that takes them: this is not a
+    tool signature, it is fed one argument at a time from a table, and spelling all
+    seventeen out again here would be a second list to keep in step.
+    """
     filters: dict[str, Any] = {}
-    if title_contains:
-        filters["title__icontains"] = title_contains
-    if content_contains:
-        filters["content__icontains"] = content_contains
-    if title_or_content:
-        filters["title_content"] = title_or_content
-    if tags_all:
-        filters["tags__id__all"] = tags_all
-    if tags_any:
-        filters["tags__id__in"] = tags_any
-    if tags_none:
-        filters["tags__id__none"] = tags_none
-    if correspondent_id is not None:
-        filters["correspondent__id"] = correspondent_id
-    if document_type_id is not None:
-        filters["document_type__id"] = document_type_id
-    if storage_path_id is not None:
-        filters["storage_path__id"] = storage_path_id
-    if archive_serial_number is not None:
-        filters["archive_serial_number"] = archive_serial_number
-    if is_in_inbox is not None:
-        filters["is_in_inbox"] = is_in_inbox
-    if is_tagged is not None:
-        filters["is_tagged"] = is_tagged
-    if mime_type:
-        filters["mime_type"] = mime_type
-    if created_after:
-        filters["created__date__gte"] = parse_date(created_after, field="created_after").isoformat()
-    if created_before:
-        filters["created__date__lte"] = parse_date(
-            created_before, field="created_before"
-        ).isoformat()
-    if added_after:
-        filters["added__date__gte"] = parse_date(added_after, field="added_after").isoformat()
-    if added_before:
-        filters["added__date__lte"] = parse_date(added_before, field="added_before").isoformat()
+    for argument, lookup in _FILTERS:
+        value = supplied.pop(argument, None)
+        # An empty string or list narrows nothing, so it counts as absent - while
+        # `is_in_inbox=False` and an ID of 0 are values and must go out.
+        if value is None or (isinstance(value, str | list) and not value):
+            continue
+        # Named by the argument, not by the lookup: the message the model reads has
+        # to say which of its four date arguments it got wrong.
+        if argument in _DATE_FILTERS:
+            value = parse_date(value, field=argument).isoformat()
+        filters[lookup] = value
+    if supplied:
+        raise TypeError(f"not a document filter: {sorted(supplied)}")
     if order_by:
         if order_by not in _ORDER_FIELDS:
             raise ToolInputError(
@@ -637,39 +634,29 @@ async def update_document(
     )
     names = await get_names(ctx)
 
-    clear_set = set(clear_fields or [])
-    invalid = clear_set - _CLEARABLE_FIELDS
-    if invalid:
-        raise ToolInputError(
-            f"Unknown clear_fields: {sorted(invalid)}. Allowed: {sorted(_CLEARABLE_FIELDS)}."
-        )
-    supplied = {
+    values: dict[str, Any] = {
+        "title": title,
         "correspondent": correspondent_id,
         "document_type": document_type_id,
         "storage_path": storage_path_id,
         "archive_serial_number": archive_serial_number,
+        "tags": tag_ids,
+        "content": content,
+        "created": parse_date(created, field="created") if created is not None else None,
     }
-    conflicts = sorted(name for name in clear_set if supplied[name] is not None)
-    if conflicts:
+
+    clear_set = set(clear_fields or [])
+    if invalid := clear_set - _CLEARABLE_FIELDS:
+        raise ToolInputError(
+            f"Unknown clear_fields: {sorted(invalid)}. Allowed: {sorted(_CLEARABLE_FIELDS)}."
+        )
+    # The same table answers "was it supplied?", so the four clearable field names
+    # are not restated a third time.
+    if conflicts := sorted(name for name in clear_set if values[name] is not None):
         raise ToolInputError(f"Fields cannot be set and cleared at once: {conflicts}.")
 
     doc = await paperless.documents(document_id)
-    if title is not None:
-        doc.title = title
-    if correspondent_id is not None:
-        doc.correspondent = correspondent_id
-    if document_type_id is not None:
-        doc.document_type = document_type_id
-    if storage_path_id is not None:
-        doc.storage_path = storage_path_id
-    if archive_serial_number is not None:
-        doc.archive_serial_number = archive_serial_number
-    if tag_ids is not None:
-        doc.tags = tag_ids
-    if content is not None:
-        doc.content = content
-    if created is not None:
-        doc.created = parse_date(created, field="created")
+    apply_values(doc, values)
     for field in clear_set:
         setattr(doc, field, None)
 
