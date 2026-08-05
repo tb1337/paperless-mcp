@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from mcp.server.mcpserver.exceptions import ToolError
 from mcp.server.mcpserver.utilities.types import Image
 from pypaperless.exceptions import (
     AsnRequestError,
@@ -28,6 +29,7 @@ from tests.conftest import (
     build_mcp,
     call_tool,
     document,
+    invoke_tool,
     make_runtime,
     make_settings,
     returns,
@@ -184,9 +186,16 @@ async def test_search_documents_checks_the_query_against_the_definitions(
 
 
 async def test_search_documents_rejects_unknown_ordering(make_paperless: Any) -> None:
+    """Refused by the published schema now, so it never reaches the tool.
+
+    A `ToolError` rather than `{"error": "invalid_argument"}`: pydantic validates
+    the arguments before `safe_tool` can wrap anything, and the message it raises
+    names the allowed values. The trade is deliberate - a schema-aware client sees
+    the enum and does not send this in the first place.
+    """
     mcp = build_mcp(make_settings(), make_paperless())
-    result = await call_tool(mcp, "search_documents", order_by="content")
-    assert result["error"] == "invalid_argument"
+    with pytest.raises(ToolError, match="'created'"):
+        await invoke_tool(mcp, "search_documents", order_by="content")
 
 
 async def test_search_documents_rejects_bad_dates(make_paperless: Any) -> None:
@@ -262,13 +271,20 @@ async def test_update_document_clear_fields(make_paperless: Any) -> None:
 
 
 async def test_update_document_rejects_unknown_clear_field(make_paperless: Any) -> None:
+    """Only four document fields are nullable in Paperless; a title is replaced.
+
+    A `ToolError` rather than `{"error": "invalid_argument"}`: pydantic validates
+    the arguments before `safe_tool` can wrap anything, and the message it raises
+    names the allowed values. The trade is deliberate - a schema-aware client sees
+    the enum and does not send this in the first place.
+    """
     paperless = make_paperless()
     paperless.documents.get_result = document(5)
     mcp = build_mcp(make_settings(), paperless)
 
-    result = await call_tool(mcp, "update_document", document_id=5, clear_fields=["title"])
-    assert result["error"] == "invalid_argument"
-    assert "title" in result["cause"]
+    with pytest.raises(ToolError, match="'correspondent'"):
+        await invoke_tool(mcp, "update_document", document_id=5, clear_fields=["title"])
+
     assert paperless.documents.update_calls == []  # nothing happened
 
 

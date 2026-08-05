@@ -77,6 +77,12 @@ the caller, not a human clicking through a UI:
 - **Structured errors**: pypaperless exceptions become results like
   `{"error": "not_found", "detail": "...", "cause": "..."}` instead of
   protocol-level failures, so the model can recover rather than give up.
+- **Constrained arguments are published as enums**, not as bare strings: the
+  allowed values for `order_by`, `data_type`, `file_version`, `object_type`,
+  `matching_algorithm` and the task filters are in the tool's JSON schema, so a
+  model reads them instead of guessing and paying a round trip. `matching_algorithm`
+  takes names — `none`, `any`, `all`, `literal`, `regex`, `fuzzy`, `auto` — rather
+  than the 0–6 the REST API uses.
 - **Behaviour hints on every tool**: each of the 64 tools ships MCP tool
   annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`,
   `openWorldHint`) plus a display title, so a client can wave a search through

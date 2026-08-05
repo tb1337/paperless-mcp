@@ -12,6 +12,7 @@ import inspect
 from typing import Any
 
 import pytest
+from mcp.server.mcpserver.exceptions import ToolError
 
 from paperless_mcp.tools.documents import (
     _DATE_FILTERS,
@@ -19,7 +20,14 @@ from paperless_mcp.tools.documents import (
     _build_doc_filters,
     search_documents,
 )
-from tests.conftest import PaperlessStub, build_mcp, call_tool, make_client, make_settings
+from tests.conftest import (
+    PaperlessStub,
+    build_mcp,
+    call_tool,
+    invoke_tool,
+    make_client,
+    make_settings,
+)
 
 
 async def _params(**kwargs: Any) -> dict[str, str]:
@@ -72,14 +80,18 @@ async def test_ordering_carries_the_direction(descending: bool, expected: str) -
     assert params["ordering"] == expected
 
 
-async def test_an_unknown_order_field_is_refused_rather_than_sent() -> None:
-    """Paperless ignores an ordering field it does not know, so it is checked here."""
+async def test_an_unknown_order_field_never_reaches_paperless() -> None:
+    """Paperless ignores an ordering field it does not know, which is why it is an enum.
+
+    The schema refuses it now, so no request goes out - the same outcome as the
+    hand-written check it replaced, one layer earlier.
+    """
     stub = PaperlessStub(collections={"/api/documents/": []})
     mcp = build_mcp(make_settings(), make_client(stub))
 
-    result = await call_tool(mcp, "search_documents", order_by="colour")
+    with pytest.raises(ToolError, match="'created'"):
+        await invoke_tool(mcp, "search_documents", order_by="colour")
 
-    assert result["error"] == "invalid_argument"
     assert [r for r in stub.requests if r.path == "/api/documents/"] == []
 
 

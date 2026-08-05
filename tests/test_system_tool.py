@@ -6,6 +6,8 @@ from types import SimpleNamespace
 from typing import Any
 
 import httpx
+import pytest
+from mcp.server.mcpserver.exceptions import ToolError
 from pypaperless.exceptions import ForbiddenError, ItemNotFoundError
 from pypaperless.models.statistics import Statistic
 from pypaperless.models.status import Status
@@ -15,6 +17,7 @@ from tests.conftest import (
     FakeService,
     build_mcp,
     call_tool,
+    invoke_tool,
     make_runtime,
     make_settings,
     returns,
@@ -313,11 +316,19 @@ async def test_create_share_link_defaults_to_the_archive_version(make_paperless:
 
 
 async def test_create_share_link_rejects_an_unknown_file_version(make_paperless: Any) -> None:
+    """Refused by the published schema now, so it never reaches the tool.
+
+    A `ToolError` rather than `{"error": "invalid_argument"}`: pydantic validates the
+    arguments before `safe_tool` can wrap anything, and the message it raises names
+    the allowed values. The trade is deliberate - a schema-aware client sees the enum
+    and does not send this in the first place.
+    """
     paperless = make_paperless()
     mcp = build_mcp(make_settings(), paperless)
 
-    result = await call_tool(mcp, "create_share_link", document_id=1, file_version="thumbnail")
-    assert result["error"] == "invalid_argument"
+    with pytest.raises(ToolError, match="'archive'"):
+        await invoke_tool(mcp, "create_share_link", document_id=1, file_version="thumbnail")
+
     assert paperless.share_links.save_calls == []
 
 
