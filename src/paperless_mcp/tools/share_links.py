@@ -10,12 +10,10 @@ from pypaperless.models.types import ShareLinkFileVersion
 from ..client import ToolContext, get_client
 from ..config import Settings
 from ..formatting import format_share_link
+from ._arguments import ShareLinkVersion
 from ._dates import parse_datetime
-from ._errors import ToolInputError
 from ._paging import page_result, paginate, window
 from ._registry import delete_tool, read_tool, register_tools, write_tool
-
-_FILE_VERSIONS = ("archive", "original")
 
 
 async def list_share_links(
@@ -50,7 +48,7 @@ async def create_share_link(
     ctx: ToolContext,
     document_id: int,
     expiration: str | None = None,
-    file_version: str = "archive",
+    file_version: ShareLinkVersion = "archive",
 ) -> dict[str, Any]:
     """Create a publicly reachable share link for a document.
 
@@ -59,10 +57,6 @@ async def create_share_link(
     creates a link that never expires. ``file_version`` is ``archive``
     (the OCR'd PDF) or ``original``.
     """
-    if file_version not in _FILE_VERSIONS:
-        raise ToolInputError(
-            f"file_version must be one of {list(_FILE_VERSIONS)}, got {file_version!r}"
-        )
     paperless = await get_client(ctx)
     draft = paperless.share_links.create(
         document=document_id,

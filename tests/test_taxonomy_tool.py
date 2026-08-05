@@ -16,12 +16,14 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import pytest
+from mcp.server.mcpserver.exceptions import ToolError
 from pypaperless.models.types import CustomFieldType, MatchingAlgorithm
 
 from tests.conftest import (
     PaperlessStub,
     build_mcp,
     call_tool,
+    invoke_tool,
     make_client,
     make_settings,
     tool_session,
@@ -183,14 +185,24 @@ async def test_create_tag_defaults_the_colour() -> None:
 
 
 @pytest.mark.parametrize(
-    ("value", "expected"), [(6, MatchingAlgorithm.AUTO), (3, MatchingAlgorithm.LITERAL)]
+    ("name", "expected"),
+    [
+        ("auto", MatchingAlgorithm.AUTO),
+        ("literal", MatchingAlgorithm.LITERAL),
+        ("none", MatchingAlgorithm.NONE),
+        ("any", MatchingAlgorithm.ANY),
+        ("all", MatchingAlgorithm.ALL),
+        ("regex", MatchingAlgorithm.REGEX),
+        ("fuzzy", MatchingAlgorithm.FUZZY),
+    ],
 )
-async def test_create_tag_converts_the_matching_algorithm(
-    value: int, expected: MatchingAlgorithm
+async def test_create_tag_maps_the_algorithm_name_to_the_wire_integer(
+    name: str, expected: MatchingAlgorithm
 ) -> None:
+    """The model names it; Paperless takes 0-6, and the mapping happens here."""
     mcp, stub = _server(RESOURCES[0])
 
-    await call_tool(mcp, "create_tag", name="Invoice", match="acme", matching_algorithm=value)
+    await call_tool(mcp, "create_tag", name="Invoice", match="acme", matching_algorithm=name)
 
     posted = next(r for r in stub.requests if r.method == "POST").json
     assert posted["matching_algorithm"] == expected.value
@@ -205,13 +217,20 @@ async def test_create_tag_can_ask_for_case_sensitive_matching() -> None:
     assert next(r for r in stub.requests if r.method == "POST").json["is_insensitive"] is False
 
 
-async def test_create_tag_rejects_an_unknown_matching_algorithm() -> None:
-    """MatchingAlgorithm maps anything unrecognised to UNKNOWN instead of raising."""
+@pytest.mark.parametrize("bad", ["banana", 6, 99])
+async def test_create_tag_rejects_an_unknown_matching_algorithm(bad: object) -> None:
+    """Refused by the schema, including the integers the argument used to take.
+
+    `MatchingAlgorithm` maps anything unrecognised to `UNKNOWN` rather than raising,
+    so this used to need a hand-written check. The enum makes the seven names the
+    only accepted values - and rejects the old numeric spelling, which is the
+    breaking half of this change.
+    """
     mcp, stub = _server(RESOURCES[0])
 
-    result = await call_tool(mcp, "create_tag", name="Invoice", matching_algorithm=99)
+    with pytest.raises(ToolError, match="'none'"):
+        await invoke_tool(mcp, "create_tag", name="Invoice", matching_algorithm=bad)
 
-    assert result["error"] == "invalid_argument"
     assert [r for r in stub.requests if r.method == "POST"] == []
 
 
@@ -256,11 +275,12 @@ async def test_create_custom_field_converts_the_data_type() -> None:
 
 
 async def test_create_custom_field_rejects_an_unknown_type() -> None:
+    """The ten data types are the schema's enum now, not a docstring list."""
     mcp, stub = _server(RESOURCES[4])
 
-    result = await call_tool(mcp, "create_custom_field", name="X", data_type="quaternion")
+    with pytest.raises(ToolError, match="'string'"):
+        await invoke_tool(mcp, "create_custom_field", name="X", data_type="quaternion")
 
-    assert result["error"] == "invalid_argument"
     assert [r for r in stub.requests if r.method == "POST"] == []
 
 

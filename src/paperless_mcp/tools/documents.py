@@ -22,6 +22,11 @@ from ..formatting import (
     format_task,
 )
 from ..names import cached_custom_fields
+from ._arguments import (
+    ClearableDocumentField,
+    CustomFieldQuery,
+    DocumentOrderField,
+)
 from ._custom_field_query import build_custom_field_query
 from ._dates import parse_date, parse_datetime
 from ._errors import ToolInputError, ToolResultError, translate_error
@@ -34,29 +39,6 @@ from ._task_polling import (
     task_document_id,
     task_status,
     wait_for_task,
-)
-
-# Updatable fields that accept a "clear" instruction via the clear_fields list.
-_CLEARABLE_FIELDS: frozenset[str] = frozenset(
-    {"correspondent", "document_type", "storage_path", "archive_serial_number"}
-)
-
-# Paperless-ngx' DocumentViewSet ordering_fields. Anything else makes the API
-# silently ignore the parameter, so we reject it up front instead.
-_ORDER_FIELDS: frozenset[str] = frozenset(
-    {
-        "id",
-        "title",
-        "created",
-        "modified",
-        "added",
-        "archive_serial_number",
-        "correspondent__name",
-        "document_type__name",
-        "num_notes",
-        "owner",
-        "page_count",
-    }
 )
 
 _IMAGE_FORMATS: dict[str, str] = {
@@ -100,7 +82,7 @@ _DATE_FILTERS: Final[frozenset[str]] = frozenset(
 
 def _build_doc_filters(
     *,
-    order_by: str | None = None,
+    order_by: DocumentOrderField | None = None,
     descending: bool = False,
     **supplied: Any,
 ) -> dict[str, Any]:
@@ -125,10 +107,6 @@ def _build_doc_filters(
     if supplied:
         raise TypeError(f"not a document filter: {sorted(supplied)}")
     if order_by:
-        if order_by not in _ORDER_FIELDS:
-            raise ToolInputError(
-                f"Unknown order_by {order_by!r}. Allowed: {sorted(_ORDER_FIELDS)}."
-            )
         filters["ordering"] = f"-{order_by}" if descending else order_by
     return filters
 
@@ -167,8 +145,8 @@ async def search_documents(
     created_before: str | None = None,
     added_after: str | None = None,
     added_before: str | None = None,
-    custom_field_query: Any = None,
-    order_by: str | None = None,
+    custom_field_query: CustomFieldQuery = None,
+    order_by: DocumentOrderField | None = None,
     descending: bool = False,
     offset: int = 0,
     limit: int = 25,
@@ -599,7 +577,7 @@ async def update_document(
     archive_serial_number: int | None = None,
     content: str | None = None,
     created: str | None = None,
-    clear_fields: list[str] | None = None,
+    clear_fields: list[ClearableDocumentField] | None = None,
 ) -> dict[str, Any]:
     """Update fields on an existing document.
 
@@ -645,11 +623,7 @@ async def update_document(
         "created": parse_date(created, field="created") if created is not None else None,
     }
 
-    clear_set = set(clear_fields or [])
-    if invalid := clear_set - _CLEARABLE_FIELDS:
-        raise ToolInputError(
-            f"Unknown clear_fields: {sorted(invalid)}. Allowed: {sorted(_CLEARABLE_FIELDS)}."
-        )
+    clear_set: set[str] = set(clear_fields or [])
     # The same table answers "was it supplied?", so the four clearable field names
     # are not restated a third time.
     if conflicts := sorted(name for name in clear_set if values[name] is not None):

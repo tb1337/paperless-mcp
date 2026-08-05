@@ -13,7 +13,7 @@ from mcp.server.mcpserver import MCPServer
 from pypaperless import PaperlessClient
 from pypaperless.const import EndpointPath
 from pypaperless.exceptions import BulkEditError
-from pypaperless.models.types import CustomFieldType, MatchingAlgorithm
+from pypaperless.models.types import MatchingAlgorithm
 
 from ..client import ToolContext, get_client, invalidate_names
 from ..config import Settings
@@ -24,6 +24,13 @@ from ..resources import (
     DOCUMENT_TYPES,
     STORAGE_PATHS,
     TAGS,
+)
+from ._arguments import (
+    CUSTOM_FIELD_TYPES,
+    MATCHING_ALGORITHMS,
+    BulkObjectType,
+    CustomFieldDataType,
+    MatchingAlgorithmName,
 )
 from ._errors import ToolInputError
 from ._master_data import create_resource, delete_resource, list_resource, update_resource
@@ -44,41 +51,27 @@ _MATCH_DEFAULTS: dict[str, Any] = {
 #: a colour, so we pick a stable one instead of failing the create.
 _DEFAULT_TAG_COLOR = "#a6cee3"
 
-_MATCHING_HELP = (
-    "matching_algorithm: 0=none, 1=any word, 2=all words, 3=literal, "
-    "4=regex, 5=fuzzy, 6=auto. Defaults to 0 (no auto-matching) on create."
-)
-
-_CUSTOM_FIELD_TYPES = ", ".join(
-    t.value for t in CustomFieldType if t is not CustomFieldType.UNKNOWN
-)
-
 
 def _matching_kwargs(
     match: str | None,
-    matching_algorithm: int | None,
+    matching_algorithm: MatchingAlgorithmName | None,
     is_insensitive: bool | None,
     *,
     for_create: bool,
 ) -> dict[str, Any]:
-    """Build the matching-field kwargs, filling create-time defaults."""
+    """Build the matching-field kwargs, filling create-time defaults.
+
+    The algorithm arrives as a name and is mapped here; the schema is what refuses
+    anything else, so there is no check left to write.
+    """
     values: dict[str, Any] = dict(_MATCH_DEFAULTS) if for_create else {}
     if match is not None:
         values["match"] = match
     if matching_algorithm is not None:
-        values["matching_algorithm"] = _matching_algorithm(matching_algorithm)
+        values["matching_algorithm"] = MATCHING_ALGORITHMS[matching_algorithm]
     if is_insensitive is not None:
         values["is_insensitive"] = is_insensitive
     return values
-
-
-def _matching_algorithm(value: int) -> MatchingAlgorithm:
-    # MatchingAlgorithm._missing_ maps anything unrecognised to UNKNOWN rather
-    # than raising, so an explicit check is what catches a bad value.
-    algorithm = MatchingAlgorithm(value)
-    if algorithm is MatchingAlgorithm.UNKNOWN:
-        raise ToolInputError(f"Unknown matching_algorithm {value!r}. {_MATCHING_HELP}")
-    return algorithm
 
 
 #: Filter argument -> lookup, for the ones every object type understands. All
@@ -93,7 +86,7 @@ _BULK_NAME_LOOKUPS: Mapping[str, str] = {
 
 
 def _bulk_filters(
-    object_type: str,
+    object_type: BulkObjectType,
     *,
     names: Mapping[str, str | None],
     path_contains: str | None,
@@ -161,15 +154,19 @@ async def create_tag(
     is_inbox_tag: bool = False,
     parent_id: int | None = None,
     match: str | None = None,
-    matching_algorithm: int | None = None,
+    matching_algorithm: MatchingAlgorithmName | None = None,
     is_insensitive: bool | None = None,
 ) -> dict[str, Any]:
     """Create a new tag.
 
-    ``color`` is a hex string like ``#cccccc``; when omitted Paperless
-    gets a neutral default. ``matching_algorithm``: 0=none, 1=any word,
-    2=all words, 3=literal, 4=regex, 5=fuzzy, 6=auto — defaults to 0,
-    i.e. the tag is only ever applied explicitly.
+    ``color`` is a hex string like ``#cccccc``; when omitted Paperless gets a
+    neutral default.
+
+    ``matching_algorithm`` decides when Paperless applies this tag by itself:
+    ``any``/``all`` on the words in ``match``, ``literal`` on the whole phrase,
+    ``regex``, ``fuzzy``, or ``auto`` for the trained classifier. It defaults to
+    ``none``, i.e. the tag is only ever applied explicitly — which is the safe
+    choice for something created on a user's behalf.
     """
     new_id = await create_resource(
         ctx,
@@ -191,7 +188,7 @@ async def update_tag(
     is_inbox_tag: bool | None = None,
     parent_id: int | None = None,
     match: str | None = None,
-    matching_algorithm: int | None = None,
+    matching_algorithm: MatchingAlgorithmName | None = None,
     is_insensitive: bool | None = None,
 ) -> dict[str, Any]:
     """Update an existing tag. Pass only the fields you want to change."""
@@ -230,7 +227,7 @@ async def create_correspondent(
     ctx: ToolContext,
     name: str,
     match: str | None = None,
-    matching_algorithm: int | None = None,
+    matching_algorithm: MatchingAlgorithmName | None = None,
     is_insensitive: bool | None = None,
 ) -> dict[str, Any]:
     """Create a new correspondent (the sender or recipient of documents)."""
@@ -248,7 +245,7 @@ async def update_correspondent(
     correspondent_id: int,
     name: str | None = None,
     match: str | None = None,
-    matching_algorithm: int | None = None,
+    matching_algorithm: MatchingAlgorithmName | None = None,
     is_insensitive: bool | None = None,
 ) -> dict[str, Any]:
     """Update an existing correspondent."""
@@ -284,7 +281,7 @@ async def create_document_type(
     ctx: ToolContext,
     name: str,
     match: str | None = None,
-    matching_algorithm: int | None = None,
+    matching_algorithm: MatchingAlgorithmName | None = None,
     is_insensitive: bool | None = None,
 ) -> dict[str, Any]:
     """Create a new document type (invoice, contract, ...)."""
@@ -302,7 +299,7 @@ async def update_document_type(
     document_type_id: int,
     name: str | None = None,
     match: str | None = None,
-    matching_algorithm: int | None = None,
+    matching_algorithm: MatchingAlgorithmName | None = None,
     is_insensitive: bool | None = None,
 ) -> dict[str, Any]:
     """Update an existing document type."""
@@ -339,7 +336,7 @@ async def create_storage_path(
     name: str,
     path: str,
     match: str | None = None,
-    matching_algorithm: int | None = None,
+    matching_algorithm: MatchingAlgorithmName | None = None,
     is_insensitive: bool | None = None,
 ) -> dict[str, Any]:
     """Create a new storage path.
@@ -363,7 +360,7 @@ async def update_storage_path(
     name: str | None = None,
     path: str | None = None,
     match: str | None = None,
-    matching_algorithm: int | None = None,
+    matching_algorithm: MatchingAlgorithmName | None = None,
     is_insensitive: bool | None = None,
 ) -> dict[str, Any]:
     """Update an existing storage path."""
@@ -399,19 +396,16 @@ async def list_custom_fields(
 async def create_custom_field(
     ctx: ToolContext,
     name: str,
-    data_type: str,
+    data_type: CustomFieldDataType,
     extra_data: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Create a custom field definition.
 
-    ``data_type`` is one of: string, url, date, boolean, integer,
-    float, monetary, documentlink, select, longtext. For ``select``
-    fields pass ``extra_data={"select_options": [{"label": "Open"}]}``;
-    for ``monetary`` you may pass ``{"default_currency": "EUR"}``.
+    For ``select`` fields pass ``extra_data={"select_options": [{"label": "Open"}]}``;
+    for ``monetary`` you may pass ``{"default_currency": "EUR"}``. ``data_type``
+    cannot be changed once the field exists.
     """
-    field_type = CustomFieldType(data_type)
-    if field_type is CustomFieldType.UNKNOWN:
-        raise ToolInputError(f"Unknown data_type {data_type!r}. Allowed: {_CUSTOM_FIELD_TYPES}.")
+    field_type = CUSTOM_FIELD_TYPES[data_type]
     new_id = await create_resource(
         ctx, CUSTOM_FIELDS, name=name, data_type=field_type, extra_data=extra_data
     )
@@ -437,7 +431,7 @@ async def delete_custom_field(ctx: ToolContext, custom_field_id: int) -> dict[st
 
 async def bulk_delete_objects(
     ctx: ToolContext,
-    object_type: str,
+    object_type: BulkObjectType,
     object_ids: list[int] | None = None,
     object_names: list[str] | None = None,
     name_contains: str | None = None,
@@ -476,10 +470,6 @@ async def bulk_delete_objects(
     before the delete went out. For ``tags`` it can understate: Paperless
     also removes the descendants of every matched tag.
     """
-    if object_type not in BULK_OBJECTS:
-        raise ToolInputError(
-            f"object_type must be one of {sorted(BULK_OBJECTS)}, got {object_type!r}"
-        )
     resource = BULK_OBJECTS[object_type]
     filters = _bulk_filters(
         object_type,

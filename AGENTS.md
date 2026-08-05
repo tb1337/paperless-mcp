@@ -20,6 +20,8 @@ in-process it is `build_mcp(settings)` / `serve(settings)` in `server.py`.
   - `tools/_registry.py` — `ToolSpec` plus the three factories that build one (`read_tool`,
     `write_tool`, `delete_tool`), `register_tools()` which applies `safe_tool` and the
     visibility gate, and the `humanize()` that derives each display title
+  - `tools/_arguments.py` — the `Literal` aliases the constrained arguments publish as schema
+    enums, plus the name → pypaperless-enum mappings
   - `tools/_dates.py` — `parse_date` / `parse_datetime` for the ISO arguments
   - `tools/_paging.py` — `paginate` / `page_result` (offset/limit → Paperless pages), `window`
     for the endpoints that answer with a bare list, and the `Page` / `Filterable` protocols
@@ -109,6 +111,15 @@ breaking change and gets the `breaking-change` label.
 - **Explicit signatures, never `**kwargs`.** The signature becomes the JSON schema the model sees;
   that schema plus the docstring is the only documentation it ever gets. Spell out every parameter
   with a type, and describe the non-obvious ones in the docstring body.
+- **A constrained argument is an enum, not a `str`.** Its allowed values belong in
+  `tools/_arguments.py` as a `Literal` alias, so the schema publishes them and pydantic refuses the
+  rest — never in a module constant checked by hand and re-listed in the docstring, which is three
+  copies of one list. Two consequences worth knowing: a rejected value comes back as a
+  protocol-level error rather than `{"error": "invalid_argument"}`, because pydantic runs before
+  `safe_tool`; and a named alias publishes as a `$ref` into `$defs` rather than an inline enum, which
+  is valid JSON Schema and what keeps ten call sites from restating the same list. The aliases mirror
+  pypaperless enums minus their `UNKNOWN` member, and `tests/test_arguments.py` ties each one back to
+  the library so it cannot go stale.
 - **Tools live at module level and are declared in one table per module.** A module's
   `register()` is a single `register_tools(mcp, settings, (...))` call over `read_tool(fn)` /
   `write_tool(fn, destructive=…, idempotent=…)` / `delete_tool(fn)` — never a bare

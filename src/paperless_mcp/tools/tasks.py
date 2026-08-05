@@ -10,6 +10,7 @@ from mcp.server.mcpserver import MCPServer
 from ..client import ToolContext, get_client, get_names
 from ..config import Settings
 from ..formatting import format_task
+from ._arguments import TaskStatusName, TaskTypeName
 from ._errors import ToolInputError
 from ._paging import page_result, paginate, window
 from ._registry import read_tool, register_tools, write_tool
@@ -37,8 +38,8 @@ async def list_active_tasks(ctx: ToolContext, offset: int = 0, limit: int = 50) 
 
 async def list_tasks(
     ctx: ToolContext,
-    status: str | None = None,
-    task_type: str | None = None,
+    status: TaskStatusName | None = None,
+    task_type: TaskTypeName | None = None,
     acknowledged: bool | None = None,
     offset: int = 0,
     limit: int = 25,

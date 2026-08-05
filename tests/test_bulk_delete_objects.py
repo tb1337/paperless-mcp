@@ -5,9 +5,17 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from mcp.server.mcpserver.exceptions import ToolError
 from pypaperless.const import EndpointPath
 
-from tests.conftest import build_mcp, call_tool, make_settings, named, tool_session
+from tests.conftest import (
+    build_mcp,
+    call_tool,
+    invoke_tool,
+    make_settings,
+    named,
+    tool_session,
+)
 
 _ENDPOINT = EndpointPath.BULK_EDIT_OBJECTS
 
@@ -198,14 +206,19 @@ async def test_a_filter_matching_nothing_is_refused(make_paperless: Any) -> None
 
 
 async def test_an_unknown_object_type_is_refused(make_paperless: Any) -> None:
+    """Refused by the published schema now, so it never reaches the tool.
+
+    A `ToolError` rather than `{"error": "invalid_argument"}`: pydantic validates
+    the arguments before `safe_tool` can wrap anything, and the message it raises
+    names the allowed values. The trade is deliberate - a schema-aware client sees
+    the enum and does not send this in the first place.
+    """
     paperless = make_paperless()
     mcp = build_mcp(make_settings(), paperless)
 
-    result = await call_tool(
-        mcp, "bulk_delete_objects", object_type="custom_fields", object_ids=[1]
-    )
+    with pytest.raises(ToolError, match="'tags'"):
+        await invoke_tool(mcp, "bulk_delete_objects", object_type="custom_fields", object_ids=[1])
 
-    assert result["error"] == "invalid_argument"
     assert _posts(paperless) == []
 
 
