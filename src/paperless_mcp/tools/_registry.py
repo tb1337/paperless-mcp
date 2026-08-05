@@ -208,28 +208,26 @@ def _optional_branches(annotation: Any) -> tuple[Any, ...] | None:
 
 
 def _flat_schema(branches: tuple[Any, ...]) -> dict[str, Any] | None:
-    """Merge the branches of an optional into one schema carrying a top-level ``type``.
+    """The schema for an optional's *first* branch, carrying a scalar ``type``.
 
-    Returns ``None`` when they cannot be merged without losing something: a branch
-    pydantic renders without a ``type`` of its own (``Any``), one that needs ``$defs``
-    to be understood, or two that would claim the same keyword with different values.
+    Only the first branch is published, and for a union of several that is a
+    deliberate narrowing rather than a merge. A list-valued ``type`` is the only
+    accurate way to write "an array or a string", and a live check found the one
+    argument published that way — ``custom_field_query`` — arriving as a bare ``{}``
+    while every scalar-typed argument arrived intact. So a client that drops ``anyOf``
+    drops a ``type`` list too, and advertising the primary form beats advertising
+    nothing: the remaining branches stay accepted, and the docstring is what documents
+    them. An argument's annotation must therefore lead with the form callers should
+    reach for first.
+
+    Returns ``None`` when the first branch cannot be published on its own — pydantic
+    renders it without a ``type`` (``Any``), or it needs ``$defs`` to be understood.
     Bailing out leaves pydantic's ``anyOf``, which is worse to read but never wrong.
     """
-    merged: dict[str, Any] = {}
-    kinds: list[str] = []
-    for branch in branches:
-        schema = TypeAdapter(branch).json_schema()
-        kind = schema.pop("type", None)
-        if not isinstance(kind, str) or "$defs" in schema:
-            return None
-        if merged.keys() & schema.keys():
-            return None
-        merged |= schema
-        kinds.append(kind)
-    # A single type stays a string: that is the shape the three arguments which did
-    # arrive were already published as, so it is the one form known to survive.
-    merged["type"] = kinds[0] if len(kinds) == 1 else kinds
-    return merged
+    schema = TypeAdapter(branches[0]).json_schema()
+    if not isinstance(schema.get("type"), str) or "$defs" in schema:
+        return None
+    return schema
 
 
 def flatten_optionals(annotation: Any) -> Any:
@@ -250,7 +248,9 @@ def flatten_optionals(annotation: Any) -> Any:
     *accepts* on ``X | None``, so an explicit ``null`` still validates and no tool
     changes behaviour. What the published type no longer says is that ``null`` is
     allowed; a client reads that off the argument's absence from ``required`` and its
-    ``default`` instead.
+    ``default`` instead. A client that validates *outgoing* arguments against the
+    published schema will refuse an explicit ``null`` and expect the argument to be
+    omitted, which is the intended way to pass one anyway.
     """
     branches = _optional_branches(annotation)
     if branches is None:

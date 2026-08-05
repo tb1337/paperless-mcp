@@ -141,11 +141,18 @@ breaking change and gets the `breaking-change` label.
   `flatten_optionals` therefore attaches a `WithJsonSchema` that publishes the branch type inline,
   dropping the `null` a client can read back off `required` and `default`. It replaces what a tool
   *advertises* and not what it *accepts* — the signature stays `X | None`, so an explicit `null`
-  still validates and the enums are still enforced by pydantic. Signatures need nothing extra; what
-  they must not do is give an argument a union of two types that would claim the same JSON Schema
-  keyword, which is a bail-out back to `anyOf`. Two assertions guard it: no published schema
-  contains an `anyOf`, and every property has a `type` — bar `set_document_custom_field.value`,
-  which is `Any`, where the empty schema is the correct answer rather than a lost one.
+  still validates and the enums are still enforced by pydantic. A client that validates *outgoing*
+  arguments against the published schema will refuse an explicit `null` and expect the argument to
+  be omitted, which is how one is meant to be passed anyway.
+  The `type` must be a **scalar**, never a list. `custom_field_query` published
+  `type: ["array", "string"]` — accurate, and the one argument a follow-up check still found
+  arriving as `{}` once every scalar-typed one came through. A client that drops `anyOf` drops a
+  `type` list the same way, so only the **first** branch of a union is published and the rest stay
+  accepted but unadvertised. A multi-branch annotation therefore has to lead with the form callers
+  should reach for; the docstring is what documents the others. Three assertions guard the whole
+  mechanism: no published schema contains an `anyOf`, none publishes a list of types, and every
+  property has a `type` — bar `set_document_custom_field.value`, which is `Any`, where the empty
+  schema is the correct answer rather than a lost one.
 - **Tools live at module level and are declared in one table per module.** A module's
   `register()` is a single `register_tools(mcp, settings, (...))` call over `read_tool(fn)` /
   `write_tool(fn, destructive=…, idempotent=…)` / `delete_tool(fn)` — never a bare

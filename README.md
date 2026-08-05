@@ -109,9 +109,13 @@ the caller, not a human clicking through a UI:
   model reads them instead of guessing and paying a round trip. `matching_algorithm`
   takes names — `none`, `any`, `all`, `literal`, `regex`, `fuzzy`, `auto` — rather
   than the 0–6 the REST API uses. Every argument publishes its type and its values
-  *inline*, without a `$ref` into `$defs` and without an `anyOf` wrapper around an
-  optional one: both are valid JSON Schema that a client may render as an empty
-  `{}`, which leaves the model guessing at an argument the server documented.
+  *inline* and with a single scalar `type`: no `$ref` into `$defs`, no `anyOf` around
+  an optional one, no list of types. All three are valid JSON Schema that a client may
+  render as an empty `{}`, which leaves the model guessing at an argument the server
+  documented. Two consequences for callers: pass an optional argument by **omitting**
+  it rather than sending `null`, and where a tool accepts more than one shape — only
+  `custom_field_query` does — the schema advertises the first and the docstring
+  describes the rest.
 - **Behaviour hints on every tool**: each of the 64 tools ships MCP tool
   annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`,
   `openWorldHint`) plus a display title, so a client can wave a search through
