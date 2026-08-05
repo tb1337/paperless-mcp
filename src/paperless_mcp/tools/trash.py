@@ -42,14 +42,15 @@ async def restore_documents(ctx: ToolContext, document_ids: list[int]) -> dict[s
 async def empty_trash(ctx: ToolContext, document_ids: list[int] | None = None) -> dict[str, Any]:
     """Permanently delete trashed documents. This cannot be undone.
 
-    With no ``document_ids`` the *entire* trash is emptied; otherwise
-    only the listed documents are purged.
+    With no ``document_ids`` the *entire* trash is emptied; otherwise only the
+    listed documents are purged. ``purged_all`` says which of the two happened, so
+    ``purged`` is always a list — an empty one when the whole trash went.
     """
     paperless = await get_client(ctx)
     # Passing an empty list would ask Paperless to purge nothing at all,
     # so an omitted argument has to stay None to mean "everything".
     await paperless.trash.empty(document_ids or None)
-    return {"purged": document_ids or "all"}
+    return {"purged": document_ids or [], "purged_all": not document_ids}
 
 
 def register(mcp: MCPServer, settings: Settings) -> None:

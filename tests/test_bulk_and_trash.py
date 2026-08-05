@@ -144,7 +144,8 @@ async def test_empty_trash_purges_everything_when_no_ids(make_paperless: Any) ->
     mcp = build_mcp(make_settings(enable_delete=True), paperless)
 
     result = await call_tool(mcp, "empty_trash")
-    assert result == {"purged": "all"}
+    # `purged` is always a list; `purged_all` is what says the whole trash went.
+    assert result == {"purged": [], "purged_all": True}
     assert paperless.trash.emptied == [None]
 
 
@@ -154,7 +155,7 @@ async def test_empty_trash_purges_selected_ids(make_paperless: Any) -> None:
     mcp = build_mcp(make_settings(enable_delete=True), paperless)
 
     result = await call_tool(mcp, "empty_trash", document_ids=[3, 4])
-    assert result == {"purged": [3, 4]}
+    assert result == {"purged": [3, 4], "purged_all": False}
     assert paperless.trash.emptied == [[3, 4]]
 
 
