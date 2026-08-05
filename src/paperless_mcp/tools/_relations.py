@@ -31,12 +31,21 @@ def _labelled(lookup: NameLookup, pks: list[int]) -> list[str]:
     return sorted(f"{lookup[pk]} (ID {pk})" for pk in pks)
 
 
-def _match(lookup: NameLookup, name: str, *, field: str) -> int | None:
+def _match(lookup: NameLookup, name: str, *, field: str, id_arg: str) -> int | None:
     """Return the ID carrying *name*, or ``None`` when no entry does.
 
     An exact hit wins outright, so two entries differing only in case stay
     reachable; the case-insensitive pass runs only once nothing matched
     verbatim.
+
+    Args:
+        lookup: The ID -> name snapshot to search.
+        name: The name to resolve.
+        field: The relation, for the message's prose.
+        id_arg: How the calling tool spells its ID argument. Derived from *field* it
+            would be wrong wherever the two differ - a tag is assigned through
+            ``tag_ids``, ``add_tag_ids`` or ``tags_all_ids``, and never through a
+            ``tag_id`` that no tool has.
 
     Raises:
         ToolInputError: When several entries answer to the same name.
@@ -47,8 +56,8 @@ def _match(lookup: NameLookup, name: str, *, field: str) -> int | None:
         hits = [pk for pk, value in lookup.items() if value.strip().casefold() == wanted]
     if len(hits) > 1:
         raise ToolInputError(
-            f"{field}_name={name!r} is ambiguous: it matches {_labelled(lookup, hits)}. "
-            f"Pass the one you mean as {field}_id."
+            f"The {field} name {name!r} is ambiguous: it matches {_labelled(lookup, hits)}. "
+            f"Pass the one you mean as {id_arg}."
         )
     return hits[0] if hits else None
 
@@ -64,14 +73,15 @@ def _candidates(lookup: NameLookup, name: str) -> list[str]:
     return _labelled(lookup, overlapping)[:_MAX_SUGGESTIONS]
 
 
-async def _resolve_name(ctx: ToolContext, *, field: str, name: str) -> int:
+async def _resolve_name(ctx: ToolContext, *, field: str, name: str, id_arg: str) -> int:
     """Return the ID behind *name*, reloading the snapshot once before giving up.
 
     Raises:
         ToolInputError: When no entry carries the name, or several do.
     """
     list_tool = RELATIONS[field].list_tool
-    match = _match(RELATIONS[field].lookup(await get_names(ctx)), name, field=field)
+    lookup = RELATIONS[field].lookup(await get_names(ctx))
+    match = _match(lookup, name, field=field, id_arg=id_arg)
     if match is not None:
         return match
 
@@ -80,13 +90,13 @@ async def _resolve_name(ctx: ToolContext, *, field: str, name: str) -> int:
     # that; what is still missing afterwards does not exist.
     invalidate_names(ctx)
     fresh = RELATIONS[field].lookup(await get_names(ctx))
-    match = _match(fresh, name, field=field)
+    match = _match(fresh, name, field=field, id_arg=id_arg)
     if match is None:
         suggestions = _candidates(fresh, name)
         hint = f" Closest by name: {suggestions}." if suggestions else ""
         raise ToolInputError(
             f"No {field} in Paperless is named {name!r}.{hint} "
-            f"{list_tool} reports the ones that exist, and {field}_id takes an ID directly. "
+            f"{list_tool} reports the ones that exist, and {id_arg} takes an ID directly. "
             f"Creating it is a separate call, never a side effect of this one."
         )
     return match
@@ -116,7 +126,7 @@ async def resolve_relation(
     """
     if name is None:
         return pk
-    resolved = await _resolve_name(ctx, field=field, name=name)
+    resolved = await _resolve_name(ctx, field=field, name=name, id_arg=f"{field}_id")
     if pk is not None and pk != resolved:
         raise ToolInputError(
             f"{field}_id={pk} and {field}_name={name!r} (ID {resolved}) are different objects. "
@@ -155,7 +165,7 @@ async def resolve_relations(
     """
     if names is None:
         return pks
-    resolved = [await _resolve_name(ctx, field=field, name=name) for name in names]
+    resolved = [await _resolve_name(ctx, field=field, name=n, id_arg=id_field) for n in names]
     if pks is not None and sorted(pks) != sorted(resolved):
         raise ToolInputError(
             f"{id_field}={pks} and {name_field}={names} (IDs {resolved}) are different sets "
