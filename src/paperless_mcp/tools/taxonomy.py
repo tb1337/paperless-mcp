@@ -467,8 +467,11 @@ async def bulk_delete_objects(
       silent no-op.
 
     ``deleted`` is how many objects the selection covered, counted just
-    before the delete went out. For ``tags`` it can understate: Paperless
-    also removes the descendants of every matched tag.
+    before the delete went out, and ``object_ids`` lists them — for a filtered
+    call too, read back before the delete, because this endpoint reports nothing
+    about what it removed and there is no trash to inspect afterwards. For
+    ``tags`` both understate: Paperless also removes the descendants of every
+    matched tag, which are neither counted nor listed.
     """
     resource = BULK_OBJECTS[object_type]
     filters = _bulk_filters(
@@ -500,15 +503,19 @@ async def bulk_delete_objects(
 
     paperless = await get_client(ctx)
     if filters:
-        # limit=0 still costs one request and reports the server's match
-        # count, which is the only feedback there is: the endpoint answers a
-        # filtered delete with a bare "OK".
+        # The endpoint answers a filtered delete with a bare "OK", so the selection has
+        # to be read before it is destroyed or it is gone unrecorded. One request for
+        # the count, then at most two more for the IDs themselves — `paginate` sizes its
+        # pages to the window — which is worth it for an operation with no trash behind
+        # it: `filters` says what was asked for, `object_ids` what it hit.
         _, matched = await paginate(resource.service(paperless), filters, offset=0, limit=0)
         if not matched:
             raise ToolInputError(
                 f"No {object_type} match {filters} — nothing was deleted. "
                 f"list_{object_type} shows what exists."
             )
+        selected, _ = await paginate(resource.service(paperless), filters, offset=0, limit=matched)
+        object_ids = [obj.id for obj in selected]
         await _delete_objects(paperless, object_type, {"all": True, "filters": filters})
         deleted = matched
     elif object_ids:

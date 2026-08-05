@@ -311,6 +311,11 @@ with `--env-file`) and never overwrites variables the MCP client already set.
 | `PAPERLESS_MCP_NAME_CACHE_TTL` | `--name-cache-ttl` | `300` | Lifetime of the ID→name snapshot, seconds (`0`: forever) |
 | `PAPERLESS_MCP_LOG_LEVEL` | `--log-level` | `INFO` | Verbosity (always logged to stderr) |
 
+`get_paperless_info` reports the ones that change what a call does —
+`readonly`, `deletes_enabled`, `max_file_bytes`, `name_cache_ttl` and
+`request_timeout` — so a client can read the deployment's limits instead of
+discovering them by hitting one.
+
 ### Tool visibility matrix
 
 | Mode | Read tools | Write tools | Delete tools |
@@ -434,6 +439,11 @@ Notes on semantics:
   `task.result_data` says so. Keep the timeout under the MCP client's own
   request timeout — a call the client gives up on still consumes the file, it
   just leaves nobody to read the result.
+- `download_document` echoes `requested_version` (`archive` or `original`).
+  Paperless serves the original when a document has no archive version and says
+  so nowhere in the response, so without the echo two downloads of the same
+  document are indistinguishable — which is precisely what comparing checksums
+  needs to know.
 - `set_document_custom_field` **upserts** one field value on one document: a
   field the document does not carry yet is added, an existing one is replaced.
   The value is checked against the field's `data_type` first, so `1` is not
@@ -455,8 +465,9 @@ Notes on semantics:
   filter alone. A filter no FilterSet behind the endpoint knows is refused for
   the same reason: django-filter drops an unrecognized lookup, and a dropped
   lookup widens the selection to everything. `deleted` reports how many objects
-  the selection covered, counted immediately before the delete, since the
-  endpoint itself answers a filtered call with a bare `OK`; for `tags` it can
+  the selection covered and `object_ids` lists them — for a filtered call too,
+  read back immediately before the delete, since the endpoint itself answers with
+  a bare `OK` and leaves no trash to inspect afterwards; for `tags` both
   understate, as Paperless also removes the matched tags' descendants. The
   endpoint has no branch for custom fields — `delete_custom_field` stays
   one-at-a-time — and its other operation, `set_permissions`, is not exposed:

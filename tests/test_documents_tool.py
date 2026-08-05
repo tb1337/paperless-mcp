@@ -578,6 +578,31 @@ async def test_download_document_returns_base64(make_paperless: Any) -> None:
     assert base64.b64decode(result["content_base64"]) == b"%PDF-1.4"
 
 
+@pytest.mark.parametrize(
+    ("original", "expected"), [(False, "archive"), (True, "original")], ids=["archive", "original"]
+)
+async def test_download_document_says_which_version_was_asked_for(
+    make_paperless: Any, original: bool, expected: str
+) -> None:
+    """A document without an archive version answers with the original either way.
+
+    Paperless does not say so anywhere in the response, so two downloads of the same
+    document are indistinguishable - which is exactly what a checksum comparison needs
+    to know. The result echoes the request instead of guessing at the answer.
+    """
+    paperless = make_paperless()
+    paperless.documents.download = returns(
+        SimpleNamespace(
+            content=b"%PDF", content_type="application/pdf", disposition_filename="a.pdf"
+        )
+    )
+    mcp = build_mcp(make_settings(), paperless)
+
+    result = await call_tool(mcp, "download_document", document_id=1, original=original)
+
+    assert result["requested_version"] == expected
+
+
 async def test_download_document_rejects_oversized(make_paperless: Any) -> None:
     big = b"x" * (2 * 1024 * 1024)  # 2 MiB > the 1 MiB test cap
     paperless = make_paperless()

@@ -385,11 +385,12 @@ async def download_document(
 ) -> dict[str, Any]:
     """Return the document file as base64.
 
-    Set ``original=True`` for the file as it was consumed instead of the
-    archived (OCR'd PDF) version. Returns an error result if the file
-    exceeds ``PAPERLESS_MCP_MAX_FILE_BYTES``. Prefer
-    ``get_document_content`` when you only need the text — it is far
-    cheaper.
+    Set ``original=True`` for the file as it was consumed instead of the archived
+    (OCR'd PDF) version. ``requested_version`` echoes which one was asked for —
+    a document with no archive version answers with the original either way, and
+    the file itself does not say so. Returns an error result if the file exceeds
+    ``PAPERLESS_MCP_MAX_FILE_BYTES``. Prefer ``get_document_content`` when you
+    only need the text — it is far cheaper.
     """
     paperless = await get_client(ctx)
     cfg = get_settings(ctx)
@@ -408,6 +409,10 @@ async def download_document(
         "document_id": document_id,
         "filename": downloaded.disposition_filename,
         "content_type": downloaded.content_type,
+        # What was asked for, not what arrived: Paperless falls back to the original
+        # when a document has no archive version, and says so nowhere in the response.
+        # Knowing which was requested is what lets a checksum comparison mean anything.
+        "requested_version": "original" if original else "archive",
         "size_bytes": size,
         "content_base64": base64.b64encode(content).decode("ascii"),
     }

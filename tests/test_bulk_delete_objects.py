@@ -79,7 +79,12 @@ async def test_an_unknown_name_is_refused_before_the_delete(make_paperless: Any)
 
 
 async def test_a_filter_replaces_the_id_list(make_paperless: Any) -> None:
-    """The whole point: the selection travels as a filter, not as N ids."""
+    """The whole point: the selection travels as a filter, not as N ids.
+
+    It is still reported as ids. The endpoint answers a filtered delete with a bare
+    "OK" and leaves no trash behind, so what it hit is only knowable if it was read
+    before the delete went out - `filters` records the request, `object_ids` the effect.
+    """
     paperless = make_paperless()
     paperless.tags.filter_results = named(**{"1": "temp-a", "2": "temp-b", "3": "temp-c"})
     mcp = build_mcp(make_settings(), paperless)
@@ -90,7 +95,7 @@ async def test_a_filter_replaces_the_id_list(make_paperless: Any) -> None:
         "object_type": "tags",
         "deleted": 3,
         "filters": {"name__icontains": "temp-"},
-        "object_ids": [],
+        "object_ids": [1, 2, 3],
     }
     assert _posts(paperless) == [
         {
@@ -105,15 +110,24 @@ async def test_a_filter_replaces_the_id_list(make_paperless: Any) -> None:
     ]
 
 
-async def test_the_match_count_costs_one_request_and_no_items(make_paperless: Any) -> None:
+async def test_reading_the_selection_stays_bounded(make_paperless: Any) -> None:
+    """Two windows, both sized: the count first, then exactly the matches.
+
+    Reporting the ids must not turn into a walk over the whole table. `paginate` sizes
+    a page to its window, so the second request asks for the match count and nothing
+    more - and `limit=0` still fetches no items at all for the first.
+    """
     paperless = make_paperless()
     paperless.tags.filter_results = named(**{"1": "a", "2": "b"})
     mcp = build_mcp(make_settings(), paperless)
 
     await call_tool(mcp, "bulk_delete_objects", object_type="tags", name_exact="a")
 
-    assert paperless.tags.filter_calls == [{"name__iexact": "a"}]
-    assert paperless.tags.page_calls == [{"page": 1, "page_size": 1}]
+    assert paperless.tags.filter_calls == [{"name__iexact": "a"}, {"name__iexact": "a"}]
+    assert paperless.tags.page_calls == [
+        {"page": 1, "page_size": 1},
+        {"page": 1, "page_size": 2},
+    ]
 
 
 async def test_every_name_lookup_has_its_argument(make_paperless: Any) -> None:
