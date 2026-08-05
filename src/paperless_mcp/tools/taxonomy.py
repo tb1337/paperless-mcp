@@ -510,11 +510,9 @@ async def bulk_delete_objects(
                 f"list_{object_type} shows what exists."
             )
         await _delete_objects(paperless, object_type, {"all": True, "filters": filters})
-        selection: dict[str, Any] = filters
         deleted = matched
     elif object_ids:
         await _delete_objects(paperless, object_type, {"objects": object_ids})
-        selection = {"object_ids": object_ids}
         deleted = len(object_ids)
     else:
         raise ToolInputError(
@@ -522,7 +520,14 @@ async def bulk_delete_objects(
             f"{object_type} to delete."
         )
     invalidate_names(ctx)
-    return {"object_type": object_type, "deleted": deleted, "selection": selection}
+    # Both keys always, one of them empty: `selection` used to hold either the
+    # filter dict or an object_ids wrapper, so reading it meant checking its shape.
+    return {
+        "object_type": object_type,
+        "deleted": deleted,
+        "filters": filters,
+        "object_ids": object_ids or [],
+    }
 
 
 def register(mcp: MCPServer, settings: Settings) -> None:

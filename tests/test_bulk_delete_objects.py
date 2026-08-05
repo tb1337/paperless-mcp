@@ -41,7 +41,8 @@ async def test_an_id_list_goes_out_as_objects(make_paperless: Any) -> None:
     assert result == {
         "object_type": "correspondents",
         "deleted": 2,
-        "selection": {"object_ids": [4, 5]},
+        "filters": {},
+        "object_ids": [4, 5],
     }
     assert _posts(paperless) == [
         {
@@ -88,7 +89,8 @@ async def test_a_filter_replaces_the_id_list(make_paperless: Any) -> None:
     assert result == {
         "object_type": "tags",
         "deleted": 3,
-        "selection": {"name__icontains": "temp-"},
+        "filters": {"name__icontains": "temp-"},
+        "object_ids": [],
     }
     assert _posts(paperless) == [
         {
