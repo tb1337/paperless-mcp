@@ -66,6 +66,40 @@ async def test_an_ambiguous_name_is_rejected(make_paperless: Any) -> None:
     assert paperless.documents.update_calls == []
 
 
+async def test_a_rejection_names_an_argument_the_tool_actually_has(make_paperless: Any) -> None:
+    """The hint is the model's way out, so it has to name a real argument.
+
+    Derived from the relation it would say `tag_id`, which no tool takes: a tag is
+    assigned through `tag_ids`, `add_tag_ids` or `tags_all_ids`. A hint pointing at a
+    parameter that does not exist costs the model a round trip to discover.
+    """
+    paperless = make_paperless()
+    paperless.documents.get_result = document(1)
+    paperless.tags.filter_results = named(**{"1": "Bank", "2": "bank"})
+    mcp = build_mcp(make_settings(), paperless)
+
+    ambiguous = await call_tool(mcp, "update_document", document_id=1, tag_names=["BANK"])
+    unknown = await call_tool(mcp, "update_document", document_id=1, tag_names=["Sparkasse"])
+
+    for result in (ambiguous, unknown):
+        assert "tag_ids" in result["cause"]
+        assert "tag_id=" not in result["cause"]
+        assert "as tag_id." not in result["cause"]
+
+
+async def test_a_bulk_rejection_names_the_bulk_argument(make_paperless: Any) -> None:
+    """`bulk_edit_documents` spells the same relation `add_tag_ids`."""
+    paperless = make_paperless()
+    paperless.tags.filter_results = named(**{"1": "Bank"})
+    mcp = build_mcp(make_settings(), paperless)
+
+    result = await call_tool(
+        mcp, "bulk_edit_documents", document_ids=[1], add_tag_names=["Sparkasse"]
+    )
+
+    assert "add_tag_ids" in result["cause"]
+
+
 async def test_an_unknown_name_is_rejected_with_near_misses(make_paperless: Any) -> None:
     paperless = make_paperless()
     paperless.documents.get_result = document(1)
