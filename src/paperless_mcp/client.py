@@ -13,29 +13,39 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any, Self
+from typing import Any, Self, TypedDict
 
 import httpx
 from mcp.server.mcpserver import Context
 from pypaperless import PaperlessClient
 from pypaperless.exceptions import PaperlessError
 
+from .config import Settings
 from .names import NameCache, NameMap
-
-if TYPE_CHECKING:
-    from .config import Settings
 
 log = logging.getLogger(__name__)
 
-CLIENT_KEY = "paperless"
-SETTINGS_KEY = "settings"
+
+class LifespanContext(TypedDict):
+    """What the session lifespan hands every tool handler.
+
+    A ``TypedDict`` rather than ``dict[str, Any]`` plus two string constants: the
+    keys are checked now, so a typo is a type error instead of a ``KeyError`` at
+    tool-call time.
+    """
+
+    paperless: PaperlessConnection
+    settings: Settings
+
 
 #: The ``Context`` flavour every tool handler receives. It must stay a plain
 #: assignment: MCPServer finds the context parameter with ``issubclass``, and
 #: pydantic's generic machinery makes ``Context[...]`` a real class, whereas a
 #: PEP 695 ``type`` alias would resolve to a TypeAliasType and go undetected.
-#: The parameters are ``Context[LifespanContextT, RequestT]``.
-ToolContext = Context[dict[str, Any], Any]
+#: The parameters are ``Context[LifespanContextT, RequestT]``. Because it is an
+#: assignment it is evaluated at import despite ``from __future__ import
+#: annotations``, which is why ``Settings`` is imported at runtime above.
+ToolContext = Context[LifespanContext, Any]
 
 
 class PaperlessConnection:
@@ -154,13 +164,8 @@ class PaperlessConnection:
         self._names.invalidate()
 
 
-def _lifespan(ctx: ToolContext) -> dict[str, Any]:
-    return ctx.request_context.lifespan_context
-
-
 def _connection(ctx: ToolContext) -> PaperlessConnection:
-    connection: PaperlessConnection = _lifespan(ctx)[CLIENT_KEY]
-    return connection
+    return ctx.request_context.lifespan_context["paperless"]
 
 
 async def get_client(ctx: ToolContext) -> PaperlessClient:
@@ -184,5 +189,4 @@ def invalidate_names(ctx: ToolContext) -> None:
 
 def get_settings(ctx: ToolContext) -> Settings:
     """Return the Settings attached to the MCPServer lifespan context."""
-    settings: Settings = _lifespan(ctx)[SETTINGS_KEY]
-    return settings
+    return ctx.request_context.lifespan_context["settings"]

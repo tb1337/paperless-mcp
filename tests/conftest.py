@@ -31,8 +31,8 @@ from pypaperless.transport import PaperlessTransport
 if TYPE_CHECKING:
     from mcp.server.session import ServerSession
 
-from paperless_mcp.client import CLIENT_KEY, SETTINGS_KEY
-from paperless_mcp.config import Settings
+
+from paperless_mcp.config import Settings, Transport
 from paperless_mcp.names import NameCache, NameMap
 from paperless_mcp.tools import register_all
 
@@ -46,7 +46,7 @@ def make_settings(*, readonly: bool = False, enable_delete: bool = True) -> Sett
     return Settings(
         paperless_url="http://test",
         paperless_token="t",
-        transport="stdio",
+        transport=Transport.STDIO,
         auth_token=None,
         host="127.0.0.1",
         port=0,
@@ -434,7 +434,7 @@ def build_mcp(settings: Settings, paperless: Any) -> MCPServer:
 
     @asynccontextmanager
     async def lifespan(_server: MCPServer) -> AsyncIterator[dict[str, Any]]:
-        yield {CLIENT_KEY: FakeConnection(paperless), SETTINGS_KEY: settings}
+        yield {"paperless": FakeConnection(paperless), "settings": settings}
 
     mcp = MCPServer("paperless-mcp-test", lifespan=lifespan)
     register_all(mcp, settings)

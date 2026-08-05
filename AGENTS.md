@@ -36,8 +36,9 @@ in-process it is `build_mcp(settings)` / `serve(settings)` in `server.py`.
     edits, four of them failing silently when missed
   - top-level: `server.py` (MCPServer wiring, lifespans, stdio + Streamable HTTP transports),
     `client.py` (`PaperlessConnection`, lazy connect, `get_client` / `get_names` /
-    `invalidate_names` / `get_settings` / `ToolContext`), `config.py` (env-driven `Settings`
-    dataclass, `load_settings()`), `names.py` (`NameMap` snapshot of the master data,
+    `invalidate_names` / `get_settings` / `ToolContext`, and the `LifespanContext` TypedDict
+    they read), `config.py` (env-driven `Settings` dataclass with `Transport` / `LogLevel`
+    as StrEnums, `load_settings()`), `names.py` (`NameMap` snapshot of the master data,
     `load_names()`, the TTL'd `NameCache`), `formatting.py` (pypaperless models → plain dicts),
     `auth.py` (bearer-token middleware for the HTTP transport), `healthcheck.py`
     (unauthenticated `/healthz` probe)

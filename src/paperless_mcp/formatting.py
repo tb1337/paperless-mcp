@@ -15,11 +15,13 @@ so the result shape never depends on whether the master data could be read.
 from __future__ import annotations
 
 import datetime as dt
-from collections.abc import Iterable, Mapping
-from enum import Enum
-from typing import Any
+from collections.abc import Iterable, Iterator, Mapping
+from enum import Enum, StrEnum
+from typing import Any, Final
 
 from pydantic import BaseModel
+from pypaperless.models import Document, Task
+from pypaperless.models.status import Status, StatusType
 
 from .names import EMPTY_NAMES, NameMap, name_of, names_of
 
@@ -101,16 +103,16 @@ def _matching(obj: Any) -> dict[str, Any]:
     }
 
 
-def format_document(doc: Any, names: NameMap = EMPTY_NAMES) -> dict[str, Any]:
+def format_document(doc: Document, names: NameMap = EMPTY_NAMES) -> dict[str, Any]:
     """Project a Document model into a compact dict, resolving its relations."""
-    correspondent = _safe(doc, "correspondent")
-    document_type = _safe(doc, "document_type")
-    storage_path = _safe(doc, "storage_path")
-    tags = list(_safe(doc, "tags") or [])
-    owner = _safe(doc, "owner")
+    correspondent = doc.correspondent
+    document_type = doc.document_type
+    storage_path = doc.storage_path
+    tags = list(doc.tags or [])
+    owner = doc.owner
     return {
-        "id": _safe(doc, "id"),
-        "title": _safe(doc, "title"),
+        "id": doc.id,
+        "title": doc.title,
         "correspondent": correspondent,
         "correspondent_name": name_of(names.correspondents, correspondent),
         "document_type": document_type,
@@ -119,18 +121,18 @@ def format_document(doc: Any, names: NameMap = EMPTY_NAMES) -> dict[str, Any]:
         "storage_path_name": name_of(names.storage_paths, storage_path),
         "tags": tags,
         "tag_names": names_of(names.tags, tags),
-        "created": _iso(_safe(doc, "created")),
-        "added": _iso(_safe(doc, "added")),
-        "modified": _iso(_safe(doc, "modified")),
-        "deleted_at": _iso(_safe(doc, "deleted_at")),
-        "archive_serial_number": _safe(doc, "archive_serial_number"),
-        "original_file_name": _safe(doc, "original_file_name"),
-        "archived_file_name": _safe(doc, "archived_file_name"),
+        "created": _iso(doc.created),
+        "added": _iso(doc.added),
+        "modified": _iso(doc.modified),
+        "deleted_at": _iso(doc.deleted_at),
+        "archive_serial_number": doc.archive_serial_number,
+        "original_file_name": doc.original_file_name,
+        "archived_file_name": doc.archived_file_name,
         "owner": owner,
         "owner_name": name_of(names.users, owner),
-        "page_count": _safe(doc, "page_count"),
-        "mime_type": _safe(doc, "mime_type"),
-        "is_shared_by_requester": _safe(doc, "is_shared_by_requester"),
+        "page_count": doc.page_count,
+        "mime_type": doc.mime_type,
+        "is_shared_by_requester": doc.is_shared_by_requester,
     }
 
 
@@ -155,7 +157,7 @@ def format_custom_field_value(value: Any) -> dict[str, Any]:
 CONTENT_PREVIEW_CHARS = 500
 
 
-def format_document_detail(doc: Any, names: NameMap = EMPTY_NAMES) -> dict[str, Any]:
+def format_document_detail(doc: Document, names: NameMap = EMPTY_NAMES) -> dict[str, Any]:
     """Project a Document model including notes and custom fields.
 
     The OCR text is capped at :data:`CONTENT_PREVIEW_CHARS` — enough to tell
@@ -165,17 +167,15 @@ def format_document_detail(doc: Any, names: NameMap = EMPTY_NAMES) -> dict[str, 
     ``get_document_content`` is worth the tokens.
     """
     base = format_document(doc, names)
-    content = _safe(doc, "content") or ""
+    content = doc.content or ""
     base["content_preview"] = content[:CONTENT_PREVIEW_CHARS]
     base["content_characters"] = len(content)
-    base["custom_fields"] = [
-        format_custom_field_value(cf) for cf in (_safe(doc, "custom_fields") or [])
-    ]
+    base["custom_fields"] = [format_custom_field_value(cf) for cf in (doc.custom_fields or [])]
     # ``Document.notes`` is the notes *service* in pypaperless v6; the embedded
     # payload lives on the aliased ``notes_`` field.
-    base["notes"] = [format_note(n, names) for n in (_safe(doc, "notes_") or [])]
-    base["root_document"] = _safe(doc, "root_document")
-    search_hit = _safe(doc, "search_hit_")
+    base["notes"] = [format_note(n, names) for n in (doc.notes_ or [])]
+    base["root_document"] = doc.root_document
+    search_hit = doc.search_hit_
     if search_hit is not None:
         base["search_hit"] = safe_dump(search_hit)
     return base
@@ -280,7 +280,7 @@ def format_share_link(sl: Any) -> dict[str, Any]:
     }
 
 
-def format_task(t: Any, names: NameMap = EMPTY_NAMES) -> dict[str, Any]:
+def format_task(t: Task, names: NameMap = EMPTY_NAMES) -> dict[str, Any]:
     """Project a Task model into a compact dict.
 
     pypaperless v6 follows Paperless-ngx 3.0's task API: ``type`` became
@@ -288,21 +288,21 @@ def format_task(t: Any, names: NameMap = EMPTY_NAMES) -> dict[str, Any]:
     became the list ``related_document_ids``.
     """
     return {
-        "id": _safe(t, "id"),
-        "task_id": _safe(t, "task_id"),
-        "task_type": _plain(_safe(t, "task_type")),
-        "task_type_display": _safe(t, "task_type_display"),
-        "status": _plain(_safe(t, "status")),
-        "status_display": _safe(t, "status_display"),
-        "trigger_source": _plain(_safe(t, "trigger_source")),
-        "acknowledged": _safe(t, "acknowledged"),
-        "date_created": _iso(_safe(t, "date_created")),
-        "date_started": _iso(_safe(t, "date_started")),
-        "date_done": _iso(_safe(t, "date_done")),
-        "duration_seconds": _safe(t, "duration_seconds"),
-        "input_data": safe_dump(_safe(t, "input_data")),
-        "result_data": safe_dump(_safe(t, "result_data")),
-        "related_document_ids": list(_safe(t, "related_document_ids") or []),
+        "id": t.id,
+        "task_id": t.task_id,
+        "task_type": _plain(t.task_type),
+        "task_type_display": t.task_type_display,
+        "status": _plain(t.status),
+        "status_display": t.status_display,
+        "trigger_source": _plain(t.trigger_source),
+        "acknowledged": t.acknowledged,
+        "date_created": _iso(t.date_created),
+        "date_started": _iso(t.date_started),
+        "date_done": _iso(t.date_done),
+        "duration_seconds": t.duration_seconds,
+        "input_data": safe_dump(t.input_data),
+        "result_data": safe_dump(t.result_data),
+        "related_document_ids": list(t.related_document_ids or []),
         **_owner(t, names),
     }
 
@@ -344,26 +344,41 @@ def enrich_suggestions(suggestions: Mapping[str, Any], names: NameMap) -> dict[s
     return {**suggestions, **resolved}
 
 
-#: The health-bearing subsystems of ``/api/status/``: the name to report, the
-#: Status attribute holding the block, and the status/error fields inside it.
-_STATUS_SUBSYSTEMS: tuple[tuple[str, str, str, str], ...] = (
-    ("database", "database", "status", "error"),
-    ("redis", "tasks", "redis_status", "redis_error"),
-    ("celery", "tasks", "celery_status", "celery_error"),
-    ("index", "tasks", "index_status", "index_error"),
-    ("classifier", "tasks", "classifier_status", "classifier_error"),
-    ("sanity_check", "tasks", "sanity_check_status", "sanity_check_error"),
-)
+class HealthVerdict(StrEnum):
+    """The rolled-up verdict :func:`summarize_status` reports."""
 
-#: Worst-first, so the first hit in the reported set decides the verdict.
-_HEALTH_ORDER: tuple[tuple[str, str], ...] = (
-    ("ERROR", "error"),
-    ("WARNING", "warning"),
-    ("UNKNOWN", "unknown"),
-)
+    OK = "ok"
+    WARNING = "warning"
+    ERROR = "error"
+    UNKNOWN = "unknown"
 
 
-def summarize_status(status: Any) -> dict[str, Any]:
+#: Worst first: the first state present in the reported set decides the verdict.
+_VERDICT: Final[Mapping[StatusType, HealthVerdict]] = {
+    StatusType.ERROR: HealthVerdict.ERROR,
+    StatusType.WARNING: HealthVerdict.WARNING,
+    StatusType.UNKNOWN: HealthVerdict.UNKNOWN,
+}
+
+
+def _subsystems(status: Status) -> Iterator[tuple[str, StatusType | None, str | None]]:
+    """Yield the health-bearing blocks of ``/api/status/``, name first.
+
+    Read by attribute rather than through a table of field-name strings: a rename
+    upstream is a type error here, where the table turned it into a subsystem that
+    silently stopped being checked.
+    """
+    if (database := status.database) is not None:
+        yield "database", database.status, database.error
+    if (tasks := status.tasks) is not None:
+        yield "redis", tasks.redis_status, tasks.redis_error
+        yield "celery", tasks.celery_status, tasks.celery_error
+        yield "index", tasks.index_status, tasks.index_error
+        yield "classifier", tasks.classifier_status, tasks.classifier_error
+        yield "sanity_check", tasks.sanity_check_status, tasks.sanity_check_error
+
+
+def summarize_status(status: Status) -> dict[str, Any]:
     """Roll the per-subsystem flags of a Status model up into one verdict.
 
     Answers "is this archive healthy?" without the caller walking six nested
@@ -371,17 +386,18 @@ def summarize_status(status: Any) -> dict[str, Any]:
     subsystems and treats WARNING as fine.
     """
     problems: list[dict[str, Any]] = []
-    reported: set[str] = set()
-    for name, block_attr, status_attr, error_attr in _STATUS_SUBSYSTEMS:
-        block = _safe(status, block_attr)
-        state = _plain(_safe(block, status_attr)) if block is not None else None
+    reported: set[StatusType] = set()
+    for name, state, error in _subsystems(status):
         if state is None:
             continue
         reported.add(state)
-        if state != "OK":
-            problems.append({"subsystem": name, "status": state, "error": _safe(block, error_attr)})
-    health = next((verdict for flag, verdict in _HEALTH_ORDER if flag in reported), "ok")
-    return {"health": health if reported else "unknown", "problems": problems}
+        if state is not StatusType.OK:
+            problems.append({"subsystem": name, "status": state.value, "error": error})
+    if not reported:
+        # Nothing reported is not the same as nothing wrong.
+        return {"health": HealthVerdict.UNKNOWN, "problems": problems}
+    verdict = next((v for state, v in _VERDICT.items() if state in reported), HealthVerdict.OK)
+    return {"health": verdict, "problems": problems}
 
 
 def format_history_entry(h: Any) -> dict[str, Any]:

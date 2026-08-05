@@ -26,7 +26,7 @@ from paperless_mcp.config import Transport
 from tests.conftest import PaperlessStub, make_settings
 
 
-@pytest.mark.parametrize("transport", ["stdio", "http"])
+@pytest.mark.parametrize("transport", list(Transport))
 def test_serve_dispatches_on_the_configured_transport(
     monkeypatch: pytest.MonkeyPatch, transport: Transport
 ) -> None:
@@ -54,7 +54,7 @@ def test_serve_http_hands_the_app_and_bind_address_to_uvicorn(
     used: list[dict[str, Any]] = []
     monkeypatch.setattr(uvicorn, "run", lambda app, **kw: used.append({"app": app, **kw}))
 
-    settings = replace(make_settings(), transport="http", host="127.0.0.1", port=9123)
+    settings = replace(make_settings(), transport=Transport.HTTP, host="127.0.0.1", port=9123)
     server_mod.serve_http(settings)
 
     assert used[0]["host"] == "127.0.0.1"

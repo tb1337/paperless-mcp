@@ -17,7 +17,6 @@ import logging
 import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any
 
 import uvicorn
 from mcp.server.mcpserver import MCPServer
@@ -29,7 +28,7 @@ from starlette.routing import Mount, Route
 
 from . import __version__
 from .auth import BearerAuthMiddleware
-from .client import CLIENT_KEY, SETTINGS_KEY, PaperlessConnection
+from .client import LifespanContext, PaperlessConnection
 from .config import HEALTH_PATH, Settings
 from .prompts import register_all as register_prompts
 from .tools import register_all as register_tools
@@ -90,12 +89,12 @@ def build_mcp(settings: Settings, connection: PaperlessConnection | None = None)
     """
 
     @asynccontextmanager
-    async def session_lifespan(_server: MCPServer) -> AsyncIterator[dict[str, Any]]:
+    async def session_lifespan(_server: MCPServer) -> AsyncIterator[LifespanContext]:
         if connection is not None:
-            yield {CLIENT_KEY: connection, SETTINGS_KEY: settings}
+            yield {"paperless": connection, "settings": settings}
             return
         async with PaperlessConnection(settings) as owned:
-            yield {CLIENT_KEY: owned, SETTINGS_KEY: settings}
+            yield {"paperless": owned, "settings": settings}
 
     mcp = MCPServer(
         "paperless-mcp",
