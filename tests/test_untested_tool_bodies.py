@@ -82,6 +82,24 @@ async def test_get_document_metadata_returns_the_payload_as_a_dict(stub: Paperle
     assert result["original_size"] == 1234
 
 
+async def test_get_document_metadata_names_the_document_it_describes(
+    stub: PaperlessStub,
+) -> None:
+    """The endpoint carries no identity, so the model's `id` is always null.
+
+    Reported as-is it reads like a document without an ID; the three neighbouring
+    sub-service tools all answer with `document_id` instead.
+    """
+    stub.routes[("GET", f"/api/documents/{_DOC_ID}/metadata/")] = {
+        "original_filename": "rechnung.pdf"
+    }
+
+    result = await call_tool(_server(stub), "get_document_metadata", document_id=_DOC_ID)
+
+    assert result["document_id"] == _DOC_ID
+    assert "id" not in result
+
+
 async def test_get_document_notes_resolves_the_author(stub: PaperlessStub) -> None:
     stub.collections["/api/users/"] = [{"id": 6, "username": "clerk"}]
     stub.routes[("GET", f"/api/documents/{_DOC_ID}/notes/")] = [

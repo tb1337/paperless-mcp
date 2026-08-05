@@ -306,7 +306,12 @@ async def get_document_metadata(ctx: ToolContext, document_id: int) -> dict[str,
     """Return file-level metadata (checksums, sizes, original filename, ...)."""
     paperless = await get_client(ctx)
     meta = await paperless.documents.metadata(document_id)
-    return dump_mapping(meta, key="metadata")
+    # The endpoint answers with no identity of its own, so the model's `id` field is
+    # always null. Dropping it and reporting `document_id` says the same thing as the
+    # neighbouring tools and stops the null reading as "this document has no ID".
+    dumped = dump_mapping(meta, key="metadata")
+    dumped.pop("id", None)
+    return {"document_id": document_id, **dumped}
 
 
 async def get_document_notes(
