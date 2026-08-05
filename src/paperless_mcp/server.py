@@ -58,7 +58,11 @@ List-shaped tools page with `offset`/`limit` and report `total` plus `has_more`.
 read `total`, and note that `has_more` then only says whether anything matched —
 raise `limit` to make progress rather than paging on a window of zero.
 Failures come back as `{"error": ..., "detail": ..., "cause": ...}` rather than
-as exceptions, so read the result before retrying.
+as exceptions, so read the result before retrying. `error` is a code to branch on:
+`not_found` and `invalid_argument` are yours to fix and worth another call with
+different arguments, while `paperless_error` is a regular one of those codes and not
+a bug — it means Paperless itself refused the operation and put its reason in
+`cause`, so read that before deciding whether a retry can help.
 
 The server also ships workflow prompts — `triage_inbox`, `monthly_review` and
 `find_duplicates` — which chain these tools into the jobs they exist for. They

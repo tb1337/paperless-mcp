@@ -129,4 +129,8 @@ type TaskTypeName = Literal[
 #: alias can only be published as a ``$ref``, and a ``$ref`` is exactly what does not
 #: arrive. ``_custom_field_query`` validates the nesting instead, and its rejection
 #: names the four accepted forms — a better message than a recursive schema.
+#:
+#: The list comes first because only the first branch of a union is published; see
+#: ``_registry._flat_schema``. Both forms stay accepted, but the expression is the one
+#: a caller should reach for, so it is the one the schema advertises.
 type CustomFieldQuery = list[Any] | str | None

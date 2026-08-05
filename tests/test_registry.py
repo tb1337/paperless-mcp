@@ -115,18 +115,23 @@ def test_an_optional_enum_publishes_its_values_beside_the_type() -> None:
     assert set(published["enum"]) == literal_values(MatchingAlgorithmName)
 
 
-def test_several_branches_collapse_into_a_list_of_types() -> None:
-    """The only flat way to say "a list or the JSON text of one" is a `type` list."""
-    assert _published_schema(inline_aliases(CustomFieldQuery)) == {
-        "items": {},
-        "type": ["array", "string"],
+def test_several_branches_publish_only_the_first() -> None:
+    """A `type` list is accurate and does not arrive, so the primary form wins.
+
+    `CustomFieldQuery` leads with the expression list precisely so that is the branch
+    published; the `str` form stays accepted and undocumented by the schema.
+    """
+    assert _published_schema(inline_aliases(CustomFieldQuery)) == {"items": {}, "type": "array"}
+    assert _published_schema(list[int] | list[str] | None) == {
+        "items": {"type": "integer"},
+        "type": "array",
     }
 
 
 @pytest.mark.parametrize(
     "annotation",
-    [int, int | str, Any | None, list[JsonValue] | None, list[int] | list[str] | None],
-    ids=["not-a-union", "no-null-branch", "untyped-branch", "needs-defs", "clashing-keys"],
+    [int, int | str, Any | None, list[JsonValue] | None],
+    ids=["not-a-union", "no-null-branch", "untyped-branch", "needs-defs"],
 )
 def test_an_annotation_that_cannot_be_flattened_is_left_as_it_was(annotation: Any) -> None:
     """Bailing out restores pydantic's `anyOf`: harder to read, but never wrong.

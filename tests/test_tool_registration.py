@@ -68,6 +68,9 @@ _WRITE_TOOLS = frozenset(
         "bulk_merge_documents",
         "bulk_rotate_documents",
         "split_document",
+        # Write-gated despite the name: it edits one document rather than removing an
+        # object, so `enable_delete=false` keeps it. That is why a deployment without
+        # deletes has 54 tools and not 53.
         "delete_document_pages",
         "acknowledge_tasks",
         "create_tag",
@@ -223,11 +226,14 @@ async def test_repeatable_writes_are_flagged_non_idempotent() -> None:
     """These accumulate: a retry is not free, and a client must not assume it is."""
     tools = await _full_surface()
     # Rotating twice by 90 degrees lands at 180; merging mints another document;
-    # reprocessing queues another task; creating adds another row.
+    # reprocessing queues another task; creating adds another row. Dropping pages
+    # renumbers the ones that remain, so the same selection hits different pages the
+    # second time — the trap this flag exists to advertise.
     accumulating = {
         "bulk_rotate_documents",
         "bulk_merge_documents",
         "bulk_reprocess_documents",
+        "delete_document_pages",
         "upload_document",
         "add_document_note",
         *(name for name in _WRITE_TOOLS if name.startswith("create_")),
@@ -389,15 +395,34 @@ async def test_an_optional_argument_publishes_the_type_its_required_twin_does() 
     assert optional["type"] == "boolean"
 
 
-async def test_a_multi_type_argument_publishes_every_form_it_accepts() -> None:
+async def test_a_multi_type_argument_publishes_its_primary_form() -> None:
     """``custom_field_query`` takes an expression list or the JSON text of one.
 
-    Flattened rather than left as an ``anyOf``, because the ``anyOf`` is what gets
-    dropped. Both forms stay visible; the nesting is still untyped on purpose.
+    It used to publish ``type: ["array", "string"]``, which is the accurate way to say
+    that and the one shape a live check found still arriving as a bare ``{}`` after
+    every scalar-typed argument came through. So a client that drops ``anyOf`` drops a
+    ``type`` list too. Only the first branch is advertised now; the string form stays
+    accepted and the docstring is what documents it.
     """
     tools = await _full_surface()
     published = tools["search_documents"].input_schema["properties"]["custom_field_query"]
-    assert published["type"] == ["array", "string"]
+    assert published["type"] == "array"
+
+
+async def test_no_argument_publishes_a_list_of_types() -> None:
+    """A ``type`` list is the third way a value has gone missing, after ``$ref`` and ``anyOf``.
+
+    Same failure as those two and the same fix: one scalar ``type`` per property, or a
+    client renders the whole property empty.
+    """
+    tools = await _full_surface()
+    listed = [
+        (name, argument)
+        for name, tool in tools.items()
+        for argument, published in tool.input_schema.get("properties", {}).items()
+        if isinstance(published.get("type"), list)
+    ]
+    assert listed == []
 
 
 async def test_an_explicit_null_still_validates_against_the_flattened_type(

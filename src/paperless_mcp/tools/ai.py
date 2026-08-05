@@ -19,6 +19,10 @@ async def get_document_suggestions(ctx: ToolContext, document_id: int) -> dict[s
     from the locally trained classifier — cheap, no LLM involved. Each ID
     list is accompanied by a ``*_names`` list holding the resolved names in
     the same order.
+
+    The document is identified by ``document_id`` at the top level. Paperless' own
+    payload under ``suggestions`` repeats it as ``id``; that is its field, passed
+    through unaltered, and it holds the same number.
     """
     paperless = await get_client(ctx)
     names = await get_names(ctx)
