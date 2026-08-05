@@ -168,7 +168,7 @@ async def create_tag(
     ``none``, i.e. the tag is only ever applied explicitly — which is the safe
     choice for something created on a user's behalf.
     """
-    new_id = await create_resource(
+    return await create_resource(
         ctx,
         TAGS,
         name=name,
@@ -177,7 +177,6 @@ async def create_tag(
         parent=parent_id,
         **_matching_kwargs(match, matching_algorithm, is_insensitive, for_create=True),
     )
-    return {"tag": {"id": new_id, "name": name}}
 
 
 async def update_tag(
@@ -231,13 +230,12 @@ async def create_correspondent(
     is_insensitive: bool | None = None,
 ) -> dict[str, Any]:
     """Create a new correspondent (the sender or recipient of documents)."""
-    new_id = await create_resource(
+    return await create_resource(
         ctx,
         CORRESPONDENTS,
         name=name,
         **_matching_kwargs(match, matching_algorithm, is_insensitive, for_create=True),
     )
-    return {"correspondent": {"id": new_id, "name": name}}
 
 
 async def update_correspondent(
@@ -285,13 +283,12 @@ async def create_document_type(
     is_insensitive: bool | None = None,
 ) -> dict[str, Any]:
     """Create a new document type (invoice, contract, ...)."""
-    new_id = await create_resource(
+    return await create_resource(
         ctx,
         DOCUMENT_TYPES,
         name=name,
         **_matching_kwargs(match, matching_algorithm, is_insensitive, for_create=True),
     )
-    return {"document_type": {"id": new_id, "name": name}}
 
 
 async def update_document_type(
@@ -344,14 +341,13 @@ async def create_storage_path(
     ``path`` is a Paperless path template, e.g.
     ``{{ created_year }}/{{ correspondent }}/{{ title }}``.
     """
-    new_id = await create_resource(
+    return await create_resource(
         ctx,
         STORAGE_PATHS,
         name=name,
         path=path,
         **_matching_kwargs(match, matching_algorithm, is_insensitive, for_create=True),
     )
-    return {"storage_path": {"id": new_id, "name": name, "path": path}}
 
 
 async def update_storage_path(
@@ -406,10 +402,9 @@ async def create_custom_field(
     cannot be changed once the field exists.
     """
     field_type = CUSTOM_FIELD_TYPES[data_type]
-    new_id = await create_resource(
+    return await create_resource(
         ctx, CUSTOM_FIELDS, name=name, data_type=field_type, extra_data=extra_data
     )
-    return {"custom_field": {"id": new_id, "name": name, "data_type": field_type.value}}
 
 
 async def update_custom_field(

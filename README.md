@@ -439,6 +439,11 @@ Notes on semantics:
   `task.result_data` says so. Keep the timeout under the MCP client's own
   request timeout — a call the client gives up on still consumes the file, it
   just leaves nobody to read the result.
+- `create_tag` and its four siblings answer with the object as Paperless stored
+  it — the same projection `list_tags` returns, under the resource's name. Two ids
+  and a name could not confirm that a colour, a path or a matching algorithm
+  arrived as intended, so confirming meant a second call; the create makes that
+  call itself, once.
 - `download_document` echoes `requested_version` (`archive` or `original`).
   Paperless serves the original when a document has no archive version and says
   so nowhere in the response, so without the echo two downloads of the same
