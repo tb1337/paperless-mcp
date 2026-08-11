@@ -50,6 +50,38 @@ async def test_a_paginated_envelope_arrives_once_as_one_text_block(make_paperles
     assert result.structured_content is None
 
 
+async def test_a_result_carries_no_indentation(make_paperless: Any) -> None:
+    """The SDK indents with two spaces; nothing reads that and every byte is paid for."""
+    paperless = make_paperless()
+    paperless.documents.filter_results = [document(1, "Rechnung")]
+    mcp = build_mcp(make_settings(), paperless)
+
+    result = await invoke_tool(mcp, "search_documents", limit=2)
+
+    text = result.content[0]
+    assert isinstance(text, TextContent)
+    assert "\n" not in text.text
+    assert '{"documents":[{"id":1,' in text.text
+
+
+async def test_a_result_keeps_non_ascii_unescaped(make_paperless: Any) -> None:
+    """An escaped umlaut is six characters where one would do.
+
+    Worth pinning rather than assuming: this archive's titles are German, and the
+    obvious stdlib serializer escapes by default. The saving would go quietly.
+    """
+    paperless = make_paperless()
+    paperless.documents.filter_results = [document(1, "Grundstücksübertragung")]
+    mcp = build_mcp(make_settings(), paperless)
+
+    result = await invoke_tool(mcp, "search_documents", limit=2)
+
+    text = result.content[0]
+    assert isinstance(text, TextContent)
+    assert "Grundstücksübertragung" in text.text
+    assert "\\u" not in text.text
+
+
 async def test_a_thumbnail_arrives_as_image_content(make_paperless: Any) -> None:
     """The point of annotating it `-> Image`: the model can look at the page."""
     paperless = make_paperless()

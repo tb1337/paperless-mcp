@@ -10,7 +10,7 @@ from mcp.server.mcpserver import MCPServer
 from ..client import ToolContext, get_client, get_names
 from ..config import Settings
 from ..formatting import (
-    format_document,
+    format_document_summary,
     format_saved_view,
 )
 from ..names import NameMap
@@ -27,8 +27,13 @@ from ._registry import read_tool, register_tools
 #: Users, groups, mail rules and accounts, and workflows are deliberately left
 #: out: they are the admin-tier resources the tool surface does not carry, and
 #: none of them resolves to something a document filter accepts.
+#:
+#: Documents are always summarized and this tool takes no ``fields`` argument:
+#: it answers "what is this thing called in Paperless?" across seven categories at
+#: once, so a full projection would pay for a document's file names and owner
+#: seven categories deep to hand back an ID.
 _CATEGORIES: Final[tuple[tuple[str, Callable[[Any, NameMap], dict[str, Any]]], ...]] = (
-    ("documents", format_document),
+    ("documents", format_document_summary),
     *((resource.key, FORMATTERS[resource.key]) for resource in RESOURCES),
     ("saved_views", format_saved_view),
 )

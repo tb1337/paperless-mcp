@@ -8,25 +8,32 @@ from mcp.server.mcpserver import MCPServer
 
 from ..client import ToolContext, get_client
 from ..config import Settings
-from ..formatting import format_document
+from ._arguments import DOCUMENT_PROJECTIONS, DocumentFields
 from ._errors import ToolInputError
 from ._paging import named_page
 from ._registry import delete_tool, read_tool, register_tools, write_tool
 
 
-async def list_trash(ctx: ToolContext, offset: int = 0, limit: int = 50) -> dict[str, Any]:
+async def list_trash(
+    ctx: ToolContext,
+    fields: DocumentFields = "compact",
+    offset: int = 0,
+    limit: int = 50,
+) -> dict[str, Any]:
     """List documents currently in the trash.
 
     In whatever order Paperless sends them: ``/api/trash/`` declares no ordering
     parameter and no filters, so the order cannot be asked for and is not
     ``deleted_at`` — on a real archive it follows the document ID. Read each item's
-    ``deleted_at`` when the age matters rather than trusting the position.
+    ``deleted_at`` when the age matters rather than trusting the position; it is
+    carried under either ``fields``, which otherwise works as it does on
+    ``search_documents``.
     """
     return await named_page(
         ctx,
         "trashed",
         lambda paperless: paperless.trash,
-        format_document,
+        DOCUMENT_PROJECTIONS[fields],
         offset=offset,
         limit=limit,
     )

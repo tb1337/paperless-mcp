@@ -20,6 +20,7 @@ first pass produced. Both are about what a client *reads*, never what a tool acc
 
 from __future__ import annotations
 
+import functools
 import operator
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass
@@ -34,6 +35,7 @@ from typing import (
     Literal,
     TypeAliasType,
     Union,
+    cast,
     get_args,
     get_origin,
     get_type_hints,
@@ -42,6 +44,7 @@ from typing import (
 from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
 from pydantic import TypeAdapter, WithJsonSchema
+from pydantic_core import to_json
 
 from ._errors import safe_tool
 
@@ -270,6 +273,34 @@ def _publishable(name: str, hint: Any) -> Any:
     return inlined if name == "return" else flatten_optionals(inlined)
 
 
+def compact_result[F: ToolFunc](func: F) -> F:
+    """Serialize *func*'s result to JSON without the SDK's indentation.
+
+    The SDK turns a returned mapping into text with
+    ``pydantic_core.to_json(result, fallback=str, indent=2)``, and that ``indent=2``
+    is roughly a quarter of what a list tool sends: one 25-document search window
+    measured 23,646 characters indented against 18,478 compact, for a payload no
+    human reads. A ``str`` return value is the one thing the SDK passes through
+    untouched, so serializing here — with its own serializer and its own
+    ``fallback``, differing in nothing but the whitespace — is what gets the
+    indentation off the wire.
+
+    Tools themselves keep returning plain dicts. This is the last step before the
+    SDK, applied once for all of them rather than by each tool, and anything that is
+    not a ``dict`` or a ``list`` — an ``Image`` — passes straight through to the
+    conversion that knows what to do with it.
+    """
+
+    @functools.wraps(func)
+    async def wrapper(*args: Any, **kwargs: Any) -> Any:
+        result = await func(*args, **kwargs)
+        if isinstance(result, dict | list):
+            return to_json(result, fallback=str).decode()
+        return result
+
+    return cast("F", wrapper)
+
+
 def register_tools(mcp: MCPServer, settings: Settings, specs: Iterable[ToolSpec]) -> None:
     """Register the specs this deployment exposes, annotated, titled and wrapped.
 
@@ -297,6 +328,10 @@ def register_tools(mcp: MCPServer, settings: Settings, specs: Iterable[ToolSpec]
     tokens rejects the whole call rather than the duplicate half. What this gives up
     is the published ``outputSchema``, which describes a result the model has already
     received; what it buys is 44% of every response.
+
+    :func:`compact_result` takes the whitespace off what is left, and goes *outside*
+    :func:`safe_tool` so that a structured error is serialized the same way a result
+    is.
     """
     exposed: Mapping[Gate, bool] = {
         "read": True,
@@ -310,7 +345,8 @@ def register_tools(mcp: MCPServer, settings: Settings, specs: Iterable[ToolSpec]
             name: _publishable(name, hint) for name, hint in get_type_hints(spec.fn).items()
         }
         spec.fn.__annotations__ = expanded
-        wrapped = safe_tool(spec.fn)
+        # safe_tool inside, so its error result is serialized like any other.
+        wrapped = compact_result(safe_tool(spec.fn))
         wrapped.__annotations__ = expanded
         mcp.tool(
             title=humanize(spec.fn.__name__),

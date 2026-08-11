@@ -14,6 +14,7 @@ from paperless_mcp.tools._arguments import (
     BulkObjectType,
     ClearableDocumentField,
     CustomFieldDataType,
+    DocumentFields,
     DocumentOrderField,
     MatchingAlgorithmName,
     ShareLinkVersion,
@@ -318,6 +319,10 @@ _CONSTRAINED_ARGUMENTS = (
     ("list_tasks", "status", TaskStatusName),
     ("list_tasks", "task_type", TaskTypeName),
     ("search_documents", "order_by", DocumentOrderField),
+    ("search_documents", "fields", DocumentFields),
+    ("find_similar_documents", "fields", DocumentFields),
+    ("run_saved_view", "fields", DocumentFields),
+    ("list_trash", "fields", DocumentFields),
     ("update_document", "clear_fields", ClearableDocumentField),
     ("bulk_delete_objects", "object_type", BulkObjectType),
 )

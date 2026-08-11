@@ -22,6 +22,7 @@ from paperless_mcp.formatting import (
     enrich_suggestions,
     format_document,
     format_document_detail,
+    format_document_summary,
     format_saved_view,
     format_tag,
     format_task,
@@ -247,6 +248,50 @@ def test_format_document_resolves_every_relation(runtime: PaperlessRuntime) -> N
     # Unknown tag 99 keeps its slot rather than shifting "paid" onto it.
     assert result["tags"] == [40, 99]
     assert result["tag_names"] == ["paid", None]
+
+
+def test_format_document_summary_is_a_strict_subset_of_the_full_projection(
+    runtime: PaperlessRuntime,
+) -> None:
+    """The summary narrows the full projection; it never renames or recomputes.
+
+    A key that only the summary knows would be a second projection to keep in step,
+    and the whole point of building one from the other is that there is only one.
+    """
+    doc = Document.from_data(runtime, {"id": 1, "title": "Rechnung", "tags": [40]})
+
+    summary = format_document_summary(doc)
+    full = format_document(doc)
+
+    assert set(summary) < set(full)
+    assert all(summary[key] == full[key] for key in summary)
+
+
+def test_format_document_summary_keeps_what_a_hit_is_judged_on(
+    runtime: PaperlessRuntime,
+) -> None:
+    """Pinned by name: dropping one of these silently is a regression in the results.
+
+    `deleted_at` is in the list because `list_trash` formats through here and its
+    docstring sends the model to that field.
+    """
+    doc = Document.from_data(runtime, {"id": 1, "title": "Rechnung"})
+
+    assert set(format_document_summary(doc)) == {
+        "id",
+        "title",
+        "correspondent",
+        "correspondent_name",
+        "document_type",
+        "document_type_name",
+        "tags",
+        "tag_names",
+        "created",
+        "added",
+        "deleted_at",
+        "archive_serial_number",
+        "page_count",
+    }
 
 
 def test_format_document_without_a_snapshot_still_has_the_name_keys(

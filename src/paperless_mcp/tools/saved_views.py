@@ -19,7 +19,8 @@ from mcp.server.mcpserver import MCPServer
 
 from ..client import ToolContext, get_client, get_names
 from ..config import Settings
-from ..formatting import format_document, format_saved_view
+from ..formatting import format_saved_view
+from ._arguments import DOCUMENT_PROJECTIONS, DocumentFields
 from ._paging import named_page, page_result, paginate
 from ._registry import read_tool, register_tools
 from ._saved_view_filters import translate_filter_rules, view_ordering
@@ -57,7 +58,11 @@ async def get_saved_view(ctx: ToolContext, view_id: int) -> dict[str, Any]:
 
 
 async def run_saved_view(
-    ctx: ToolContext, view_id: int, offset: int = 0, limit: int = 25
+    ctx: ToolContext,
+    view_id: int,
+    fields: DocumentFields = "compact",
+    offset: int = 0,
+    limit: int = 25,
 ) -> dict[str, Any]:
     """Execute a saved view and return the documents it selects.
 
@@ -74,7 +79,8 @@ async def run_saved_view(
 
     The result carries the ``filters`` the rules translated into, so the
     query is checkable and can be taken to ``search_documents`` to narrow
-    it further.
+    it further. ``fields`` works as it does there: ``compact`` by default,
+    ``full`` for every field a document carries.
 
     A rule this server cannot translate — one newer than its table — is
     never dropped. The call then fails with ``unsupported_filter_rule`` and
@@ -115,7 +121,7 @@ async def run_saved_view(
         offset=offset,
         limit=limit,
         total=total,
-        formatter=partial(format_document, names=names),
+        formatter=partial(DOCUMENT_PROJECTIONS[fields], names=names),
         view_id=view_id,
         view_name=view.name,
         filters=filters,

@@ -476,7 +476,13 @@ async def tool_session(mcp: MCPServer) -> AsyncIterator[ToolCaller]:
         ctx = _FakeContext(lifespan_ctx)
 
         async def call(tool_name: str, /, **kwargs: Any) -> Any:
-            return await mcp._tool_manager._tools[tool_name].fn(ctx=ctx, **kwargs)
+            result = await mcp._tool_manager._tools[tool_name].fn(ctx=ctx, **kwargs)
+            # The registered function is the tool wrapped in `compact_result`, so a
+            # dict result arrives as the JSON a client would receive. Decoding it
+            # back is what keeps these tests written against the tool's own return
+            # value - and it also means every assertion here is made against a
+            # payload that survived a round trip through the serializer.
+            return json.loads(result) if isinstance(result, str) else result
 
         yield call
 

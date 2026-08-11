@@ -43,6 +43,12 @@ dependencies = [
     # `formatting.safe_dump` dispatches on BaseModel. Both are v2 APIs, and the
     # major is capped because a v3 would move them.
     "pydantic>=2.13.4,<3",
+    # Imported directly for `to_json`, which pydantic itself does not re-export:
+    # `tools/_registry.compact_result` serializes a tool result with the SDK's own
+    # serializer minus its `indent=2`. Deliberately unpinned beyond the major -
+    # pydantic pins the exact matching build itself, and a second pin here could
+    # only ever contradict it.
+    "pydantic-core>=2,<3",
     "python-dotenv>=1.2.2",
     "uvicorn>=0.52.1",
     "starlette>=1.6.0,<2",

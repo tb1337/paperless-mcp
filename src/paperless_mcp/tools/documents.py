@@ -23,8 +23,10 @@ from ..formatting import (
 )
 from ..names import cached_custom_fields
 from ._arguments import (
+    DOCUMENT_PROJECTIONS,
     ClearableDocumentField,
     CustomFieldQuery,
+    DocumentFields,
     DocumentOrderField,
 )
 from ._custom_field_query import build_custom_field_query
@@ -148,6 +150,7 @@ async def search_documents(
     custom_field_query: CustomFieldQuery = None,
     order_by: DocumentOrderField | None = None,
     descending: bool = False,
+    fields: DocumentFields = "compact",
     offset: int = 0,
     limit: int = 25,
 ) -> dict[str, Any]:
@@ -202,6 +205,14 @@ async def search_documents(
     what you need and page for the rest, rather than pulling the archive
     into one call. Document text is *not* included — call
     ``get_document_content`` for that.
+
+    ``fields`` decides how much of each hit comes back. ``compact`` (the
+    default) carries the ID, title, correspondent, document type, tags, the
+    dates and the page count — everything a hit is normally judged on.
+    ``full`` adds the storage path, the owner, both file names, the MIME
+    type and ``modified``, and costs about three times as much per
+    document; ``get_document`` answers the same for the one hit that turns
+    out to matter, which is the cheaper way to get there.
     """
     paperless = await get_client(ctx)
     tags_all = await resolve_tags(
@@ -272,7 +283,7 @@ async def search_documents(
         offset=offset,
         limit=limit,
         total=total,
-        formatter=partial(format_document, names=names),
+        formatter=partial(DOCUMENT_PROJECTIONS[fields], names=names),
     )
 
 
@@ -357,12 +368,17 @@ async def get_document_history(
 
 
 async def find_similar_documents(
-    ctx: ToolContext, document_id: int, offset: int = 0, limit: int = 10
+    ctx: ToolContext,
+    document_id: int,
+    fields: DocumentFields = "compact",
+    offset: int = 0,
+    limit: int = 10,
 ) -> dict[str, Any]:
     """Find documents whose text is similar to the given document.
 
     Uses Paperless' full-text index ("more like this"), so it needs the
-    index to be built.
+    index to be built. ``fields`` works as it does on ``search_documents``:
+    ``compact`` by default, ``full`` for every field a document carries.
     """
     paperless = await get_client(ctx)
     names = await get_names(ctx)
@@ -378,7 +394,7 @@ async def find_similar_documents(
         offset=offset,
         limit=limit,
         total=total,
-        formatter=partial(format_document, names=names),
+        formatter=partial(DOCUMENT_PROJECTIONS[fields], names=names),
         reference=document_id,
     )
 

@@ -136,6 +136,43 @@ def format_document(doc: Document, names: NameMap = EMPTY_NAMES) -> dict[str, An
     }
 
 
+#: What :func:`format_document_summary` keeps, in the order a result reports it.
+#:
+#: Identity, the relations a follow-up call filters on, and the dates a request is
+#: usually phrased in. What is missing is what a list is not read for: the storage
+#: path, the owner, both file names, the MIME type and ``modified`` — nine keys that
+#: cost about two thirds of a window and that ``get_document`` answers for the one
+#: document the model actually picks. ``deleted_at`` stays because ``list_trash``
+#: formats through here and is documented as the place to read it.
+_SUMMARY_KEYS: Final[tuple[str, ...]] = (
+    "id",
+    "title",
+    "correspondent",
+    "correspondent_name",
+    "document_type",
+    "document_type_name",
+    "tags",
+    "tag_names",
+    "created",
+    "added",
+    "deleted_at",
+    "archive_serial_number",
+    "page_count",
+)
+
+
+def format_document_summary(doc: Document, names: NameMap = EMPTY_NAMES) -> dict[str, Any]:
+    """Project a Document down to the fields a list result carries.
+
+    Built by narrowing :func:`format_document` rather than by projecting the model
+    a second time: two independent field lists drift, and the one that drifts is
+    always the one nobody reads. A key that stops existing upstream fails here as a
+    ``KeyError`` under test instead of quietly vanishing from every search result.
+    """
+    full = format_document(doc, names)
+    return {key: full[key] for key in _SUMMARY_KEYS}
+
+
 def format_custom_field_value(value: Any) -> dict[str, Any]:
     """Project one custom field value attached to a document.
 

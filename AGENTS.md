@@ -22,9 +22,10 @@ in-process it is `build_mcp(settings)` / `serve(settings)` in `server.py`.
     visibility gate, the two passes over a signature's annotations without which an
     argument reaches the model as `{}` (`inline_aliases()` for the `$ref`,
     `flatten_optionals()` for the `anyOf`), the `structured_output=False` that stops every
-    result being serialized twice, and the `humanize()` that derives each display title
+    result being serialized twice, the `compact_result()` that takes the SDK's indentation
+    off what is left, and the `humanize()` that derives each display title
   - `tools/_arguments.py` — the `Literal` aliases the constrained arguments publish as schema
-    enums, plus the name → pypaperless-enum mappings
+    enums, plus the name → pypaperless-enum mappings and `DOCUMENT_PROJECTIONS`
   - `tools/_dates.py` — `parse_date` / `parse_datetime` for the ISO arguments
   - `tools/_paging.py` — `paginate` / `page_result` (offset/limit → Paperless pages), `window`
     for the endpoints that answer with a bare list, `MAX_PAGE_LIMIT` with the
@@ -43,7 +44,8 @@ in-process it is `build_mcp(settings)` / `serve(settings)` in `server.py`.
     `invalidate_names` / `get_settings` / `ToolContext`, and the `LifespanContext` TypedDict
     they read), `config.py` (env-driven `Settings` dataclass with `Transport` / `LogLevel`
     as StrEnums, `load_settings()`), `names.py` (`NameMap` snapshot of the master data,
-    `load_names()`, the TTL'd `NameCache`), `formatting.py` (pypaperless models → plain dicts),
+    `load_names()`, the TTL'd `NameCache`), `formatting.py` (pypaperless models → plain dicts,
+    `format_document` full and `format_document_summary` narrowed through `_SUMMARY_KEYS`),
     `auth.py` (bearer-token middleware for the HTTP transport), `healthcheck.py`
     (unauthenticated `/healthz` probe)
 - `tests/` — pytest driving the real `MCPServer` in-process over a fake PaperlessClient
@@ -177,15 +179,31 @@ breaking change and gets the `breaking-change` label.
   every envelope and cannot mean "what you asked for" in one result and "what you got" in the
   next. A tool that takes a `limit` outside `paginate` / `window` calls `check_limit` itself, so
   the ceiling has no exceptions for a model to discover.
-- **Results go out once.** Tools are registered with `structured_output=False`. The SDK builds
-  both halves of a `CallToolResult` from the same return value — a JSON text block *and*
-  `structuredContent` — and the wire model carries both, so every byte is paid for twice: one
-  25-document search measured 23,646 characters of text next to 18,478 of structured content.
-  The cost lands hardest on the largest results, which are exactly the ones nobody re-measures,
-  so `tests/test_tool_registration.py` pins that no tool publishes an `outputSchema`. Note what
-  this retires: `ToolResultError` exists because the SDK could not build an output schema for a
-  union containing MCP content, and there is no output schema any more — the type is still how a
-  `-> Image` tool reports an error, but that is now its only job.
+- **Results go out once, compact, and projected.** Three separate multipliers, all measured
+  against one 25-document search window, which went from 42,124 characters to 9,338:
+  - Tools are registered with `structured_output=False`. The SDK builds both halves of a
+    `CallToolResult` from the same return value — a JSON text block *and* `structuredContent` —
+    and the wire model carries both, so every byte was paid for twice (23,646 characters of
+    text next to 18,478 of structured content). `tests/test_tool_registration.py` pins that no
+    tool publishes an `outputSchema`. Note what this retires: `ToolResultError` exists because
+    the SDK could not build an output schema for a union containing MCP content, and there is
+    no output schema any more — the type is still how a `-> Image` tool reports an error, but
+    that is now its only job.
+  - `_registry.compact_result` wraps every tool *outside* `safe_tool` and serializes a dict
+    result itself, because the SDK's conversion hardcodes `indent=2` and passes a `str` through
+    untouched. Same serializer, same `fallback=str`, minus a quarter of the payload in
+    whitespace. Tools still return plain dicts — the wrapper is the last step before the SDK,
+    which is also why `tests/conftest.call_tool` decodes the JSON back.
+  - A document list carries `format_document_summary`, not `format_document`, selected through
+    `_arguments.DOCUMENT_PROJECTIONS` by a `fields: DocumentFields = "compact"` argument. The
+    summary is built by narrowing the full projection through `_SUMMARY_KEYS` rather than by
+    listing fields a second time: two independent lists drift, and a dropped key has to fail as
+    a `KeyError` under test rather than vanish from every search result.
+
+  The cost lands hardest on the largest results, which are exactly the ones nobody re-measures.
+  A new list-shaped tool that returns documents takes `fields` and goes through
+  `DOCUMENT_PROJECTIONS`; `search_everywhere` is the one exception and summarizes unconditionally,
+  because it spends its window across seven categories to hand back an ID.
 - **IDs come with names.** A relation is reported as the raw ID *plus* a `<field>_name` resolved
   through the `NameMap` a tool passes into the formatter. Await `get_names(ctx)` before fetching
   documents, never after: the same call fills pypaperless' custom-field cache, which enriches a
