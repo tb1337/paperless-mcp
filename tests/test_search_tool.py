@@ -122,6 +122,9 @@ async def test_search_everywhere_omits_db_only_unless_asked(make_paperless: Any)
     [
         ({"query": "   "}, "empty"),
         ({"query": "a", "limit": 0}, "at least 1"),
+        # The ceiling is uniform across the surface: a model that learned it from
+        # a list tool must not find this one quietly exempt.
+        ({"query": "a", "limit": 101}, "at most 100"),
     ],
 )
 async def test_search_everywhere_rejects_bad_input(
@@ -160,7 +163,11 @@ async def test_search_autocomplete_returns_the_index_terms(make_paperless: Any) 
 
 @pytest.mark.parametrize(
     ("kwargs", "reason"),
-    [({"term": "  "}, "empty"), ({"term": "inv", "limit": 0}, "at least 1")],
+    [
+        ({"term": "  "}, "empty"),
+        ({"term": "inv", "limit": 0}, "at least 1"),
+        ({"term": "inv", "limit": 101}, "at most 100"),
+    ],
 )
 async def test_search_autocomplete_rejects_bad_input(
     make_paperless: Any, kwargs: dict[str, Any], reason: str

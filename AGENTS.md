@@ -21,13 +21,14 @@ in-process it is `build_mcp(settings)` / `serve(settings)` in `server.py`.
     `write_tool`, `delete_tool`), `register_tools()` which applies `safe_tool`, the
     visibility gate, the two passes over a signature's annotations without which an
     argument reaches the model as `{}` (`inline_aliases()` for the `$ref`,
-    `flatten_optionals()` for the `anyOf`), and the `humanize()` that derives each
-    display title
+    `flatten_optionals()` for the `anyOf`), the `structured_output=False` that stops every
+    result being serialized twice, and the `humanize()` that derives each display title
   - `tools/_arguments.py` — the `Literal` aliases the constrained arguments publish as schema
     enums, plus the name → pypaperless-enum mappings
   - `tools/_dates.py` — `parse_date` / `parse_datetime` for the ISO arguments
   - `tools/_paging.py` — `paginate` / `page_result` (offset/limit → Paperless pages), `window`
-    for the endpoints that answer with a bare list, and the `Page` / `Filterable` protocols
+    for the endpoints that answer with a bare list, `MAX_PAGE_LIMIT` with the
+    `check_limit` / `check_window` that enforce it, and the `Page` / `Filterable` protocols
   - `tools/_relations.py` — `<field>_name` → ID for the relation arguments (`resolve_relation`,
     `resolve_tags`)
   - `prompts/` — one module per workflow (`triage`, `review`, `duplicates`), same
@@ -166,8 +167,25 @@ breaking change and gets the `breaking-change` label.
   identical call converges on the same state — false for anything that adds a row, queues a
   task or accumulates (rotation being the obvious trap).
   `tests/test_tool_registration.py` pins the non-obvious ones.
-- **List tools paginate.** Anything list-shaped takes `offset` / `limit` and returns `total` and
-  `has_more` via `page_result`. Do not add a tool that can return an unbounded result set.
+- **List tools paginate, and the window has a ceiling.** Anything list-shaped takes
+  `offset` / `limit` and returns `total` and `has_more` via `page_result`. Do not add a tool that
+  can return an unbounded result set. `limit` may not exceed `_paging.MAX_PAGE_LIMIT` (100),
+  enforced once in `check_window` rather than per tool, because the model picks the window and
+  "more at once" is the tempting choice: 100 documents serialize to ~42k tokens and 250 to ~105k,
+  past the cap a client puts on one tool result — which arrives as a protocol-level failure the
+  model cannot read. Over the ceiling is **refused**, never clamped: `limit` is echoed back in
+  every envelope and cannot mean "what you asked for" in one result and "what you got" in the
+  next. A tool that takes a `limit` outside `paginate` / `window` calls `check_limit` itself, so
+  the ceiling has no exceptions for a model to discover.
+- **Results go out once.** Tools are registered with `structured_output=False`. The SDK builds
+  both halves of a `CallToolResult` from the same return value — a JSON text block *and*
+  `structuredContent` — and the wire model carries both, so every byte is paid for twice: one
+  25-document search measured 23,646 characters of text next to 18,478 of structured content.
+  The cost lands hardest on the largest results, which are exactly the ones nobody re-measures,
+  so `tests/test_tool_registration.py` pins that no tool publishes an `outputSchema`. Note what
+  this retires: `ToolResultError` exists because the SDK could not build an output schema for a
+  union containing MCP content, and there is no output schema any more — the type is still how a
+  `-> Image` tool reports an error, but that is now its only job.
 - **IDs come with names.** A relation is reported as the raw ID *plus* a `<field>_name` resolved
   through the `NameMap` a tool passes into the formatter. Await `get_names(ctx)` before fetching
   documents, never after: the same call fills pypaperless' custom-field cache, which enriches a

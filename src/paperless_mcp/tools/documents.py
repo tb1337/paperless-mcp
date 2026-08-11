@@ -197,8 +197,11 @@ async def search_documents(
     ``document_type__name``, ``num_notes``, ``owner``, ``page_count``, ``id``.
 
     Results are paged: ``total`` is the number of matches and ``has_more``
-    tells you whether to request the next ``offset``. Document text is *not*
-    included — call ``get_document_content`` for that.
+    tells you whether to request the next ``offset``. ``limit`` may not
+    exceed 100, and a window that size is already a large result — ask for
+    what you need and page for the rest, rather than pulling the archive
+    into one call. Document text is *not* included — call
+    ``get_document_content`` for that.
     """
     paperless = await get_client(ctx)
     tags_all = await resolve_tags(

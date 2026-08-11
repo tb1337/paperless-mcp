@@ -9,7 +9,13 @@ from pypaperless import PaperlessClient
 from pypaperless.exceptions import ItemNotFoundError
 
 from paperless_mcp.tools._errors import ToolInputError
-from paperless_mcp.tools._paging import normalize_csv_filters, page_result, paginate, window
+from paperless_mcp.tools._paging import (
+    MAX_PAGE_LIMIT,
+    normalize_csv_filters,
+    page_result,
+    paginate,
+    window,
+)
 from tests.conftest import FakeService, PaperlessStub, make_client
 
 
@@ -87,6 +93,19 @@ async def test_paginate_rejects_negative() -> None:
         await paginate(FakeService(), offset=-1, limit=5)
 
 
+async def test_paginate_rejects_a_window_past_the_ceiling() -> None:
+    """Nothing else bounds a result set, and the model is what picks the window."""
+    with pytest.raises(ToolInputError, match="at most 100"):
+        await paginate(FakeService(), offset=0, limit=MAX_PAGE_LIMIT + 1)
+
+
+async def test_paginate_allows_the_ceiling_itself() -> None:
+    """The bound is inclusive; an off-by-one here would be invisible in the message."""
+    paperless, _ = _tags(3)
+    items, _ = await paginate(paperless.tags, offset=0, limit=MAX_PAGE_LIMIT)
+    assert [tag.id for tag in items] == [1, 2, 3]
+
+
 async def test_paginate_lets_other_errors_propagate() -> None:
     class _Exploding(FakeService):
         def pages(self, page: int = 1, page_size: int = 150) -> Any:
@@ -112,6 +131,12 @@ def test_window_slices_and_reports_total() -> None:
 def test_window_rejects_negative() -> None:
     with pytest.raises(ToolInputError, match="non-negative"):
         window([1], offset=0, limit=-1)
+
+
+def test_window_rejects_a_window_past_the_ceiling() -> None:
+    """These endpoints hand over the whole array, so the window is the only bound."""
+    with pytest.raises(ToolInputError, match="at most 100"):
+        window([1], offset=0, limit=MAX_PAGE_LIMIT + 1)
 
 
 def test_page_result_computes_has_more_from_total() -> None:

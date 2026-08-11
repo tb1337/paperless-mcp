@@ -153,6 +153,19 @@ async def test_tool_schemas_are_json_serializable() -> None:
         json.dumps(tool.input_schema)
 
 
+async def test_no_tool_publishes_an_output_schema() -> None:
+    """An output schema is what makes the SDK send every result twice.
+
+    It builds `structuredContent` alongside the text block from the same return
+    value, and `CallToolResult` carries both — so an output schema on any one tool
+    silently doubles that tool's responses. Pinned across the whole surface rather
+    than on the one tool that would notice, because the cost lands on the largest
+    results and those are the ones nobody re-measures.
+    """
+    tools = await build_mcp(make_settings(readonly=False, enable_delete=True)).list_tools()
+    assert [tool.name for tool in tools if tool.output_schema is not None] == []
+
+
 def test_handshake_reports_our_own_version() -> None:
     """Without this the client sees the MCP SDK's version as the server's."""
     mcp = build_mcp(make_settings(readonly=False, enable_delete=False))

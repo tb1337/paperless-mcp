@@ -4,13 +4,17 @@ Paperless paginates by page number, so an arbitrary offset becomes "start at the
 page holding it, then drop the leading items". Every list-shaped tool returns the
 envelope :func:`page_result` builds, so ``total`` and ``has_more`` mean the same
 thing everywhere.
+
+:data:`MAX_PAGE_LIMIT` is enforced here rather than per tool, because the window
+is the one argument that decides how big a result gets and every list tool routes
+its window through :func:`paginate` or :func:`window`.
 """
 
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Callable, Iterator, Mapping
 from functools import partial
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Final, Protocol
 
 from pypaperless.exceptions import NotFoundError
 
@@ -19,6 +23,15 @@ from ._errors import ToolInputError
 
 if TYPE_CHECKING:
     from pypaperless import PaperlessClient
+
+#: The largest window any list tool will return.
+#:
+#: The model picks the window, "more at once" is the tempting choice, and nothing
+#: else bounds the result: a search answering 100 documents serializes to roughly
+#: 42k tokens, past the cap a client puts on a tool result, and 250 documents to
+#: about 105k. The ceiling is what keeps a single call from arriving as a
+#: protocol-level failure the model cannot read or recover from.
+MAX_PAGE_LIMIT: Final = 100
 
 
 class Page[ItemT](Protocol):
@@ -57,6 +70,35 @@ def normalize_csv_filters(filters: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def check_limit(limit: int) -> None:
+    """Refuse a ``limit`` above :data:`MAX_PAGE_LIMIT`.
+
+    Refused rather than clamped: ``limit`` is echoed back in every envelope, so
+    silently narrowing it would make the same key mean "what you asked for" in
+    one result and "what you got" in the next. The message names the ceiling,
+    which is what lets the model pick a valid window on the retry.
+
+    Raises:
+        ToolInputError: When *limit* exceeds the ceiling.
+    """
+    if limit > MAX_PAGE_LIMIT:
+        raise ToolInputError(
+            f"limit must be at most {MAX_PAGE_LIMIT}, got {limit}. "
+            "Request a smaller window and walk the result set with offset."
+        )
+
+
+def check_window(offset: int, limit: int) -> None:
+    """Refuse a window that is negative or wider than :data:`MAX_PAGE_LIMIT`.
+
+    Raises:
+        ToolInputError: When the window is negative or exceeds the ceiling.
+    """
+    if offset < 0 or limit < 0:
+        raise ToolInputError("offset and limit must be non-negative")
+    check_limit(limit)
+
+
 def _slice_plan(offset: int, limit: int) -> tuple[int, int, int]:
     """Return ``(page_size, first_page, skip_within_first_page)`` for a window.
 
@@ -84,10 +126,10 @@ async def paginate(
         Paperless or ``None`` when it did not report one.
 
     Raises:
-        ToolInputError: When ``offset`` or ``limit`` is negative.
+        ToolInputError: When the window is negative or exceeds
+            :data:`MAX_PAGE_LIMIT`.
     """
-    if offset < 0 or limit < 0:
-        raise ToolInputError("offset and limit must be non-negative")
+    check_window(offset, limit)
 
     params = normalize_csv_filters(filters or {})
     page_size, first_page, skip = _slice_plan(offset, limit)
@@ -139,11 +181,15 @@ def window[ItemT](items: list[ItemT], *, offset: int, limit: int) -> tuple[list[
     Used for the Paperless endpoints that answer with a bare list instead of a
     paginated envelope (document notes, a document's share links, active tasks).
 
+    The ceiling applies here too. These endpoints hand the whole array over in
+    one response, so the window is the only thing between a document with four
+    hundred notes and a result nobody can read.
+
     Raises:
-        ToolInputError: When ``offset`` or ``limit`` is negative.
+        ToolInputError: When the window is negative or exceeds
+            :data:`MAX_PAGE_LIMIT`.
     """
-    if offset < 0 or limit < 0:
-        raise ToolInputError("offset and limit must be non-negative")
+    check_window(offset, limit)
     return items[offset : offset + limit], len(items)
 
 

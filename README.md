@@ -73,7 +73,21 @@ the caller, not a human clicking through a UI:
 - **Server-side pagination** on every list-shaped tool: `offset`/`limit` are
   translated into Paperless page requests, so paging deep into a result set
   costs at most two HTTP calls and each response reports `total` and
-  `has_more`.
+  `has_more`. `limit` is capped at **100** everywhere, because the model is what
+  picks the window and nothing else bounds how large a result gets: a search
+  answering 100 documents already serializes to roughly 42k tokens, and 250 to
+  about 105k — past what a client accepts as a single tool result, which it
+  reports as a failure the model cannot read or recover from. A window over the
+  cap is refused with `invalid_argument` naming the ceiling, rather than
+  silently narrowed: `limit` is echoed back in every envelope and has to keep
+  meaning the same thing there.
+- **Every result is sent once.** The MCP SDK builds *both* halves of a tool
+  result from the same return value — a JSON text block and `structuredContent`
+  — and the wire format carries both, so a response is paid for twice. One
+  search window of 25 documents measured 23,646 characters of text alongside
+  18,478 of structured content. The tools are registered as unstructured, which
+  drops the duplicate: about 44 % off every response. The trade is the published
+  `outputSchema`, which described a result the model had already received.
 - **Structured errors**: pypaperless exceptions become results like
   `{"error": "not_found", "detail": "...", "cause": "..."}` instead of
   protocol-level failures, so the model can recover rather than give up. The `error`
