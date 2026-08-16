@@ -14,6 +14,7 @@ from paperless_mcp.tools._arguments import (
     BulkObjectType,
     ClearableDocumentField,
     CustomFieldDataType,
+    DocumentFields,
     DocumentOrderField,
     MatchingAlgorithmName,
     ShareLinkVersion,
@@ -151,6 +152,19 @@ async def test_tool_schemas_are_json_serializable() -> None:
     tools = await build_mcp(make_settings(readonly=False, enable_delete=True)).list_tools()
     for tool in tools:
         json.dumps(tool.input_schema)
+
+
+async def test_no_tool_publishes_an_output_schema() -> None:
+    """An output schema is what makes the SDK send every result twice.
+
+    It builds `structuredContent` alongside the text block from the same return
+    value, and `CallToolResult` carries both — so an output schema on any one tool
+    silently doubles that tool's responses. Pinned across the whole surface rather
+    than on the one tool that would notice, because the cost lands on the largest
+    results and those are the ones nobody re-measures.
+    """
+    tools = await build_mcp(make_settings(readonly=False, enable_delete=True)).list_tools()
+    assert [tool.name for tool in tools if tool.output_schema is not None] == []
 
 
 def test_handshake_reports_our_own_version() -> None:
@@ -305,6 +319,10 @@ _CONSTRAINED_ARGUMENTS = (
     ("list_tasks", "status", TaskStatusName),
     ("list_tasks", "task_type", TaskTypeName),
     ("search_documents", "order_by", DocumentOrderField),
+    ("search_documents", "fields", DocumentFields),
+    ("find_similar_documents", "fields", DocumentFields),
+    ("run_saved_view", "fields", DocumentFields),
+    ("list_trash", "fields", DocumentFields),
     ("update_document", "clear_fields", ClearableDocumentField),
     ("bulk_delete_objects", "object_type", BulkObjectType),
 )

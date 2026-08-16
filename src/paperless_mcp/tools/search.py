@@ -10,13 +10,14 @@ from mcp.server.mcpserver import MCPServer
 from ..client import ToolContext, get_client, get_names
 from ..config import Settings
 from ..formatting import (
-    format_document,
+    format_document_summary,
     format_saved_view,
 )
 from ..names import NameMap
 from ..resources import RESOURCES
 from ._errors import ToolInputError
 from ._master_data import FORMATTERS
+from ._paging import check_limit
 from ._registry import read_tool, register_tools
 
 #: The result categories this server exposes, paired with their formatter. The
@@ -26,8 +27,13 @@ from ._registry import read_tool, register_tools
 #: Users, groups, mail rules and accounts, and workflows are deliberately left
 #: out: they are the admin-tier resources the tool surface does not carry, and
 #: none of them resolves to something a document filter accepts.
+#:
+#: Documents are always summarized and this tool takes no ``fields`` argument:
+#: it answers "what is this thing called in Paperless?" across seven categories at
+#: once, so a full projection would pay for a document's file names and owner
+#: seven categories deep to hand back an ID.
 _CATEGORIES: Final[tuple[tuple[str, Callable[[Any, NameMap], dict[str, Any]]], ...]] = (
-    ("documents", format_document),
+    ("documents", format_document_summary),
     *((resource.key, FORMATTERS[resource.key]) for resource in RESOURCES),
     ("saved_views", format_saved_view),
 )
@@ -56,14 +62,15 @@ async def search_everywhere(
     skips the full-text index and matches stored field values only, which
     is faster and finds titles rather than scan contents.
 
-    ``limit`` caps each category separately, not the total. Every category
-    key is always present, empty when nothing matched, and ``truncated``
-    says whether any of them hit the cap.
+    ``limit`` caps each category separately, not the total, and may not
+    exceed 100. Every category key is always present, empty when nothing
+    matched, and ``truncated`` says whether any of them hit the cap.
     """
     if not query.strip():
         raise ToolInputError("query must not be empty")
     if limit < 1:
         raise ToolInputError(f"limit must be at least 1, got {limit}")
+    check_limit(limit)
 
     paperless = await get_client(ctx)
     # Before the search, not after: the same call primes the custom-field
@@ -96,11 +103,14 @@ async def search_autocomplete(ctx: ToolContext, term: str, limit: int = 10) -> d
     the index and never show up here — those are documented on
     ``search_documents``. For finding which *entity* a name refers to, use
     ``search_everywhere`` instead; this answers a narrower question.
+
+    ``limit`` may not exceed 100.
     """
     if not term.strip():
         raise ToolInputError("term must not be empty")
     if limit < 1:
         raise ToolInputError(f"limit must be at least 1, got {limit}")
+    check_limit(limit)
     paperless = await get_client(ctx)
     suggestions = await paperless.search.autocomplete(term, limit)
     return {"term": term, "suggestions": list(suggestions), "limit": limit}

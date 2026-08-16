@@ -73,7 +73,26 @@ the caller, not a human clicking through a UI:
 - **Server-side pagination** on every list-shaped tool: `offset`/`limit` are
   translated into Paperless page requests, so paging deep into a result set
   costs at most two HTTP calls and each response reports `total` and
-  `has_more`.
+  `has_more`. `limit` is capped at **100** everywhere, because the model is what
+  picks the window and nothing else bounds how large a result gets: a search
+  answering 100 documents already serializes to roughly 42k tokens, and 250 to
+  about 105k — past what a client accepts as a single tool result, which it
+  reports as a failure the model cannot read or recover from. A window over the
+  cap is refused with `invalid_argument` naming the ceiling, rather than
+  silently narrowed: `limit` is echoed back in every envelope and has to keep
+  meaning the same thing there.
+- **Results are measured, not estimated.** Three things decide what a window of
+  documents costs, and all three were wrong by default. The MCP SDK builds *both*
+  halves of a tool result from the same return value — a JSON text block and
+  `structuredContent` — and the wire format carries both, so a response was paid
+  for twice; the tools are registered as unstructured, which drops the duplicate.
+  The SDK then indents the text block with two spaces, which nothing reads;
+  results are serialized compact. And a list carried every field of every
+  document, where `fields="compact"` now carries what a hit is judged on. A
+  25-document search went from 42,124 characters to 9,338 — **−78 %**, or 10.5k
+  tokens down to 2.3k — and a 100-document one from 42k tokens to 9.3k. What this
+  gives up is the published `outputSchema`, which described a result the model had
+  already received.
 - **Structured errors**: pypaperless exceptions become results like
   `{"error": "not_found", "detail": "...", "cause": "..."}` instead of
   protocol-level failures, so the model can recover rather than give up. The `error`
@@ -382,6 +401,13 @@ Notes on semantics:
   and they must agree; a mismatch is rejected rather than silently resolved.
 - `search_documents` combines a Whoosh full-text `query` with Django-style
   filters, and takes `order_by` / `descending`.
+- Document lists — `search_documents`, `find_similar_documents`,
+  `run_saved_view`, `list_trash` — take `fields`. The default `compact` carries
+  the ID, title, correspondent, document type, tags, the dates and the page
+  count; `fields="full"` adds the storage path, the owner, both file names, the
+  MIME type and `modified`, and costs roughly three times as much per document.
+  `get_document` answers the full set for the one hit that turns out to matter,
+  which is usually the cheaper route.
 - `search_everywhere` is the other half: one global-search call that answers
   "what is this called in Paperless?" across documents, tags, correspondents,
   document types, storage paths, custom fields and saved views, so a name

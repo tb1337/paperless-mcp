@@ -31,10 +31,12 @@ values — which the schema now does too, so the model should not reach that poi
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any, Final, Literal
 
 from pypaperless.models.types import CustomFieldType, MatchingAlgorithm
+
+from ..formatting import format_document, format_document_summary
 
 #: How Paperless matches a tag, correspondent, document type or storage path to a
 #: document automatically. Named rather than numbered: the API takes 0-6, but a
@@ -97,6 +99,18 @@ type DocumentOrderField = Literal[
 type ClearableDocumentField = Literal[
     "correspondent", "document_type", "storage_path", "archive_serial_number"
 ]
+
+#: How much of each document a list result carries. ``compact`` is the default
+#: because a window of 25 full documents costs roughly three times what the same
+#: window costs projected down to what a search is actually read for — and the nine
+#: fields it drops are the ones a follow-up ``get_document`` answers anyway.
+type DocumentFields = Literal["compact", "full"]
+
+#: Name -> the projection each document in a list result is formatted through.
+DOCUMENT_PROJECTIONS: Final[Mapping[str, Callable[..., dict[str, Any]]]] = {
+    "compact": format_document_summary,
+    "full": format_document,
+}
 
 #: The resources ``/api/bulk_edit_objects/`` accepts. Custom fields are absent
 #: because the endpoint has no branch for them.

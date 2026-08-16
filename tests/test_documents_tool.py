@@ -113,6 +113,28 @@ async def test_search_documents_paginates(make_paperless: Any) -> None:
     assert page3["has_more"] is False
 
 
+async def test_search_documents_summarizes_hits_unless_asked_for_everything(
+    make_paperless: Any,
+) -> None:
+    """The default projection is what keeps a window of hits affordable.
+
+    `full` has to stay reachable in the same call: a caller that needs the storage
+    path for every hit should not have to walk the window with `get_document`.
+    """
+    paperless = make_paperless()
+    paperless.documents.filter_results = [document(1, "Rechnung")]
+    mcp = build_mcp(make_settings(), paperless)
+
+    compact = await call_tool(mcp, "search_documents")
+    full = await call_tool(mcp, "search_documents", fields="full")
+
+    assert "storage_path" not in compact["documents"][0]
+    assert "original_file_name" not in compact["documents"][0]
+    assert compact["documents"][0]["title"] == "Rechnung"
+    assert "storage_path" in full["documents"][0]
+    assert "modified" in full["documents"][0]
+
+
 async def test_search_documents_passes_filters(make_paperless: Any) -> None:
     paperless = make_paperless()
     mcp = build_mcp(make_settings(), paperless)

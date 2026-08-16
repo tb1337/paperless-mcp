@@ -54,6 +54,8 @@ sounds like one of them — "unpaid invoices", "this year's tax stuff" — check
 at the same filters: the view is what they mean by that name.
 
 List-shaped tools page with `offset`/`limit` and report `total` plus `has_more`.
+`limit` may not exceed 100 on any of them, and a window anywhere near that is
+already a large result: ask for what the request needs and page for the rest.
 `limit=0` returns no items at all and is the cheap way to ask how many there are:
 read `total`, and note that `has_more` then only says whether anything matched —
 raise `limit` to make progress rather than paging on a window of zero.
