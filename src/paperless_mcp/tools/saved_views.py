@@ -114,7 +114,12 @@ async def run_saved_view(
     ordering = view_ordering(view.sort_field, view.sort_reverse)
     if ordering is not None:
         filters["ordering"] = ordering
-    items, total = await paginate(paperless.documents, filters, offset=offset, limit=limit)
+    # Neither projection reads `content`, so ask Paperless not to send the full
+    # OCR text of every hit. Added after `filters` is echoed into the result:
+    # it is transport thrift, not part of what the view selected.
+    items, total = await paginate(
+        paperless.documents, {**filters, "truncate_content": "true"}, offset=offset, limit=limit
+    )
     return page_result(
         "documents",
         items,

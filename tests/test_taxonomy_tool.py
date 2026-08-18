@@ -340,6 +340,48 @@ async def test_create_tag_rejects_an_unknown_matching_algorithm(bad: object) -> 
     assert [r for r in stub.requests if r.method == "POST"] == []
 
 
+async def test_update_tag_clears_the_parent() -> None:
+    """``clear_parent`` is the only way back to a top-level tag.
+
+    ``None`` means "not supplied" for every update argument, so un-nesting needs
+    its own explicit flag — the ``update_document.clear_fields`` pattern.
+    """
+    stub = PaperlessStub(
+        collections={
+            "/api/tags/": [
+                {"id": 7, "name": "Ausgang", **_MATCHING},
+                {"id": 9, "name": "Rechnungen", "parent": 7, **_MATCHING},
+            ]
+        }
+    )
+    mcp = build_mcp(make_settings(), make_client(stub))
+
+    result = await call_tool(mcp, "update_tag", tag_id=9, clear_parent=True)
+
+    assert result["changed"] is True
+    assert result["parent"] is None
+    patched = [r for r in stub.requests if r.method == "PATCH"]
+    assert len(patched) == 1
+    assert patched[0].json["parent"] is None
+
+
+async def test_update_tag_rejects_setting_and_clearing_the_parent() -> None:
+    stub = PaperlessStub(
+        collections={
+            "/api/tags/": [
+                {"id": 7, "name": "Ausgang", **_MATCHING},
+                {"id": 9, "name": "Rechnungen", "parent": 7, **_MATCHING},
+            ]
+        }
+    )
+    mcp = build_mcp(make_settings(), make_client(stub))
+
+    result = await call_tool(mcp, "update_tag", tag_id=9, parent_name="Ausgang", clear_parent=True)
+
+    assert result["error"] == "invalid_argument"
+    assert not [r for r in stub.requests if r.method == "PATCH"]
+
+
 async def test_update_tag_does_not_leak_the_create_time_defaults() -> None:
     """`match=""` is a create-time default; an update must not send it unasked."""
     mcp, stub = _server(RESOURCES[0], count=1)

@@ -60,6 +60,10 @@ class ToolResultError(Exception):
     outright on a union containing one. Raising carries the payload out
     instead, so the model still sees the usual error shape.
 
+    Dict-returning tools raise it too, from shared helpers that want extra
+    context fields on the error — ``custom_field_values`` attaches
+    ``custom_field_id`` and ``missing_document_ids`` this way.
+
     Args:
         error: The machine-readable code, e.g. ``"file_too_large"``.
         detail: One sentence the model can act on.
@@ -114,6 +118,16 @@ _ERROR_MAP: tuple[tuple[type[BaseException], str, str], ...] = (
 )
 
 
+def _entry(exc_type: type[BaseException]) -> tuple[str, str]:
+    """Return *exc_type*'s ``(code, detail)`` row — the single spelling of it.
+
+    For the paths that build an error payload by type rather than from a caught
+    instance, so a rewording in :data:`_ERROR_MAP` cannot leave a second copy
+    behind.
+    """
+    return next((code, msg) for mapped, code, msg in _ERROR_MAP if issubclass(exc_type, mapped))
+
+
 def _translate_delete(exc: DeletionError) -> dict[str, Any] | None:
     """Report a failed delete the way the same status reads on any other verb.
 
@@ -131,14 +145,16 @@ def _translate_delete(exc: DeletionError) -> dict[str, Any] | None:
         return _mapped(exc)
     status = failure.response.status_code
     if status == HTTPStatus.NOT_FOUND:
+        code, detail = _entry(NotFoundError)
         return {
-            "error": "not_found",
-            "detail": "Paperless has no such object (HTTP 404).",
+            "error": code,
+            "detail": detail,
             "cause": f"Requested resource does not exist: {failure.request.url}",
         }
+    code, detail = _entry(DeletionError)
     return {
-        "error": "delete_failed",
-        "detail": "Paperless refused the delete.",
+        "error": code,
+        "detail": detail,
         "cause": f"Paperless answered HTTP {status} for DELETE {failure.request.url}.",
     }
 

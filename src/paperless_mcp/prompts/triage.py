@@ -9,6 +9,7 @@ from __future__ import annotations
 from mcp.server.mcpserver import MCPServer
 
 from ..config import Settings
+from ..tools._paging import MAX_PAGE_LIMIT
 from ._helpers import capability_note, sections
 
 _INTRO = """\
@@ -18,12 +19,15 @@ Work through the Paperless-ngx inbox and file what is in it. Oldest arrival firs
 _SETUP = """\
 Step 0 — set up once, before touching a document.
 
-- `list_tags(limit=200)`: find the tag whose `is_inbox_tag` is true and remember its ID. Removing
-  that tag is what marks a document as processed — Paperless has no other "done" flag.
-- `list_correspondents(limit=200)`, `list_document_types(limit=200)`,
-  `list_storage_paths(limit=200)`: the vocabulary you may assign. Prefer an existing entry over a
-  new one — near-duplicate master data ("Stadtwerke" next to "Stadtwerke München") is the main way
-  an archive rots, and it stays invisible until someone searches for the wrong one.
+- `list_tags(limit={page_limit})`: find the tag whose `is_inbox_tag` is true and remember its
+  ID. Removing that tag is what marks a document as processed — Paperless has no other "done"
+  flag.
+- `list_correspondents(limit={page_limit})`, `list_document_types(limit={page_limit})`,
+  `list_storage_paths(limit={page_limit})`: the vocabulary you may assign. `limit` is capped at
+  {page_limit}, so whenever `has_more` is true, page on with `offset` until it is false — an
+  incomplete vocabulary defeats the next line. Prefer an existing entry over a new one —
+  near-duplicate master data ("Stadtwerke" next to "Stadtwerke München") is the main way an
+  archive rots, and it stays invisible until someone searches for the wrong one.
 - `search_documents(is_in_inbox=true, order_by="added", limit={limit})`: your work list. If it
   comes back empty, the inbox is clear — say so and stop."""
 
@@ -101,12 +105,16 @@ def register(mcp: MCPServer, settings: Settings) -> None:
         Reads each waiting document, cross-checks the trained classifier against
         the AI suggestions and against the documents that are already filed like
         it, then settles on correspondent, type, storage path, tags, title and
-        date. ``limit`` caps how many documents one pass handles.
+        date. ``limit`` caps how many documents one pass handles; a value
+        above the server's page ceiling is lowered to it.
         """
+        # The tools refuse a window above the ceiling, so a plan asking for
+        # one would only script that refusal into its first call.
+        limit = min(limit, MAX_PAGE_LIMIT)
         return sections(
             _INTRO.format(limit=limit),
             capability_note(settings),
-            _SETUP.format(limit=limit),
+            _SETUP.format(limit=limit, page_limit=MAX_PAGE_LIMIT),
             _EVIDENCE,
             _DECIDE,
             _APPLY if settings.expose_writes else _PROPOSE,

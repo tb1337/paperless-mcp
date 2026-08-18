@@ -19,10 +19,10 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Final
 
-from .names import NameLookup, NameMap
-
 if TYPE_CHECKING:
     from pypaperless import PaperlessClient
+
+    from .names import NameLookup, NameMap
 
 
 @dataclass(frozen=True, slots=True)

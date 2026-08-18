@@ -33,7 +33,7 @@ from ._custom_field_query import build_custom_field_query
 from ._dates import parse_date, parse_datetime
 from ._errors import ToolInputError, ToolResultError, translate_error
 from ._master_data import apply_values
-from ._paging import local_page, page_result, paginate
+from ._paging import MAX_PAGE_LIMIT, local_page, named_page, page_result, paginate
 from ._registry import delete_tool, read_tool, register_tools, write_tool
 from ._relations import resolve_assignment, resolve_tags
 from ._task_polling import (
@@ -195,9 +195,7 @@ async def search_documents(
       ``month``, ``day``, ``quarter``, ``week``, ``week_day``, ``iso_year``
       and ``iso_week_day``
 
-    ``order_by`` accepts ``created``, ``added``, ``modified``, ``title``,
-    ``archive_serial_number``, ``correspondent__name``,
-    ``document_type__name``, ``num_notes``, ``owner``, ``page_count``, ``id``.
+    The accepted ``order_by`` values are in this tool's schema.
 
     Results are paged: ``total`` is the number of matches and ``has_more``
     tells you whether to request the next ``offset``. ``limit`` may not
@@ -275,6 +273,9 @@ async def search_documents(
         filters["custom_field_query"] = build_custom_field_query(
             custom_field_query, cached_custom_fields(paperless)
         )
+    # Neither projection reads `content`, so ask Paperless not to send the full
+    # OCR text of every hit — routinely the bulk of a window's bytes.
+    filters["truncate_content"] = "true"
 
     items, total = await paginate(paperless.documents, filters, offset=offset, limit=limit)
     return page_result(
@@ -329,7 +330,7 @@ async def get_document_metadata(ctx: ToolContext, document_id: int) -> dict[str,
 
 
 async def get_document_notes(
-    ctx: ToolContext, document_id: int, offset: int = 0, limit: int = 100
+    ctx: ToolContext, document_id: int, offset: int = 0, limit: int = MAX_PAGE_LIMIT
 ) -> dict[str, Any]:
     """List the notes attached to a document, in the order Paperless returns them.
 
@@ -380,21 +381,14 @@ async def find_similar_documents(
     index to be built. ``fields`` works as it does on ``search_documents``:
     ``compact`` by default, ``full`` for every field a document carries.
     """
-    paperless = await get_client(ctx)
-    names = await get_names(ctx)
-    items, total = await paginate(
-        paperless.documents,
-        {"more_like_id": document_id},
-        offset=offset,
-        limit=limit,
-    )
-    return page_result(
+    return await named_page(
+        ctx,
         "documents",
-        items,
+        lambda paperless: paperless.documents,
+        DOCUMENT_PROJECTIONS[fields],
+        filters={"more_like_id": document_id, "truncate_content": "true"},
         offset=offset,
         limit=limit,
-        total=total,
-        formatter=partial(DOCUMENT_PROJECTIONS[fields], names=names),
         reference=document_id,
     )
 
@@ -562,7 +556,7 @@ async def upload_document(
         storage_path=assigned.storage_path,
         tags=tag_ids,
         archive_serial_number=archive_serial_number,
-        created=parse_datetime(created, field="created") if created else None,
+        created=parse_datetime(created, field="created") if created is not None else None,
     )
     task_uuid = await paperless.documents.save(draft)
     queued = {"task_uuid": task_uuid, "filename": filename, "size_bytes": len(content)}
@@ -618,9 +612,12 @@ async def update_document(
     than a newly created tag.
 
     To explicitly unset a foreign key or the ASN, list its name in
-    ``clear_fields``: ``correspondent``, ``document_type``,
-    ``storage_path``, ``archive_serial_number``. Setting and clearing the
-    same field in one call is rejected.
+    ``clear_fields`` — the accepted names are in this tool's schema. Setting
+    and clearing the same field in one call is rejected.
+
+    ``created`` is the date printed *on* the document, as an ISO date
+    (``YYYY-MM-DD``); a datetime is accepted, but Paperless stores only its
+    date part.
     """
     paperless = await get_client(ctx)
     assigned = await resolve_assignment(

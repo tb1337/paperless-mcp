@@ -162,6 +162,7 @@ async def test_search_documents_passes_filters(make_paperless: Any) -> None:
             "created__date__gte": "2026-01-01",
             "ordering": "-created",
             "query": "invoice",
+            "truncate_content": "true",
         }
     ]
 
@@ -186,6 +187,7 @@ async def test_search_documents_sends_the_custom_field_query_as_json(
         {
             "document_type__id": 2,
             "custom_field_query": '["Due", "range", ["2024-08-01", "2024-09-01"]]',
+            "truncate_content": "true",
         }
     ]
 
@@ -355,6 +357,28 @@ async def test_upload_document_passes_content_and_metadata(make_paperless: Any) 
     assert draft.created == dt.datetime(2026, 2, 3, 0, 0)
     # Without poll=True the call ends at the queue, and costs no task request.
     assert paperless.tasks.get_calls == []
+
+
+async def test_upload_document_rejects_an_empty_created(make_paperless: Any) -> None:
+    """``update_document`` refuses ``created=""``; the upload half must agree.
+
+    Silently dropping it would date the document at consumption time with no
+    error — the refuse-don't-ignore rule every other argument follows.
+    """
+    paperless = make_paperless()
+    mcp = build_mcp(make_settings(), paperless)
+
+    result = await call_tool(
+        mcp,
+        "upload_document",
+        filename="a.pdf",
+        content_base64=base64.b64encode(b"x").decode("ascii"),
+        created="",
+    )
+
+    assert result["error"] == "invalid_argument"
+    assert "created" in result["cause"]
+    assert paperless.documents.save_calls == []
 
 
 async def test_upload_document_poll_returns_the_new_document_id(

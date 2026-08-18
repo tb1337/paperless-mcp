@@ -8,8 +8,13 @@ from typing import Any
 import pytest
 from pypaperless.models import CustomField
 
-from paperless_mcp.tools._custom_field_query import build_custom_field_query
+from paperless_mcp.tools._custom_field_query import (
+    _DATE_COMPONENTS,
+    _OPS_BY_CATEGORY,
+    build_custom_field_query,
+)
 from paperless_mcp.tools._errors import ToolInputError
+from paperless_mcp.tools.documents import search_documents
 from tests.conftest import make_runtime
 
 _RUNTIME = make_runtime()
@@ -233,3 +238,19 @@ def test_leaves_an_unknown_data_type_to_paperless() -> None:
     fields = {1: _field(1, "Exotic", "quantum")}
 
     assert _built(["Exotic", "icontains", "x"], fields) == ["Exotic", "icontains", "x"]
+
+
+def test_search_documents_docstring_carries_the_operator_matrix() -> None:
+    """The prose copy of the validator tables cannot be allowed to drift.
+
+    The recursive query type deliberately publishes a bare ``type: "array"``,
+    so the ``search_documents`` docstring is the only documentation the model
+    gets for the operators and date components — a table edit has to fail here
+    until the docstring copy follows.
+    """
+    doc = search_documents.__doc__ or ""
+    missing = sorted(
+        {op for ops in _OPS_BY_CATEGORY.values() for op in ops if f"``{op}``" not in doc}
+        | {component for component in _DATE_COMPONENTS if f"``{component}``" not in doc}
+    )
+    assert missing == []

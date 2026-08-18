@@ -5,6 +5,7 @@ from __future__ import annotations
 from mcp.server.mcpserver import MCPServer
 
 from ..config import Settings
+from ..tools._paging import MAX_PAGE_LIMIT
 from ._helpers import capability_note, sections
 
 _INTRO = """\
@@ -92,8 +93,12 @@ def register(mcp: MCPServer, settings: Settings) -> None:
         against the file metadata before calling it a duplicate — and rules out
         the look-alikes (monthly statements, last year's form) that make a naive
         text match useless. ``query`` narrows the hunt; without one it starts
-        from the most recent arrivals.
+        from the most recent arrivals. A ``limit`` above the server's page
+        ceiling is lowered to it.
         """
+        # The tools refuse a window above the ceiling, so a plan asking for
+        # one would only script that refusal into its first call.
+        limit = min(limit, MAX_PAGE_LIMIT)
         candidates = (
             _CANDIDATES_QUERY.format(query=query, limit=limit)
             if query

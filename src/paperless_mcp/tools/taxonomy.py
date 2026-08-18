@@ -34,7 +34,7 @@ from ._arguments import (
 )
 from ._errors import ToolInputError
 from ._master_data import create_resource, delete_resource, list_resource, update_resource
-from ._paging import paginate
+from ._paging import MAX_PAGE_LIMIT, collect_all
 from ._registry import delete_tool, read_tool, register_tools, write_tool
 from ._relations import resolve_relation, resolve_relations
 
@@ -152,7 +152,7 @@ async def list_tags(
     ctx: ToolContext,
     name_contains: str | None = None,
     offset: int = 0,
-    limit: int = 100,
+    limit: int = MAX_PAGE_LIMIT,
 ) -> dict[str, Any]:
     """List tags, optionally filtered by a case-insensitive name substring."""
     return await list_resource(ctx, TAGS, name_contains=name_contains, offset=offset, limit=limit)
@@ -203,6 +203,7 @@ async def update_tag(
     is_inbox_tag: bool | None = None,
     parent_id: int | None = None,
     parent_name: str | None = None,
+    clear_parent: bool = False,
     match: str | None = None,
     matching_algorithm: MatchingAlgorithmName | None = None,
     is_insensitive: bool | None = None,
@@ -211,8 +212,12 @@ async def update_tag(
 
     Nesting: pass ``parent_name`` when the parent tag comes from the conversation,
     ``parent_id`` only when you have it verbatim from a tool result. Passing both is
-    allowed but they must agree.
+    allowed but they must agree. ``clear_parent=true`` un-nests the tag, making it
+    top-level again; setting and clearing the parent in one call is rejected.
     """
+    parent = await _parent(ctx, parent_id, parent_name)
+    if clear_parent and parent is not None:
+        raise ToolInputError("The parent cannot be set and cleared at once.")
     return await update_resource(
         ctx,
         TAGS,
@@ -221,9 +226,10 @@ async def update_tag(
             "name": name,
             "color": color,
             "is_inbox_tag": is_inbox_tag,
-            "parent": await _parent(ctx, parent_id, parent_name),
+            "parent": parent,
             **_matching_kwargs(match, matching_algorithm, is_insensitive, for_create=False),
         },
+        clear=("parent",) if clear_parent else (),
     )
 
 
@@ -236,7 +242,7 @@ async def list_correspondents(
     ctx: ToolContext,
     name_contains: str | None = None,
     offset: int = 0,
-    limit: int = 100,
+    limit: int = MAX_PAGE_LIMIT,
 ) -> dict[str, Any]:
     """List correspondents, optionally filtered by a name substring."""
     return await list_resource(
@@ -289,7 +295,7 @@ async def list_document_types(
     ctx: ToolContext,
     name_contains: str | None = None,
     offset: int = 0,
-    limit: int = 100,
+    limit: int = MAX_PAGE_LIMIT,
 ) -> dict[str, Any]:
     """List document types, optionally filtered by a name substring."""
     return await list_resource(
@@ -342,7 +348,7 @@ async def list_storage_paths(
     ctx: ToolContext,
     name_contains: str | None = None,
     offset: int = 0,
-    limit: int = 100,
+    limit: int = MAX_PAGE_LIMIT,
 ) -> dict[str, Any]:
     """List storage paths, optionally filtered by a name substring."""
     return await list_resource(
@@ -403,7 +409,7 @@ async def list_custom_fields(
     ctx: ToolContext,
     name_contains: str | None = None,
     offset: int = 0,
-    limit: int = 100,
+    limit: int = MAX_PAGE_LIMIT,
 ) -> dict[str, Any]:
     """List custom field definitions."""
     return await list_resource(
@@ -464,9 +470,9 @@ async def bulk_delete_objects(
     documents keep existing; they only lose the assignment, the way
     ``delete_tag`` takes one tag off every document carrying it.
 
-    ``object_type`` is ``tags``, ``correspondents``, ``document_types`` or
-    ``storage_paths``. Custom fields are not part of this endpoint;
-    ``delete_custom_field`` removes those one at a time.
+    The accepted ``object_type`` values are in this tool's schema. Custom
+    fields are not part of this endpoint; ``delete_custom_field`` removes
+    those one at a time.
 
     Select the objects *either* by naming them *or* by filter, never both —
     a filtered call ignores the list rather than intersecting with it:
@@ -521,20 +527,19 @@ async def bulk_delete_objects(
     paperless = await get_client(ctx)
     if filters:
         # The endpoint answers a filtered delete with a bare "OK", so the selection has
-        # to be read before it is destroyed or it is gone unrecorded. One request for
-        # the count, then at most two more for the IDs themselves — `paginate` sizes its
-        # pages to the window — which is worth it for an operation with no trash behind
-        # it: `filters` says what was asked for, `object_ids` what it hit.
-        _, matched = await paginate(resource.service(paperless), filters, offset=0, limit=0)
-        if not matched:
+        # to be read before it is destroyed or it is gone unrecorded — page by page,
+        # because the match count answers to no window ceiling. Worth it for an
+        # operation with no trash behind it: `filters` says what was asked for,
+        # `object_ids` what it hit.
+        selected = await collect_all(resource.service(paperless), filters)
+        if not selected:
             raise ToolInputError(
                 f"No {object_type} match {filters} — nothing was deleted. "
                 f"list_{object_type} shows what exists."
             )
-        selected, _ = await paginate(resource.service(paperless), filters, offset=0, limit=matched)
         object_ids = [obj.id for obj in selected]
         await _delete_objects(paperless, object_type, {"all": True, "filters": filters})
-        deleted = matched
+        deleted = len(selected)
     elif object_ids:
         await _delete_objects(paperless, object_type, {"objects": object_ids})
         deleted = len(object_ids)
@@ -544,8 +549,7 @@ async def bulk_delete_objects(
             f"{object_type} to delete."
         )
     invalidate_names(ctx)
-    # Both keys always, one of them empty: `selection` used to hold either the
-    # filter dict or an object_ids wrapper, so reading it meant checking its shape.
+    # Both keys always, one of them empty, so reading the result needs no shape check.
     return {
         "object_type": object_type,
         "deleted": deleted,

@@ -384,7 +384,28 @@ async def test_set_replaces_the_whole_documentlink_list(make_paperless: Any) -> 
     assert result["previous_value"] == [2070]
     assert result["value"] == [2109]
     assert _stored(document, 11) == [2109]
-    assert paperless.documents.filter_calls == [{"id__in": "2109"}]
+    assert paperless.documents.filter_calls == [{"id__in": "2109", "truncate_content": "true"}]
+
+
+async def test_set_documentlink_validates_past_the_page_ceiling(make_paperless: Any) -> None:
+    """150 linked IDs must not be refused as a too-large window.
+
+    The existence check is an internal read-back, not a model-requested window,
+    so it pages through in ceiling-sized pages instead of asking for one
+    oversized page — the regression the ceiling introduced when this still went
+    through ``paginate(limit=len(wanted))``.
+    """
+    wanted = list(range(1, 151))
+    mcp, paperless, document = _setup(make_paperless, [{"field": 11, "value": []}])
+    paperless.documents.filter_results = [SimpleNamespace(id=pk) for pk in wanted]
+
+    result = await call_tool(
+        mcp, "set_document_custom_field", document_id=1, custom_field_id=11, value=wanted
+    )
+
+    assert result["value"] == wanted
+    assert _stored(document, 11) == wanted
+    assert paperless.documents.page_calls == [{"page": 1, "page_size": 100}]
 
 
 async def test_set_refuses_a_link_to_a_document_that_does_not_exist(make_paperless: Any) -> None:

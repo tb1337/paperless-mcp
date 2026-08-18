@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import httpx
 import pytest
 from pypaperless import PaperlessClient
 from pypaperless.exceptions import ItemNotFoundError
@@ -11,6 +12,7 @@ from pypaperless.exceptions import ItemNotFoundError
 from paperless_mcp.tools._errors import ToolInputError
 from paperless_mcp.tools._paging import (
     MAX_PAGE_LIMIT,
+    collect_all,
     normalize_csv_filters,
     page_result,
     paginate,
@@ -104,6 +106,58 @@ async def test_paginate_allows_the_ceiling_itself() -> None:
     paperless, _ = _tags(3)
     items, _ = await paginate(paperless.tags, offset=0, limit=MAX_PAGE_LIMIT)
     assert [tag.id for tag in items] == [1, 2, 3]
+
+
+async def test_paginate_keeps_the_drained_items_when_a_later_page_404s() -> None:
+    """A result set that shrinks between two page fetches must not void the window.
+
+    DRF 404s the server-supplied ``next`` URL once the set no longer reaches it.
+    The items already drained are the answer, and a page-walk — the shipped
+    prompts prescribe one — must not read the race as "the set is exhausted".
+    """
+    stub = PaperlessStub(
+        collections={
+            "/api/tags/": [
+                {"id": pk, "name": f"tag{pk}", "matching_algorithm": 0} for pk in range(1, 41)
+            ]
+        }
+    )
+    inner = stub.handle
+
+    def shrink_after_serving(request: httpx.Request) -> httpx.Response:
+        response = inner(request)
+        del stub.collections["/api/tags/"][20:]
+        return response
+
+    transport = httpx.MockTransport(shrink_after_serving)
+    paperless = PaperlessClient("http://test", "t", client=httpx.AsyncClient(transport=transport))
+
+    items, total = await paginate(paperless.tags, offset=10, limit=25)
+
+    assert [tag.id for tag in items] == list(range(11, 26))
+    assert total == 40
+
+
+async def test_collect_all_drains_past_the_ceiling() -> None:
+    """The internal read-backs need the whole selection, however large.
+
+    The ceiling bounds the window a model may request; a bulk delete recording
+    what it is about to destroy and a documentlink existence check are not one,
+    so 150 matches page through in ceiling-sized pages instead of being refused.
+    """
+    paperless, stub = _tags(150)
+
+    items = await collect_all(paperless.tags)
+
+    assert [tag.id for tag in items] == list(range(1, 151))
+    assert [request.params["page"] for request in stub.requests] == ["1", "2"]
+    assert {request.params["page_size"] for request in stub.requests} == {str(MAX_PAGE_LIMIT)}
+
+
+async def test_collect_all_normalizes_list_filters() -> None:
+    paperless, stub = _tags(0)
+    await collect_all(paperless.tags, {"id__in": [1, 2]})
+    assert stub.requests[-1].params["id__in"] == "1,2"
 
 
 async def test_paginate_lets_other_errors_propagate() -> None:

@@ -32,7 +32,7 @@ from ..formatting import safe_dump
 from ..names import cached_custom_field
 from ._dates import parse_date
 from ._errors import ToolInputError, ToolResultError
-from ._paging import paginate
+from ._paging import collect_all
 from ._registry import register_tools, write_tool
 
 #: An amount with an optional ISO 4217 prefix: ``6589``, ``-6589.00``, ``EUR6589.00``.
@@ -198,7 +198,9 @@ async def _require_documents(paperless: PaperlessClient, document_ids: list[int]
     wanted = sorted(set(document_ids))
     if not wanted:
         return
-    found, _ = await paginate(paperless.documents, {"id__in": wanted}, limit=len(wanted))
+    # truncate_content: only the IDs are compared, so the OCR text of every
+    # linked document would be fetched and thrown away.
+    found = await collect_all(paperless.documents, {"id__in": wanted, "truncate_content": "true"})
     missing = sorted(set(wanted) - {document.id for document in found})
     if missing:
         raise ToolResultError(

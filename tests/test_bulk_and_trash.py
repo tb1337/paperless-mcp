@@ -6,9 +6,35 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from pypaperless.exceptions import BulkEditPagesError
+from pypaperless.exceptions import BulkEditError, BulkEditPagesError
 
-from tests.conftest import BulkRecorder, FakeService, build_mcp, call_tool, document, make_settings
+from tests.conftest import (
+    BulkRecorder,
+    FakeService,
+    build_mcp,
+    call_tool,
+    document,
+    make_settings,
+    named,
+)
+
+
+class _FailingBulk(BulkRecorder):
+    """Records like BulkRecorder, but the named operation raises after recording."""
+
+    def __init__(self, failing: str) -> None:
+        super().__init__()
+        self._failing = failing
+
+    def __getattr__(self, name: str) -> Any:
+        if name != self._failing:
+            return super().__getattr__(name)
+
+        async def _fail(*args: Any, **kwargs: Any) -> None:
+            self.calls.append((name, args, kwargs))
+            raise BulkEditError("Paperless refused it")
+
+        return _fail
 
 
 async def test_bulk_edit_documents_runs_only_passed_operations(make_paperless: Any) -> None:
@@ -29,6 +55,60 @@ async def test_bulk_edit_documents_runs_only_passed_operations(make_paperless: A
     assert recorder.calls[0][1] == ([1, 2, 3], 5)
     assert recorder.calls[1][0] == "modify_tags"
     assert recorder.calls[1][2] == {"add_tags": [10, 11], "remove_tags": []}
+
+
+async def test_bulk_edit_documents_reports_what_landed_before_a_failure(
+    make_paperless: Any,
+) -> None:
+    """The docstring's promise: ``applied`` survives into the error result.
+
+    ``set_correspondent`` has already landed on every document when
+    ``set_document_type`` fails; a bare error would hide that and invite either
+    a blind retry of all the operations or none.
+    """
+    paperless = make_paperless()
+    recorder = _FailingBulk("set_document_type")
+    paperless.documents.bulk_edit = recorder
+    mcp = build_mcp(make_settings(), paperless)
+
+    result = await call_tool(
+        mcp,
+        "bulk_edit_documents",
+        document_ids=[1, 2],
+        correspondent_id=5,
+        document_type_id=7,
+        add_tag_ids=[10],
+    )
+
+    assert result["error"] == "bulk_edit_failed"
+    assert result["applied"] == ["correspondent"]
+    assert result["failed"] == "document_type"
+    assert result["document_ids"] == [1, 2]
+    # The failure stopped the sequence: the tag edit was never attempted.
+    assert [name for name, _, _ in recorder.calls] == ["set_correspondent", "set_document_type"]
+
+
+async def test_bulk_edit_documents_rejects_a_tag_added_and_removed(make_paperless: Any) -> None:
+    """Case-variant names resolve to one ID, and what add+remove of that ID means
+    is Paperless server internals — refused rather than forwarded.
+    """
+    paperless = make_paperless()
+    paperless.tags.filter_results = named(**{"7": "Steuer"})
+    recorder = BulkRecorder()
+    paperless.documents.bulk_edit = recorder
+    mcp = build_mcp(make_settings(), paperless)
+
+    result = await call_tool(
+        mcp,
+        "bulk_edit_documents",
+        document_ids=[1],
+        add_tag_names=["Steuer"],
+        remove_tag_names=["steuer"],
+    )
+
+    assert result["error"] == "invalid_argument"
+    assert "7" in result["cause"]
+    assert recorder.calls == []
 
 
 async def test_bulk_edit_documents_rejects_a_no_op(make_paperless: Any) -> None:
@@ -138,7 +218,7 @@ async def test_restore_documents_rejects_empty_ids(make_paperless: Any) -> None:
 
 
 async def test_empty_trash_purges_everything_when_no_ids(make_paperless: Any) -> None:
-    """An empty list would purge *nothing*, so the argument must stay None."""
+    """Only a genuinely omitted argument means "everything"."""
     paperless = make_paperless()
     paperless.trash = _Trash()
     mcp = build_mcp(make_settings(enable_delete=True), paperless)
@@ -157,6 +237,24 @@ async def test_empty_trash_purges_selected_ids(make_paperless: Any) -> None:
     result = await call_tool(mcp, "empty_trash", document_ids=[3, 4])
     assert result == {"purged": [3, 4], "purged_all": False}
     assert paperless.trash.emptied == [[3, 4]]
+
+
+async def test_empty_trash_refuses_an_empty_id_list(make_paperless: Any) -> None:
+    """An explicit ``[]`` must not purge the whole trash.
+
+    It is exactly what a model passes after building its selection from a
+    search that matched nothing — and pypaperless sends ``None`` and ``[]``
+    alike as the purge-everything request, which nothing can undo.
+    """
+    paperless = make_paperless()
+    paperless.trash = _Trash()
+    mcp = build_mcp(make_settings(enable_delete=True), paperless)
+
+    result = await call_tool(mcp, "empty_trash", document_ids=[])
+
+    assert result["error"] == "invalid_argument"
+    assert "empty" in result["cause"]
+    assert paperless.trash.emptied == []
 
 
 def _with_pages(make_paperless: Any, page_count: int | None) -> tuple[Any, BulkRecorder]:
