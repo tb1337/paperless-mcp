@@ -86,6 +86,28 @@ async def test_duplicates_clamps_the_limit_to_the_ceiling() -> None:
     assert f"limit={MAX_PAGE_LIMIT})" in text
 
 
+@pytest.mark.parametrize("limit", [0, -5])
+async def test_triage_floors_the_limit_at_one(limit: int) -> None:
+    """The clamp bounds both sides.
+
+    A negative limit scripts a call ``check_window`` refuses, and ``limit=0``
+    is a count-only call whose empty document list reads as "the inbox is
+    clear" — either way the plan's first step would be wrong.
+    """
+    text = await render(make_settings(), "triage_inbox", limit=limit)
+
+    assert f"limit={limit}" not in text
+    assert 'order_by="added", limit=1)' in text
+
+
+@pytest.mark.parametrize("limit", [0, -5])
+async def test_duplicates_floors_the_limit_at_one(limit: int) -> None:
+    text = await render(make_settings(), "find_duplicates", limit=limit)
+
+    assert f"limit={limit}" not in text
+    assert "limit=1)" in text
+
+
 async def test_review_searches_within_the_ceiling() -> None:
     """The close-out's searches carry the ceiling, not a stale literal."""
     text = await render(make_settings(), "monthly_review", month="2026-03")

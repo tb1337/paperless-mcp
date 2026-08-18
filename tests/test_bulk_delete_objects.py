@@ -44,6 +44,7 @@ async def test_an_id_list_goes_out_as_objects(make_paperless: Any) -> None:
         "deleted": 2,
         "filters": {},
         "object_ids": [4, 5],
+        "object_ids_truncated": False,
     }
     assert _posts(paperless) == [
         {
@@ -97,6 +98,7 @@ async def test_a_filter_replaces_the_id_list(make_paperless: Any) -> None:
         "deleted": 3,
         "filters": {"name__icontains": "temp-"},
         "object_ids": [1, 2, 3],
+        "object_ids_truncated": False,
     }
     assert _posts(paperless) == [
         {
@@ -111,13 +113,16 @@ async def test_a_filter_replaces_the_id_list(make_paperless: Any) -> None:
     ]
 
 
-async def test_a_selection_beyond_the_page_ceiling_is_read_in_full(make_paperless: Any) -> None:
-    """The read-back pages through the whole match, immune to the window ceiling.
+async def test_a_selection_beyond_the_page_ceiling_deletes_and_reports_bounded(
+    make_paperless: Any,
+) -> None:
+    """150 matches delete fine, and the record of them stays readable.
 
-    The ceiling bounds the window a model may request; the selection recorded
-    before a filtered delete is not one, so 150 matches must not be refused as
-    "limit too large". One filter pass in ceiling-sized pages covers count and
-    ids alike.
+    The ceiling must not refuse the internal read-back ("limit too large" for a
+    tool without a limit argument), but the result must not echo an unbounded
+    id list either: an oversized result fails at the client *after* the
+    irreversible delete already ran. One ceiling-sized window carries the count
+    and the first ids; ``object_ids_truncated`` says the list was cut.
     """
     paperless = make_paperless()
     paperless.tags.filter_results = named(**{str(pk): f"stale-{pk}" for pk in range(1, 151)})
@@ -126,7 +131,9 @@ async def test_a_selection_beyond_the_page_ceiling_is_read_in_full(make_paperles
     result = await call_tool(mcp, "bulk_delete_objects", object_type="tags", name_contains="stale")
 
     assert result["deleted"] == 150
-    assert result["object_ids"] == list(range(1, 151))
+    assert result["object_ids"] == list(range(1, MAX_PAGE_LIMIT + 1))
+    assert result["object_ids_truncated"] is True
+    assert _posts(paperless)[0]["json"]["filters"] == {"name__icontains": "stale"}
     assert paperless.tags.filter_calls == [{"name__icontains": "stale"}]
     assert paperless.tags.page_calls == [{"page": 1, "page_size": MAX_PAGE_LIMIT}]
 

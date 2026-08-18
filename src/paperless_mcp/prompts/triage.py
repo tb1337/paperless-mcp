@@ -106,11 +106,12 @@ def register(mcp: MCPServer, settings: Settings) -> None:
         the AI suggestions and against the documents that are already filed like
         it, then settles on correspondent, type, storage path, tags, title and
         date. ``limit`` caps how many documents one pass handles; a value
-        above the server's page ceiling is lowered to it.
+        outside the valid window is clamped into it.
         """
-        # The tools refuse a window above the ceiling, so a plan asking for
-        # one would only script that refusal into its first call.
-        limit = min(limit, MAX_PAGE_LIMIT)
+        # Clamped on both sides: the tools refuse a window above the ceiling or
+        # below zero, and a plan scripting either refusal into its first call —
+        # or a limit=0 count that reads as an empty inbox — helps nobody.
+        limit = max(1, min(limit, MAX_PAGE_LIMIT))
         return sections(
             _INTRO.format(limit=limit),
             capability_note(settings),

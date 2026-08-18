@@ -34,7 +34,7 @@ from ._arguments import (
 )
 from ._errors import ToolInputError
 from ._master_data import create_resource, delete_resource, list_resource, update_resource
-from ._paging import MAX_PAGE_LIMIT, collect_all
+from ._paging import MAX_PAGE_LIMIT, paginate
 from ._registry import delete_tool, read_tool, register_tools, write_tool
 from ._relations import resolve_relation, resolve_relations
 
@@ -492,9 +492,11 @@ async def bulk_delete_objects(
     ``deleted`` is how many objects the selection covered, counted just
     before the delete went out, and ``object_ids`` lists them — for a filtered
     call too, read back before the delete, because this endpoint reports nothing
-    about what it removed and there is no trash to inspect afterwards. For
-    ``tags`` both understate: Paperless also removes the descendants of every
-    matched tag, which are neither counted nor listed.
+    about what it removed and there is no trash to inspect afterwards. The list
+    is capped at 100 with ``object_ids_truncated: true`` when a filtered
+    selection covered more, so the record stays readable after the objects are
+    gone. For ``tags`` both understate: Paperless also removes the descendants
+    of every matched tag, which are neither counted nor listed.
     """
     resource = BULK_OBJECTS[object_type]
     filters = _bulk_filters(
@@ -526,20 +528,22 @@ async def bulk_delete_objects(
 
     paperless = await get_client(ctx)
     if filters:
-        # The endpoint answers a filtered delete with a bare "OK", so the selection has
-        # to be read before it is destroyed or it is gone unrecorded — page by page,
-        # because the match count answers to no window ceiling. Worth it for an
-        # operation with no trash behind it: `filters` says what was asked for,
-        # `object_ids` what it hit.
-        selected = await collect_all(resource.service(paperless), filters)
-        if not selected:
+        # The endpoint answers a filtered delete with a bare "OK", so the selection
+        # has to be read before it is destroyed or it is gone unrecorded. One
+        # ceiling-sized window carries the count and the first ids both: a result
+        # echoing every id of a huge selection would arrive unreadably large, and
+        # after an irreversible delete that failure is the worst one available.
+        selected, matched = await paginate(
+            resource.service(paperless), filters, offset=0, limit=MAX_PAGE_LIMIT
+        )
+        if not matched:
             raise ToolInputError(
                 f"No {object_type} match {filters} — nothing was deleted. "
                 f"list_{object_type} shows what exists."
             )
         object_ids = [obj.id for obj in selected]
         await _delete_objects(paperless, object_type, {"all": True, "filters": filters})
-        deleted = len(selected)
+        deleted = matched
     elif object_ids:
         await _delete_objects(paperless, object_type, {"objects": object_ids})
         deleted = len(object_ids)
@@ -555,6 +559,7 @@ async def bulk_delete_objects(
         "deleted": deleted,
         "filters": filters,
         "object_ids": object_ids or [],
+        "object_ids_truncated": deleted > len(object_ids or []),
     }
 
 

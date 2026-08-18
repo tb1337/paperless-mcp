@@ -144,11 +144,12 @@ async def paginate(
 async def collect_all(service: Filterable, filters: Mapping[str, Any] | None = None) -> list[Any]:
     """Drain every item matching *filters*, in :data:`MAX_PAGE_LIMIT`-sized pages.
 
-    For the internal read-backs that need the whole selection — a bulk delete
-    recording what it is about to destroy, an existence check over a list of
-    IDs. Deliberately not routed through :func:`check_window`: the ceiling
-    bounds the window a model may *request*, and nothing collected here reaches
-    a result — the caller answers with something far smaller.
+    For the internal read-backs that need the whole selection — an existence
+    check over a list of linked document IDs. Deliberately not routed through
+    :func:`check_window`: the ceiling bounds the window a model may *request*,
+    and nothing collected here may reach a result — a caller that echoes what
+    it collected has to window through :func:`paginate` instead, so its result
+    stays readable however large the match is.
     """
     params = normalize_csv_filters(filters or {})
     async with service.filter(**params) as scoped:
