@@ -716,7 +716,7 @@ requires-dist = [
     { name = "mcp", specifier = ">=2.0.0,<3" },
     { name = "pydantic", specifier = ">=2.13.4,<3" },
     { name = "pydantic-core", specifier = ">=2.48.0,<3" },
-    { name = "pypaperless", specifier = "==6.0.0" },
+    { name = "pypaperless", specifier = "==6.0.1" },
     { name = "python-dotenv", specifier = ">=1.2.3" },
     { name = "starlette", specifier = ">=1.6.0,<2" },
     { name = "uvicorn", specifier = ">=0.52.4" },
@@ -928,16 +928,16 @@ crypto = [
 
 [[package]]
 name = "pypaperless"
-version = "6.0.0"
+version = "6.0.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c2/59/a9cd2d3feeebe3dc461a727a92c86f9b27cb992b4dd95cbb345a2b4ec9a8/pypaperless-6.0.0.tar.gz", hash = "sha256:b8e495249c69c2a44384cb50343afdfabd3f51ba79b97fc56cc37d43f2646d7e", size = 265523, upload-time = "2026-08-03T05:54:24.154Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a7/52/f18abfa04ce6f26dbab9997932b0250f6e52a20954d6d8507b1a70f2fb68/pypaperless-6.0.1.tar.gz", hash = "sha256:31d0f7c949ced56891b275a1769489fd69f69fc3fc69ef3d8390c1924df52e7d", size = 275205, upload-time = "2026-08-18T19:38:42.224Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ca/9b/e7e0452b078852b647dbc7785d7faf02adda6fc1496d0b5787ec989b7003/pypaperless-6.0.0-py3-none-any.whl", hash = "sha256:82848611244eb775519ab5756008ada6e0950a59564c744dbcecd223da7167d3", size = 109412, upload-time = "2026-08-03T05:54:22.923Z" },
+    { url = "https://files.pythonhosted.org/packages/0d/75/4556229d5660a43ef2a90415bf8c5f2bcbc3bef0e3be12fc580be3407d19/pypaperless-6.0.1-py3-none-any.whl", hash = "sha256:6cb9896a209a78ada7e983456184d94edba27007bf36bce43f87a3efd95f3c9f", size = 109415, upload-time = "2026-08-18T19:38:40.969Z" },
 ]
 
 [[package]]
