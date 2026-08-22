@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 import pytest
 
 from paperless_mcp import __version__
 from paperless_mcp.config import Settings
-from paperless_mcp.server import build_mcp
+from paperless_mcp.server import INSTRUCTIONS, build_mcp
 from paperless_mcp.tools._arguments import (
     BulkObjectType,
     ClearableDocumentField,
@@ -21,6 +22,7 @@ from paperless_mcp.tools._arguments import (
     TaskStatusName,
     TaskTypeName,
 )
+from paperless_mcp.tools._paging import MAX_PAGE_LIMIT
 from tests.conftest import build_mcp as build_faked_mcp
 from tests.conftest import invoke_tool, literal_values, make_settings
 
@@ -460,6 +462,43 @@ async def test_an_explicit_null_still_validates_against_the_flattened_type(
     )
 
     assert result.is_error is False
+
+
+async def test_every_limit_default_sits_at_or_under_the_ceiling() -> None:
+    """A default above the ceiling is a tool whose bare call refuses itself.
+
+    The six signature defaults are spelled ``MAX_PAGE_LIMIT`` now; this is what
+    catches the next hand-written literal when the ceiling moves.
+    """
+    tools = await _full_surface()
+    over = {
+        name: published["default"]
+        for name, tool in tools.items()
+        if (published := tool.input_schema.get("properties", {}).get("limit")) is not None
+        and published.get("default") is not None
+        and published["default"] > MAX_PAGE_LIMIT
+    }
+    assert over == {}
+
+
+async def test_prose_restatements_of_the_ceiling_match_the_constant() -> None:
+    """Docstrings and the server instructions restate the ceiling as a number.
+
+    Docstrings cannot interpolate a constant, so this is what keeps a future
+    ``MAX_PAGE_LIMIT`` change from stranding them — the drift mode that already
+    fired once, when the triage prompt kept instructing ``limit=200``.
+    """
+    tools = await _full_surface()
+    texts = {"INSTRUCTIONS": INSTRUCTIONS} | {
+        name: tool.description or "" for name, tool in tools.items()
+    }
+    stated = {
+        (name, int(value))
+        for name, text in texts.items()
+        for value in re.findall(r"(?:not exceed|capped at)\s+(\d+)", text)
+    }
+    assert stated, "the prose no longer states the ceiling anywhere"
+    assert {value for _, value in stated} == {MAX_PAGE_LIMIT}, stated
 
 
 async def test_no_tool_advertises_the_context_parameter() -> None:

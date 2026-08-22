@@ -12,6 +12,7 @@ from paperless_mcp.config import Settings
 from paperless_mcp.prompts._helpers import sections
 from paperless_mcp.prompts.review import month_window
 from paperless_mcp.server import build_mcp
+from paperless_mcp.tools._paging import MAX_PAGE_LIMIT
 from tests.conftest import make_settings
 
 
@@ -53,6 +54,65 @@ async def test_triage_limit_reaches_both_the_intro_and_the_search_call() -> None
     text = await render(make_settings(), "triage_inbox", limit=3)
     assert "3 documents in this pass" in text
     assert "limit=3)" in text
+
+
+async def test_triage_vocabulary_step_stays_within_the_ceiling() -> None:
+    """The plan must not script calls the server refuses.
+
+    The vocabulary lists used to instruct ``limit=200``, which the ceiling
+    refuses on every one of the four calls — so the step asks for the ceiling
+    itself and says how to page past it.
+    """
+    text = await render(make_settings(), "triage_inbox")
+
+    assert f"list_tags(limit={MAX_PAGE_LIMIT})" in text
+    assert f"list_correspondents(limit={MAX_PAGE_LIMIT})" in text
+    assert "limit=200" not in text
+    assert "page on with `offset`" in text
+
+
+async def test_triage_clamps_the_limit_to_the_ceiling() -> None:
+    """A user-supplied pass size above the ceiling would script a refused call."""
+    text = await render(make_settings(), "triage_inbox", limit=250)
+
+    assert "limit=250" not in text
+    assert f"limit={MAX_PAGE_LIMIT})" in text
+
+
+async def test_duplicates_clamps_the_limit_to_the_ceiling() -> None:
+    text = await render(make_settings(), "find_duplicates", limit=250)
+
+    assert "limit=250" not in text
+    assert f"limit={MAX_PAGE_LIMIT})" in text
+
+
+@pytest.mark.parametrize("limit", [0, -5])
+async def test_triage_floors_the_limit_at_one(limit: int) -> None:
+    """The clamp bounds both sides.
+
+    A negative limit scripts a call ``check_window`` refuses, and ``limit=0``
+    is a count-only call whose empty document list reads as "the inbox is
+    clear" — either way the plan's first step would be wrong.
+    """
+    text = await render(make_settings(), "triage_inbox", limit=limit)
+
+    assert f"limit={limit}" not in text
+    assert 'order_by="added", limit=1)' in text
+
+
+@pytest.mark.parametrize("limit", [0, -5])
+async def test_duplicates_floors_the_limit_at_one(limit: int) -> None:
+    text = await render(make_settings(), "find_duplicates", limit=limit)
+
+    assert f"limit={limit}" not in text
+    assert "limit=1)" in text
+
+
+async def test_review_searches_within_the_ceiling() -> None:
+    """The close-out's searches carry the ceiling, not a stale literal."""
+    text = await render(make_settings(), "monthly_review", month="2026-03")
+
+    assert f"limit={MAX_PAGE_LIMIT})" in text
 
 
 async def test_triage_argument_arrives_as_a_string_from_the_wire() -> None:

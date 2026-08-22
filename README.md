@@ -389,7 +389,9 @@ Notes on semantics:
   `search_documents`, `update_document`, `upload_document`,
   `bulk_edit_documents` and `bulk_delete_objects`. A tag's parent likewise:
   `create_tag` and `update_tag` take `parent_name` beside `parent_id`, which is
-  the name `format_tag` reports back. Names are what every result
+  the name `format_tag` reports back — and `update_tag` un-nests a tag again
+  with `clear_parent`, since `None` means "not supplied" on every update
+  argument. Names are what every result
   already reports back, and
   what a human reading the call along can veto — a wrong ID hits another valid
   object and relabels a document without an error anywhere. Matching is exact,
@@ -549,7 +551,8 @@ call deserves without parsing the description:
 The vocabulary has no axis for *reversible* versus *final*, so tools that differ
 a lot end up with identical hints: `delete_document` moves a document to the
 trash and `restore_documents` brings it back, while `empty_trash` cannot be
-undone and purges the entire trash when called without arguments, and
+undone and purges the entire trash when called without arguments (an explicit
+empty `document_ids` list is refused rather than read as "everything"), and
 `bulk_delete_objects` can retire a whole branch of the taxonomy from a single
 filter. A client that wants to hold the final ones back harder has to go by the
 name or the description.

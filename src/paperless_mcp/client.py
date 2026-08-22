@@ -113,9 +113,9 @@ class PaperlessConnection:
     async def close(self) -> None:
         """Release the Paperless client and the underlying HTTP pool.
 
-        The pool is closed in a ``finally``: a failure on the Paperless half used
-        to skip it, leaking the sockets it holds. Both attributes are cleared
-        first, so a second call is a no-op even if the first one raised.
+        The pool is closed in a ``finally``, so a failure on the Paperless half
+        cannot leak the sockets it holds. Both attributes are cleared first, so
+        a second call is a no-op even if the first one raised.
         """
         client, http = self._client, self._http
         self._client = None

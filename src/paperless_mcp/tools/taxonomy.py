@@ -34,7 +34,7 @@ from ._arguments import (
 )
 from ._errors import ToolInputError
 from ._master_data import create_resource, delete_resource, list_resource, update_resource
-from ._paging import paginate
+from ._paging import MAX_PAGE_LIMIT, paginate
 from ._registry import delete_tool, read_tool, register_tools, write_tool
 from ._relations import resolve_relation, resolve_relations
 
@@ -152,7 +152,7 @@ async def list_tags(
     ctx: ToolContext,
     name_contains: str | None = None,
     offset: int = 0,
-    limit: int = 100,
+    limit: int = MAX_PAGE_LIMIT,
 ) -> dict[str, Any]:
     """List tags, optionally filtered by a case-insensitive name substring."""
     return await list_resource(ctx, TAGS, name_contains=name_contains, offset=offset, limit=limit)
@@ -203,6 +203,7 @@ async def update_tag(
     is_inbox_tag: bool | None = None,
     parent_id: int | None = None,
     parent_name: str | None = None,
+    clear_parent: bool = False,
     match: str | None = None,
     matching_algorithm: MatchingAlgorithmName | None = None,
     is_insensitive: bool | None = None,
@@ -211,8 +212,12 @@ async def update_tag(
 
     Nesting: pass ``parent_name`` when the parent tag comes from the conversation,
     ``parent_id`` only when you have it verbatim from a tool result. Passing both is
-    allowed but they must agree.
+    allowed but they must agree. ``clear_parent=true`` un-nests the tag, making it
+    top-level again; setting and clearing the parent in one call is rejected.
     """
+    parent = await _parent(ctx, parent_id, parent_name)
+    if clear_parent and parent is not None:
+        raise ToolInputError("The parent cannot be set and cleared at once.")
     return await update_resource(
         ctx,
         TAGS,
@@ -221,9 +226,10 @@ async def update_tag(
             "name": name,
             "color": color,
             "is_inbox_tag": is_inbox_tag,
-            "parent": await _parent(ctx, parent_id, parent_name),
+            "parent": parent,
             **_matching_kwargs(match, matching_algorithm, is_insensitive, for_create=False),
         },
+        clear=("parent",) if clear_parent else (),
     )
 
 
@@ -236,7 +242,7 @@ async def list_correspondents(
     ctx: ToolContext,
     name_contains: str | None = None,
     offset: int = 0,
-    limit: int = 100,
+    limit: int = MAX_PAGE_LIMIT,
 ) -> dict[str, Any]:
     """List correspondents, optionally filtered by a name substring."""
     return await list_resource(
@@ -289,7 +295,7 @@ async def list_document_types(
     ctx: ToolContext,
     name_contains: str | None = None,
     offset: int = 0,
-    limit: int = 100,
+    limit: int = MAX_PAGE_LIMIT,
 ) -> dict[str, Any]:
     """List document types, optionally filtered by a name substring."""
     return await list_resource(
@@ -342,7 +348,7 @@ async def list_storage_paths(
     ctx: ToolContext,
     name_contains: str | None = None,
     offset: int = 0,
-    limit: int = 100,
+    limit: int = MAX_PAGE_LIMIT,
 ) -> dict[str, Any]:
     """List storage paths, optionally filtered by a name substring."""
     return await list_resource(
@@ -403,7 +409,7 @@ async def list_custom_fields(
     ctx: ToolContext,
     name_contains: str | None = None,
     offset: int = 0,
-    limit: int = 100,
+    limit: int = MAX_PAGE_LIMIT,
 ) -> dict[str, Any]:
     """List custom field definitions."""
     return await list_resource(
@@ -464,9 +470,9 @@ async def bulk_delete_objects(
     documents keep existing; they only lose the assignment, the way
     ``delete_tag`` takes one tag off every document carrying it.
 
-    ``object_type`` is ``tags``, ``correspondents``, ``document_types`` or
-    ``storage_paths``. Custom fields are not part of this endpoint;
-    ``delete_custom_field`` removes those one at a time.
+    The accepted ``object_type`` values are in this tool's schema. Custom
+    fields are not part of this endpoint; ``delete_custom_field`` removes
+    those one at a time.
 
     Select the objects *either* by naming them *or* by filter, never both —
     a filtered call ignores the list rather than intersecting with it:
@@ -486,9 +492,11 @@ async def bulk_delete_objects(
     ``deleted`` is how many objects the selection covered, counted just
     before the delete went out, and ``object_ids`` lists them — for a filtered
     call too, read back before the delete, because this endpoint reports nothing
-    about what it removed and there is no trash to inspect afterwards. For
-    ``tags`` both understate: Paperless also removes the descendants of every
-    matched tag, which are neither counted nor listed.
+    about what it removed and there is no trash to inspect afterwards. The list
+    is capped at 100 with ``object_ids_truncated: true`` when a filtered
+    selection covered more, so the record stays readable after the objects are
+    gone. For ``tags`` both understate: Paperless also removes the descendants
+    of every matched tag, which are neither counted nor listed.
     """
     resource = BULK_OBJECTS[object_type]
     filters = _bulk_filters(
@@ -520,18 +528,19 @@ async def bulk_delete_objects(
 
     paperless = await get_client(ctx)
     if filters:
-        # The endpoint answers a filtered delete with a bare "OK", so the selection has
-        # to be read before it is destroyed or it is gone unrecorded. One request for
-        # the count, then at most two more for the IDs themselves — `paginate` sizes its
-        # pages to the window — which is worth it for an operation with no trash behind
-        # it: `filters` says what was asked for, `object_ids` what it hit.
-        _, matched = await paginate(resource.service(paperless), filters, offset=0, limit=0)
+        # The endpoint answers a filtered delete with a bare "OK", so the selection
+        # has to be read before it is destroyed or it is gone unrecorded. One
+        # ceiling-sized window carries the count and the first ids both: a result
+        # echoing every id of a huge selection would arrive unreadably large, and
+        # after an irreversible delete that failure is the worst one available.
+        selected, matched = await paginate(
+            resource.service(paperless), filters, offset=0, limit=MAX_PAGE_LIMIT
+        )
         if not matched:
             raise ToolInputError(
                 f"No {object_type} match {filters} — nothing was deleted. "
                 f"list_{object_type} shows what exists."
             )
-        selected, _ = await paginate(resource.service(paperless), filters, offset=0, limit=matched)
         object_ids = [obj.id for obj in selected]
         await _delete_objects(paperless, object_type, {"all": True, "filters": filters})
         deleted = matched
@@ -544,13 +553,13 @@ async def bulk_delete_objects(
             f"{object_type} to delete."
         )
     invalidate_names(ctx)
-    # Both keys always, one of them empty: `selection` used to hold either the
-    # filter dict or an object_ids wrapper, so reading it meant checking its shape.
+    # Both keys always, one of them empty, so reading the result needs no shape check.
     return {
         "object_type": object_type,
         "deleted": deleted,
         "filters": filters,
         "object_ids": object_ids or [],
+        "object_ids_truncated": deleted > len(object_ids or []),
     }
 
 

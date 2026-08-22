@@ -8,6 +8,7 @@ import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 from pypaperless.const import EndpointPath
 
+from paperless_mcp.tools._paging import MAX_PAGE_LIMIT
 from tests.conftest import (
     build_mcp,
     call_tool,
@@ -43,6 +44,7 @@ async def test_an_id_list_goes_out_as_objects(make_paperless: Any) -> None:
         "deleted": 2,
         "filters": {},
         "object_ids": [4, 5],
+        "object_ids_truncated": False,
     }
     assert _posts(paperless) == [
         {
@@ -96,6 +98,7 @@ async def test_a_filter_replaces_the_id_list(make_paperless: Any) -> None:
         "deleted": 3,
         "filters": {"name__icontains": "temp-"},
         "object_ids": [1, 2, 3],
+        "object_ids_truncated": False,
     }
     assert _posts(paperless) == [
         {
@@ -110,24 +113,29 @@ async def test_a_filter_replaces_the_id_list(make_paperless: Any) -> None:
     ]
 
 
-async def test_reading_the_selection_stays_bounded(make_paperless: Any) -> None:
-    """Two windows, both sized: the count first, then exactly the matches.
+async def test_a_selection_beyond_the_page_ceiling_deletes_and_reports_bounded(
+    make_paperless: Any,
+) -> None:
+    """150 matches delete fine, and the record of them stays readable.
 
-    Reporting the ids must not turn into a walk over the whole table. `paginate` sizes
-    a page to its window, so the second request asks for the match count and nothing
-    more - and `limit=0` still fetches no items at all for the first.
+    The ceiling must not refuse the internal read-back ("limit too large" for a
+    tool without a limit argument), but the result must not echo an unbounded
+    id list either: an oversized result fails at the client *after* the
+    irreversible delete already ran. One ceiling-sized window carries the count
+    and the first ids; ``object_ids_truncated`` says the list was cut.
     """
     paperless = make_paperless()
-    paperless.tags.filter_results = named(**{"1": "a", "2": "b"})
+    paperless.tags.filter_results = named(**{str(pk): f"stale-{pk}" for pk in range(1, 151)})
     mcp = build_mcp(make_settings(), paperless)
 
-    await call_tool(mcp, "bulk_delete_objects", object_type="tags", name_exact="a")
+    result = await call_tool(mcp, "bulk_delete_objects", object_type="tags", name_contains="stale")
 
-    assert paperless.tags.filter_calls == [{"name__iexact": "a"}, {"name__iexact": "a"}]
-    assert paperless.tags.page_calls == [
-        {"page": 1, "page_size": 1},
-        {"page": 1, "page_size": 2},
-    ]
+    assert result["deleted"] == 150
+    assert result["object_ids"] == list(range(1, MAX_PAGE_LIMIT + 1))
+    assert result["object_ids_truncated"] is True
+    assert _posts(paperless)[0]["json"]["filters"] == {"name__icontains": "stale"}
+    assert paperless.tags.filter_calls == [{"name__icontains": "stale"}]
+    assert paperless.tags.page_calls == [{"page": 1, "page_size": MAX_PAGE_LIMIT}]
 
 
 async def test_every_name_lookup_has_its_argument(make_paperless: Any) -> None:

@@ -239,8 +239,7 @@ async def resolve_assignment(
 
     Exists for the guarantee rather than for the lines: **every name is resolved
     before the first write request goes out**, so a typo cannot leave one field
-    assigned and the next refused. Three tools make this call, and each of them
-    used to restate the ordering.
+    assigned and the next refused.
     """
     return Assignment(
         correspondent=await resolve_relation(

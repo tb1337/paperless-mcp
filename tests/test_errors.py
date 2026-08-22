@@ -126,6 +126,41 @@ def test_a_deletion_error_without_an_http_cause_stays_a_refusal() -> None:
     }
 
 
+def _refused_delete(status: int) -> DeletionError:
+    """A DeletionError chaining the HTTPStatusError transport.delete() wraps."""
+    request = httpx.Request("DELETE", "http://test/api/documents/9/")
+    failure = httpx.HTTPStatusError(
+        "boom", request=request, response=httpx.Response(status, request=request)
+    )
+    error = DeletionError("wrapped")
+    error.__cause__ = failure
+    return error
+
+
+def test_a_deleted_404_reads_exactly_like_a_read_404() -> None:
+    """One condition, one spelling, whatever the verb.
+
+    The delete path takes its code and detail from the same ``_ERROR_MAP`` rows
+    every other verb answers with, so rewording a row cannot fork GET from
+    DELETE — the two-spellings problem ``_translate_delete`` exists to remove.
+    """
+    read = translate_error(_not_found())
+    deleted = translate_error(_refused_delete(404))
+
+    assert read is not None
+    assert deleted is not None
+    assert (deleted["error"], deleted["detail"]) == (read["error"], read["detail"])
+
+
+def test_a_refused_delete_answers_with_the_maps_wording() -> None:
+    refused = translate_error(_refused_delete(409))
+    row = next((code, detail) for exc, code, detail in _ERROR_MAP if exc is DeletionError)
+
+    assert refused is not None
+    assert (refused["error"], refused["detail"]) == row
+    assert "409" in refused["cause"]
+
+
 def test_every_error_code_is_documented() -> None:
     """A code a client cannot look up is a code it cannot branch on.
 

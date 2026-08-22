@@ -12,7 +12,7 @@ question asked twenty times.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from functools import partial
 from typing import Any, Final
 
@@ -123,19 +123,29 @@ async def create_resource(ctx: ToolContext, resource: Resource, **values: Any) -
 
 
 async def update_resource(
-    ctx: ToolContext, resource: Resource, pk: int, values: Mapping[str, Any]
+    ctx: ToolContext,
+    resource: Resource,
+    pk: int,
+    values: Mapping[str, Any],
+    *,
+    clear: Iterable[str] = (),
 ) -> dict[str, Any]:
     """Assign every supplied value onto one object and write it back.
 
     ``changed`` is the server's own answer: pypaperless diffs the model against the
     snapshot it was parsed from, so an update that changes nothing reports ``False``
     rather than claiming success.
+
+    ``clear`` names the fields to set to ``None`` — the explicit argument
+    :func:`apply_values` points to, since a ``None`` value means "not supplied".
     """
     paperless = await get_client(ctx)
     names = await _snapshot(ctx, resource)
     service = resource.service(paperless)
     obj = await service(pk)
     apply_values(obj, values)
+    for field_name in clear:
+        setattr(obj, field_name, None)
     changed = await service.update(obj)
     invalidate_names(ctx)
     return {"changed": changed, **FORMATTERS[resource.key](obj, names=names)}

@@ -131,7 +131,12 @@ async def test_run_saved_view_executes_the_view(make_paperless: Any) -> None:
     assert result["view_id"] == 7
     assert result["view_name"] == "Unpaid invoices"
     assert paperless.documents.filter_calls == [
-        {"correspondent__id": "42", "is_in_inbox": 1, "ordering": "-created"}
+        {
+            "correspondent__id": "42",
+            "is_in_inbox": 1,
+            "ordering": "-created",
+            "truncate_content": "true",
+        }
     ]
 
 
@@ -148,7 +153,9 @@ async def test_run_saved_view_joins_repeated_rules_of_one_type(make_paperless: A
 
     _, paperless = await _run_view(make_paperless, view)
 
-    assert paperless.documents.filter_calls == [{"tags__id__all": "1,2,3"}]
+    assert paperless.documents.filter_calls == [
+        {"tags__id__all": "1,2,3", "truncate_content": "true"}
+    ]
 
 
 async def test_run_saved_view_translates_the_isnull_sentinels(make_paperless: Any) -> None:
@@ -158,7 +165,7 @@ async def test_run_saved_view_translates_the_isnull_sentinels(make_paperless: An
     _, paperless = await _run_view(make_paperless, view)
 
     assert paperless.documents.filter_calls == [
-        {"correspondent__isnull": 1, "storage_path__isnull": 0}
+        {"correspondent__isnull": 1, "storage_path__isnull": 0, "truncate_content": "true"}
     ]
 
 
@@ -167,7 +174,9 @@ async def test_run_saved_view_sends_booleans_as_digits(make_paperless: Any) -> N
 
     _, paperless = await _run_view(make_paperless, view)
 
-    assert paperless.documents.filter_calls == [{"is_tagged": 1, "has_custom_fields": 0}]
+    assert paperless.documents.filter_calls == [
+        {"is_tagged": 1, "has_custom_fields": 0, "truncate_content": "true"}
+    ]
 
 
 async def test_run_saved_view_honours_ascending_sort(make_paperless: Any) -> None:
@@ -175,14 +184,14 @@ async def test_run_saved_view_honours_ascending_sort(make_paperless: Any) -> Non
 
     _, paperless = await _run_view(make_paperless, view)
 
-    assert paperless.documents.filter_calls == [{"ordering": "title"}]
+    assert paperless.documents.filter_calls == [{"ordering": "title", "truncate_content": "true"}]
 
 
 async def test_run_saved_view_without_rules_matches_everything(make_paperless: Any) -> None:
     """A view can legitimately be nothing but a sort order."""
     result, paperless = await _run_view(make_paperless, _view(sort_field=None))
 
-    assert paperless.documents.filter_calls == [{}]
+    assert paperless.documents.filter_calls == [{"truncate_content": "true"}]
     assert result["total"] == 2
 
 

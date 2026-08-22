@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
+from functools import partial
 from typing import Any
 
 from mcp.server.mcpserver import MCPServer
 from pypaperless import PaperlessClient
+from pypaperless.exceptions import PaperlessError
 from pypaperless.models import Document
 
 from ..client import ToolContext, get_client
 from ..config import Settings
-from ._errors import ToolInputError
+from ._errors import ToolInputError, translate_error
 from ._registry import register_tools, write_tool
 from ._relations import resolve_assignment, resolve_tags
 
@@ -50,9 +53,12 @@ async def bulk_edit_documents(
     """Apply assignments to many documents at once.
 
     Unlike ``update_document``, tags are *added* and *removed* individually
-    rather than replaced wholesale. Every non-null argument triggers its own
-    bulk-edit request; they run in order, and if one fails the ``applied``
-    list reflects only the operations that already succeeded.
+    rather than replaced wholesale. A tag in both lists is rejected — what
+    that would mean is defined by server internals, not by this API. Every
+    non-null argument triggers its own bulk-edit request; they run in order,
+    and if one fails, the error result still carries ``applied`` naming the
+    operations that already landed and ``failed`` naming the one that did
+    not — the documents keep the applied changes.
 
     Correspondent, document type, storage path and both tag lists each take
     names or IDs: pass ``*_name`` / ``*_names`` when the value comes from
@@ -87,25 +93,67 @@ async def bulk_edit_documents(
         id_field="remove_tag_ids",
         name_field="remove_tag_names",
     )
-    applied: list[str] = []
-    if assigned.correspondent is not None:
-        await paperless.documents.bulk_edit.set_correspondent(document_ids, assigned.correspondent)
-        applied.append("correspondent")
-    if assigned.document_type is not None:
-        await paperless.documents.bulk_edit.set_document_type(document_ids, assigned.document_type)
-        applied.append("document_type")
-    if assigned.storage_path is not None:
-        await paperless.documents.bulk_edit.set_storage_path(document_ids, assigned.storage_path)
-        applied.append("storage_path")
-    if add_tag_ids or remove_tag_ids:
-        await paperless.documents.bulk_edit.modify_tags(
-            document_ids,
-            add_tags=add_tag_ids or [],
-            remove_tags=remove_tag_ids or [],
+    # Case-variant names of one tag resolve to the same ID, so the overlap
+    # check has to run on the resolved halves, not on the arguments.
+    if overlap := sorted(set(add_tag_ids or []) & set(remove_tag_ids or [])):
+        raise ToolInputError(
+            f"Tags cannot be added and removed in the same call: the two "
+            f"selections resolve to the same IDs {overlap}."
         )
-        applied.append("tags")
-    if not applied:
+
+    bulk_edit = paperless.documents.bulk_edit
+    operations: list[tuple[str, Callable[[], Awaitable[Any]]]] = []
+    if assigned.correspondent is not None:
+        operations.append(
+            (
+                "correspondent",
+                partial(bulk_edit.set_correspondent, document_ids, assigned.correspondent),
+            )
+        )
+    if assigned.document_type is not None:
+        operations.append(
+            (
+                "document_type",
+                partial(bulk_edit.set_document_type, document_ids, assigned.document_type),
+            )
+        )
+    if assigned.storage_path is not None:
+        operations.append(
+            (
+                "storage_path",
+                partial(bulk_edit.set_storage_path, document_ids, assigned.storage_path),
+            )
+        )
+    if add_tag_ids or remove_tag_ids:
+        operations.append(
+            (
+                "tags",
+                partial(
+                    bulk_edit.modify_tags,
+                    document_ids,
+                    add_tags=add_tag_ids or [],
+                    remove_tags=remove_tag_ids or [],
+                ),
+            )
+        )
+    if not operations:
         raise ToolInputError("Nothing to do: pass at least one field to change.")
+
+    applied: list[str] = []
+    for name, request in operations:
+        try:
+            await request()
+        except PaperlessError as exc:
+            # The earlier requests have already landed on every document.
+            # Answering with the bare error would hide them and invite either
+            # a blind retry of all four operations or none.
+            return {
+                "document_ids": document_ids,
+                "applied": applied,
+                "failed": name,
+                **(translate_error(exc) or {}),
+            }
+        applied.append(name)
     return {"document_ids": document_ids, "applied": applied}
 
 

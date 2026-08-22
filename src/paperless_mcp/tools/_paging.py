@@ -38,8 +38,7 @@ class Page[ItemT](Protocol):
     """Structural type of one page of a paginated Paperless response.
 
     ``count`` is declared ``int`` because the real ``Page`` declares it that way -
-    it defaults to 0 and is never absent. The fallback that used to guard it was
-    defensiveness against a shape the library cannot produce.
+    it defaults to 0 and is never absent.
     """
 
     count: int
@@ -138,41 +137,68 @@ async def paginate(
         pages = scoped.pages(page=first_page, page_size=page_size)
         try:
             return await _drain(pages, skip=skip, limit=limit)
-        except NotFoundError:
-            # DRF answers 404 for a page number past the end of the result set.
-            return [], None
+        finally:
+            await pages.aclose()
+
+
+async def collect_all(service: Filterable, filters: Mapping[str, Any] | None = None) -> list[Any]:
+    """Drain every item matching *filters*, in :data:`MAX_PAGE_LIMIT`-sized pages.
+
+    For the internal read-backs that need the whole selection — an existence
+    check over a list of linked document IDs. Deliberately not routed through
+    :func:`check_window`: the ceiling bounds the window a model may *request*,
+    and nothing collected here may reach a result — a caller that echoes what
+    it collected has to window through :func:`paginate` instead, so its result
+    stays readable however large the match is.
+    """
+    params = normalize_csv_filters(filters or {})
+    async with service.filter(**params) as scoped:
+        pages = scoped.pages(page=1, page_size=MAX_PAGE_LIMIT)
+        try:
+            items, _ = await _drain(pages, skip=0, limit=None)
+            return items
         finally:
             await pages.aclose()
 
 
 async def _drain[ItemT](
-    pages: AsyncIterator[Page[ItemT]], *, skip: int, limit: int
+    pages: AsyncIterator[Page[ItemT]], *, skip: int, limit: int | None
 ) -> tuple[list[ItemT], int | None]:
     """Collect up to *limit* items from *pages*, dropping the leading *skip*.
 
-    Runs the generator out rather than stopping on ``page.is_last_page``. That
-    check was redundant: pypaperless stops following pages once a response
-    carries no ``next``, which is the same response that reports
-    ``is_last_page``, so the loop ended on the same page either way — and it
-    costs no extra request, because there is no ``next`` left to prefetch.
+    ``limit=None`` collects everything the generator yields. Runs the generator
+    out rather than stopping on ``page.is_last_page``: pypaperless stops
+    following pages once a response carries no ``next``, which is the same
+    response that reports ``is_last_page``, so the check would end the loop on
+    the same page — at no extra request, because there is no ``next`` left to
+    prefetch.
+
+    A 404 ends the drain instead of raising: DRF answers one for a page number
+    past the end of the result set. On the first page that means the offset
+    overshot and the window is empty; on a later page, that the result set
+    shrank between two requests — either way, what is already drained is the
+    answer, not an error.
     """
     items: list[ItemT] = []
     total: int | None = None
 
-    async for page in pages:
+    while True:
+        try:
+            page = await anext(pages)
+        except (StopAsyncIteration, NotFoundError):
+            return items, total
         if total is None:
             total = page.count
         if limit == 0:
             # One request is still worth it: the caller gets an accurate total.
-            break
+            return items, total
         for item in page:
             if skip > 0:
                 skip -= 1
                 continue
             items.append(item)
-            if len(items) >= limit:
+            if limit is not None and len(items) >= limit:
                 return items, total
-    return items, total
 
 
 def window[ItemT](items: list[ItemT], *, offset: int, limit: int) -> tuple[list[ItemT], int]:

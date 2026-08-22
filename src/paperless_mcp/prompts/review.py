@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from mcp.server.mcpserver import MCPServer
 
 from ..config import Settings
+from ..tools._paging import MAX_PAGE_LIMIT
 from ._helpers import capability_note, sections
 
 _INTRO = """\
@@ -25,14 +26,14 @@ Two different questions, and a monthly close needs both.
 
 - What is *dated* in the window:
   `search_documents(created_after="{start}", created_before="{end}", order_by="created",
-  limit=100)`
+  limit={page_limit})`
 - What *arrived* in the window: the same call with `added_after` / `added_before`.
 
 They are not the same set, and the gap between them is where the findings live. A letter scanned
 six weeks late is in the second and not the first; an invoice dated inside the window that is
 still sitting in a pile is in neither. Page both with `offset` until `has_more` is false — a
-close-out that quietly stopped at the first 100 documents is worse than none, because it reads
-like a complete one."""
+close-out that quietly stopped at the first {page_limit} documents is worse than none, because it
+reads like a complete one."""
 
 _INVENTORY = """\
 1. Inventory. Group the dated set by `correspondent_name` and `document_type_name` — both come
@@ -148,7 +149,7 @@ def register(mcp: MCPServer, settings: Settings) -> None:
         return sections(
             _INTRO.format(label=window.label, start=window.start, end=window.end),
             capability_note(settings),
-            _SCOPE.format(start=window.start, end=window.end),
+            _SCOPE.format(start=window.start, end=window.end, page_limit=MAX_PAGE_LIMIT),
             _INVENTORY,
             _HYGIENE.format(start=window.start, end=window.end),
             _ABSENCES.format(prev_start=window.prev_start, prev_end=window.prev_end),

@@ -187,8 +187,9 @@ breaking change and gets the `breaking-change` label.
     text next to 18,478 of structured content). `tests/test_tool_registration.py` pins that no
     tool publishes an `outputSchema`. Note what this retires: `ToolResultError` exists because
     the SDK could not build an output schema for a union containing MCP content, and there is
-    no output schema any more — the type is still how a `-> Image` tool reports an error, but
-    that is now its only job.
+    no output schema any more. Two jobs remain: it is how a `-> Image` tool reports an error,
+    and the carrier dict-returning tools raise from shared helpers that attach extra context
+    fields (`custom_field_values` does, for `custom_field_id` / `missing_document_ids`).
   - `_registry.compact_result` wraps every tool *outside* `safe_tool` and serializes a dict
     result itself, because the SDK's conversion hardcodes `indent=2` and passes a `str` through
     untouched. Same serializer, same `fallback=str`, minus a quarter of the payload in

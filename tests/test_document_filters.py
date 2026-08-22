@@ -96,9 +96,13 @@ async def test_an_unknown_order_field_never_reaches_paperless() -> None:
 
 
 async def test_arguments_that_were_not_passed_send_nothing() -> None:
-    """An unasked filter must not appear at all, not even as an empty value."""
+    """An unasked filter must not appear at all, not even as an empty value.
+
+    ``truncate_content`` is the one constant: the list projections never read
+    the OCR text, so every window asks Paperless not to send it.
+    """
     params = await _params(limit=5)
-    assert set(params) == {"page", "page_size"}
+    assert set(params) == {"page", "page_size", "truncate_content"}
 
 
 async def test_several_filters_combine_into_one_query() -> None:

@@ -13,6 +13,7 @@ Edit :func:`main` freely; it is a scratch file, not a fixture.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
@@ -42,7 +43,10 @@ async def tool_session(mcp: MCPServer) -> AsyncIterator[Callable[..., Awaitable[
         ctx = SimpleNamespace(request_context=SimpleNamespace(lifespan_context=lifespan_ctx))
 
         async def call(tool_name: str, /, **kwargs: Any) -> Any:
-            return await mcp._tool_manager._tools[tool_name].fn(ctx=ctx, **kwargs)
+            result = await mcp._tool_manager._tools[tool_name].fn(ctx=ctx, **kwargs)
+            # The registered function is wrapped in `compact_result`, so a dict
+            # result arrives as its JSON text; decode it back, as conftest does.
+            return json.loads(result) if isinstance(result, str) else result
 
         yield call
 
