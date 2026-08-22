@@ -48,9 +48,9 @@ dependencies = [
     # serializer minus its `indent=2`. Deliberately unpinned beyond the major -
     # pydantic pins the exact matching build itself, and a second pin here could
     # only ever contradict it.
-    "pydantic-core>=2,<3",
-    "python-dotenv>=1.2.2",
-    "uvicorn>=0.52.3",
+    "pydantic-core>=2.48.0,<3",
+    "python-dotenv>=1.2.3",
+    "uvicorn>=0.52.4",
     "starlette>=1.6.0,<2",
 ]
 
@@ -68,12 +68,12 @@ dev = [
     "codespell>=2.4.3",
     "covdefaults>=2.3.0",
     "coverage>=7.15.4",
-    "mypy>=2.3.0",
-    "prek>=0.4.13",
+    "mypy>=2.3.1",
+    "prek>=0.4.14",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "pytest-cov>=7.1.0",
-    "ruff>=0.16.3",
+    "ruff>=0.16.4",
     "yamllint>=1.38.0",
 ]
 
