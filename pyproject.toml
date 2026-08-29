@@ -42,7 +42,7 @@ dependencies = [
     # `tools/_errors` maps ValidationError to `invalid_argument`, and
     # `formatting.safe_dump` dispatches on BaseModel. Both are v2 APIs, and the
     # major is capped because a v3 would move them.
-    "pydantic>=2.13.4,<3",
+    "pydantic>=2.13.5,<3",
     # Imported directly for `to_json`, which pydantic itself does not re-export:
     # `tools/_registry.compact_result` serializes a tool result with the SDK's own
     # serializer minus its `indent=2`. Deliberately unpinned beyond the major -
