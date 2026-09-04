@@ -25,7 +25,7 @@ dependencies = [
     # mcp.server.mcpserver, so the major is capped: an unbounded `>=` would let
     # a future major install a version this package cannot import, which an MCP
     # client reports only as "server disconnected".
-    "mcp>=2.0.0,<3",
+    "mcp>=2.1.1,<3",
     # Pinned exactly: this server tracks the library's model and service shapes
     # closely enough that a minor bump is a deliberate change with a test run.
     "pypaperless==6.0.0",
