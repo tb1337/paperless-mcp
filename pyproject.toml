@@ -28,7 +28,7 @@ dependencies = [
     "mcp>=2.0.0,<3",
     # Pinned exactly: this server tracks the library's model and service shapes
     # closely enough that a minor bump is a deliberate change with a test run.
-    "pypaperless==6.0.0",
+    "pypaperless==6.0.1",
     # Kept in step with pypaperless: the AsyncClient built here is handed to
     # PaperlessClient, so both halves must agree on the httpx version. The major
     # is capped because httpx 1.x drops `httpx.AsyncClient` (1.0.dev3 exposes
