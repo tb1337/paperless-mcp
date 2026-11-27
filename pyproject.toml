@@ -37,7 +37,7 @@ dependencies = [
     # resolver from reaching 1.x once it lands, and `--prerelease=allow` reaches
     # the dev builds today. Uncapped, the server dies on import with
     # "module 'httpx' has no attribute 'AsyncClient'".
-    "httpx>=0.28.1,<1",
+    "httpx>=0.29.0,<1",
     # Imported directly, not just transitively through mcp and pypaperless:
     # `tools/_errors` maps ValidationError to `invalid_argument`, and
     # `formatting.safe_dump` dispatches on BaseModel. Both are v2 APIs, and the
